@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:alfa:document-intelligence:taxonomy-catalog:2.0.0",
+  "title": "OCR2 local document taxonomy catalog v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "version", "types"],
+  "properties": {
+    "schema_version": {"const": "2.0.0"},
+    "version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+    "types": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/type"}
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 2, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]+$"},
+    "label": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "\\S"},
+    "valueKind": {"enum": ["text", "identifier", "date", "money", "currency", "percentage", "boolean"]},
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "value_kind", "required", "review_only", "extraction_mode"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "label": {"$ref": "#/$defs/label"},
+        "value_kind": {"$ref": "#/$defs/valueKind"},
+        "required": {"type": "boolean"},
+        "review_only": {"type": "boolean"},
+        "extraction_mode": {"enum": ["built_in", "manual_only"]}
+      }
+    },
+    "type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "enabled", "role", "extraction_mode", "fields"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "label": {"$ref": "#/$defs/label"},
+        "enabled": {"type": "boolean"},
+        "role": {"enum": ["document_family", "expense_report", "payment_evidence", "other", "unknown", "custom_manual"]},
+        "extraction_mode": {"enum": ["built_in", "manual_only"]},
+        "fields": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {"$ref": "#/$defs/field"}
+        }
+      }
+    }
+  }
+}

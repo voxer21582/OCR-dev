@@ -1,0 +1,50 @@
+name: OCR2 synthetic taxonomy
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  taxonomy-contract:
+    name: Taxonomy registry and binding
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PIP_NO_INPUT: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13.18"
+
+      - name: Install the locked JSON Schema runtime
+        run: >-
+          python -m pip install --disable-pip-version-check --no-input
+          --only-binary=:all: --require-hashes
+          -r requirements/ci-taxonomy-cp313-ubuntu-24_04.lock
+
+      - name: Run synthetic taxonomy contract tests
+        run: >-
+          python -B -m unittest -v
+          test_taxonomy_registry.TaxonomyRegistryTests.test_builtin_catalog_is_versioned_and_hash_bound
+          test_taxonomy_registry.TaxonomyRegistryTests.test_custom_definitions_are_forced_manual_only
+          test_taxonomy_registry.TaxonomyRegistryTests.test_catalog_update_is_immutable_and_rejects_stale_writer
+          test_taxonomy_registry.TaxonomyRegistryTests.test_invalid_update_preserves_current_version
+          test_taxonomy_binding.TaxonomyBindingTests.test_binding_preserves_canonical_snapshot_and_is_defensive
+          test_taxonomy_binding.TaxonomyBindingTests.test_binding_rejects_digest_version_schema_and_unknown_key_mismatch
