@@ -42,9 +42,5 @@ jobs:
       - name: Run synthetic taxonomy contract tests
         run: >-
           python -B -m unittest -v
-          test_taxonomy_registry.TaxonomyRegistryTests.test_builtin_catalog_is_versioned_and_hash_bound
-          test_taxonomy_registry.TaxonomyRegistryTests.test_custom_definitions_are_forced_manual_only
-          test_taxonomy_registry.TaxonomyRegistryTests.test_catalog_update_is_immutable_and_rejects_stale_writer
-          test_taxonomy_registry.TaxonomyRegistryTests.test_invalid_update_preserves_current_version
-          test_taxonomy_binding.TaxonomyBindingTests.test_binding_preserves_canonical_snapshot_and_is_defensive
-          test_taxonomy_binding.TaxonomyBindingTests.test_binding_rejects_digest_version_schema_and_unknown_key_mismatch
+          test_taxonomy_registry
+          test_taxonomy_binding
