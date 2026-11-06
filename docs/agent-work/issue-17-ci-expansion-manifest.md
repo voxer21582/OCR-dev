@@ -31,7 +31,7 @@ This PR is intentionally stacked on PR #18 so the `test_ocr_contracts` module an
 
 - Local `test_ocr_contracts`: 14 passed on Windows CPython 3.13.15.
 - Existing remote check on PR #18: passed on both push and pull_request; each run executes the current 22-test allowlist.
-- CI run for this PR: pending until pushed and evaluated by GitHub Actions.
+- First GitHub Actions verification on this branch passed both events with 36 tests: [push run 42188279476](https://github.com/voxer21582/OCR-dev/actions/runs/42188279476) and [pull request run 42188329769](https://github.com/voxer21582/OCR-dev/actions/runs/42188329769). Both logs include `Ran 36 tests`; both include the dedicated self-intersection regression as passing.
 - The combined 36-test suite was not run in the restricted local environment because the locked dependency closure is Ubuntu-specific and PyPI DNS was unavailable. GitHub Actions is the designated compatible runner for this combined allowlist.
 
 This CI result is limited to synthetic contract coverage and is not product acceptance.
