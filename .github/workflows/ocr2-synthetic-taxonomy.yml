@@ -39,8 +39,9 @@ jobs:
           --only-binary=:all: --require-hashes
           -r requirements/ci-taxonomy-cp313-ubuntu-24_04.lock
 
-      - name: Run synthetic taxonomy contract tests
+      - name: Run explicit synthetic contract test allowlist
         run: >-
           python -B -m unittest -v
           test_taxonomy_registry
           test_taxonomy_binding
+          test_ocr_contracts
