@@ -2,8 +2,6 @@
 
 This repository currently contains a small, synthetic-testable slice of OCR2: versioned taxonomy catalog validation and updates, plus hash-bound taxonomy bindings. It does not contain the full application.
 
-The [product acceptance baseline](docs/PRODUCT_ACCEPTANCE_BASELINE.md) tracks the full owner-defined product goal and distinguishes required evidence from the limited implementation currently present.
-
 ## Continuous integration
 
 The GitHub Actions workflow [OCR2 synthetic taxonomy](.github/workflows/ocr2-synthetic-taxonomy.yml) runs on pushes, pull requests, and manual dispatch. It uses Ubuntu 24.04 with CPython 3.13, installs the hash-locked JSON Schema dependency closure from `requirements/ci-taxonomy-cp313-ubuntu-24_04.lock`, and runs all 22 tests in the taxonomy registry and binding modules. The `main` branch requires a pull request and a successful **Taxonomy registry and binding** check before merge.
