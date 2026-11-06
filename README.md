@@ -1,6 +1,6 @@
 # OCR2 contracts
 
-This repository currently contains a synthetic-testable slice of OCR2: versioned taxonomy catalog validation and updates, hash-bound taxonomy bindings, an engine-neutral OCR page/result contract, and a taxonomy-bound structured field candidate contract. It does not contain the full application or an operational OCR engine.
+This repository currently contains a synthetic-testable slice of OCR2: versioned taxonomy catalog validation and updates, hash-bound taxonomy bindings, an engine-neutral OCR page/result contract, taxonomy-bound structured field candidates, and structural validation of candidate states against a taxonomy snapshot. It does not contain the full application or an operational OCR engine.
 
 ## Continuous integration
 
@@ -25,6 +25,8 @@ The test modules use synthetic catalogs, values, page bytes, and geometry. They 
 The [OCR observation contract](docs/ocr/observation-contract.md) defines a passive, typed boundary for future engine integration. It does not implement or activate OCR, rendering, document import, or a Windows runtime.
 
 The [field candidate contract](docs/ocr/field-candidate-contract.md) connects proposed structured values to the exact taxonomy snapshot and OCR page observations while preserving uncertainty and literal text. It does not perform extraction, normalization, fiscal interpretation, persistence, or human review.
+
+The [structural validation contract](docs/ocr/validation-contract.md) reports required-field gaps, candidate states, and duplicate-candidate conflicts against the exact taxonomy snapshot. It does not interpret values or accept them. Its 14 synthetic tests are tracked for explicit CI integration separately; they are not yet included in the current 52-test workflow.
 
 ## Data and scope
 
