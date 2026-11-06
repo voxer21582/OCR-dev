@@ -11,6 +11,7 @@ from typing import Protocol
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _MAX_IDENTITY_TEXT = 256
+_MAX_REGION_VERTICES = 256
 
 
 class OCRContractError(ValueError):
@@ -141,7 +142,7 @@ class TextRegion:
 
     def __post_init__(self) -> None:
         points = self.polygon
-        if type(points) is not tuple or len(points) < 3:
+        if type(points) is not tuple or not 3 <= len(points) <= _MAX_REGION_VERTICES:
             raise OCRContractError("ocr_region_invalid")
 
         normalized: list[tuple[float, float]] = []

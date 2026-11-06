@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+import math
 import unittest
 
 from alfa_document_intelligence.ocr_contracts import (
@@ -88,6 +89,19 @@ class OCRContractTests(unittest.TestCase):
 
         with self.assertRaises(OCRContractError) as raised:
             TextRegion(bow_tie)
+
+        self.assertEqual(raised.exception.code, "ocr_region_invalid")
+
+    def test_region_rejects_more_than_256_vertices_before_geometry_validation(self):
+        vertex_count = 257
+        oversized_polygon = tuple(
+            (0.5 + 0.4 * math.cos(2 * math.pi * index / vertex_count),
+             0.5 + 0.4 * math.sin(2 * math.pi * index / vertex_count))
+            for index in range(vertex_count)
+        )
+
+        with self.assertRaises(OCRContractError) as raised:
+            TextRegion(oversized_polygon)
 
         self.assertEqual(raised.exception.code, "ocr_region_invalid")
 
