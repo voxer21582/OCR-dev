@@ -9,7 +9,7 @@ Selective migration proposal into `application/` on public repository `voxer2158
 Source: private OCR2 Document Intelligence checkout, HEAD `e89305f19e4562d2026d252fdd2cf669fd154e3d`.
 Target: `voxer21582/OCR-dev`, branch `codex/unify-document-intelligence`, base `main` `b9f1e021a4fc720a3388849b1d0b2b31586e7b85`.
 
-The CSV records every tracked source file as included, excluded, or transformed, lists every untracked source file individually, and identifies both manifest artifacts. The manifest cannot hash itself; the final commit ID is the integrity reference for those two files. Five untracked local files are listed individually and excluded because they are uncommitted and unreviewed. Open private PRs #131–#141 and open OCR-dev PRs remain untouched; proposed changes from those PRs are not included.
+The CSV records every tracked source file as included, excluded, or transformed, lists every untracked source file individually, and identifies both manifest artifacts. The manifest cannot hash itself; the final commit ID is the integrity reference for those two files. Five untracked local files are listed individually and excluded because they are uncommitted and unreviewed. Concurrent changes in the private source checkout remain untouched and are not included. Open OCR-dev PRs remain untouched.
 
 ## Inventory
 
