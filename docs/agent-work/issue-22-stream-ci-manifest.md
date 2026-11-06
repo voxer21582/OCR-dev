@@ -28,4 +28,4 @@ No R7/R8 or issue #8 tests, real documents, OCR output, credentials, model, deco
 
 ## Verification
 
-Independent review is READY. The base feature worktree previously reported 30 passing synthetic tests, including all nine stream tests. This CI-only change has no GitHub Actions run record yet; remote checks must be read back after publication. Local tests were not rerun because only workflow documentation/configuration changed.
+Independent review is READY. The base feature worktree previously reported 30 passing synthetic tests, including all nine stream tests. On commit `b33ee9296d6b1e6caa0a9b6d678337df123b88e3`, GitHub Actions passed the exact 52-test allowlist on both push ([run 42199877881](https://github.com/voxer21582/OCR-dev/actions/runs/42199877881)) and pull request ([run 42199939988](https://github.com/voxer21582/OCR-dev/actions/runs/42199939988)); both logs report `Ran 52 tests`, including all nine `test_source_stream` cases. Local tests were not rerun because this CI-only change changes no test or application code. These recorded runs cover the listed workflow and README hashes; this manifest's evidence-only follow-up does not change either file.
