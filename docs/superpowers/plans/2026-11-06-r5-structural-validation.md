@@ -48,15 +48,15 @@
 - [x] Write 14 synthetic tests for required field absent/missing, each candidate state, duplicates, invalid binding/type/candidate, state/code distinction, deterministic ordering, and non-mutation.
 - [x] Attempt the targeted unittest module. The run stopped during imports because `jsonschema` is unavailable in this worktree, before reaching the R5 behavior; this is not a valid TDD RED result. No dependency was installed.
 - [x] Implement frozen report records and pure validation; preserve candidate objects and emit sanitized findings only.
-- [ ] Run the targeted module and existing explicit allowlist. The runner in the current GitHub Actions lock is the next available execution environment; no local package install is authorized here.
-- [ ] Complete independent diff review, update API docs and manifest, and verify file hashes.
-- [ ] Commit and prepare a feature PR based on the R4 CI branch. Keep issue #31 open pending the separate CI PR.
+- [x] The local targeted run could not import `jsonschema`; the locked GitHub runner passed the feature PR's existing 52-test check and the CI PR's explicit 66-test allowlist, including all 14 R5 tests. Both push and pull-request runs passed (`Ran 66 tests`, `OK`).
+- [x] Independent review READY; API documentation and manifest are present; all six declared artifact hashes were independently confirmed.
+- [x] Commit and prepare feature PR #32 on the R4 CI base. The separate CI PR #33 is also ready for review. Keep issue #31 open pending owner review and integration.
 
 ### Task 2: Extend CI separately
 
 **Files:**
 - Separate branch/PR modifying only the existing workflow, README test command/count, and an issue #31 CI manifest.
 
-- [ ] Add exactly `test_validation_contracts` to the explicit allowlist; no discovery or globs.
-- [ ] Preserve required check, triggers, SHA pins, hash lock, read-only permissions, runner, and timeout.
-- [ ] Verify push and pull_request runs execute all explicitly named tests and document the synthetic-only scope.
+- [x] Add exactly `test_validation_contracts` to the explicit allowlist; no discovery or globs.
+- [x] Preserve required check, triggers, SHA pins, hash lock, read-only permissions, runner, and timeout.
+- [x] Push and pull-request runs execute all explicitly named modules: both report 66 tests, `OK`; independent CI review READY.
