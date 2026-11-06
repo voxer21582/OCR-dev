@@ -14,12 +14,12 @@
 
 | File | SHA-256 | Provenance | Review | Reason |
 | --- | --- | --- | --- | --- |
-| `src/alfa_document_intelligence/ocr_contracts.py` | `24895FBCAECFBDF7ADFE3A209BF0F963FB5BE87AFCAA44A7186402AEE294F93F` | Authored for OCR2 from the accepted R2 product criteria; no code copied from another OCR project | Independent review READY (2026-11-06) | Adds only validated, engine-neutral values and a protocol; no engine or file access |
-| `tests/test_ocr_contracts.py` | `E2B5D164679327407E693FA35BC8AF8B12E01FF83C354C9A770C50A6C0526B4D` | New synthetic fixtures authored for this contract | Independent review READY (2026-11-06) | Exercises provenance, geometry, uncertainty, state consistency, and identity checks. Dedicated bow-tie regression expects `ocr_region_invalid`. |
-| `docs/ocr/observation-contract.md` | `413C557217F6B5F228617E60F8C25AA767C9452A9BAA05F3D4475E4EFBB920B9` | Authored for this public contract | Independent review READY (2026-11-06) | States API meaning and limits without claiming an operational engine; documents the self-intersection counterexample and stable error code. |
+| `src/alfa_document_intelligence/ocr_contracts.py` | `0FC7B465E89627393D23147DDD1BA79CB70427D809C4E8338326E2DE371BE563` | Authored for OCR2 from the accepted R2 product criteria; no code copied from another OCR project | Fresh independent review pending | Adds validated engine-neutral values and protocol; caps region polygons at 256 vertices before quadratic geometry checks; no engine or file access |
+| `tests/test_ocr_contracts.py` | `EE1BF6F87947AE1987E89701050E8F1E372E33355362647A6D113817EA442716` | New synthetic fixtures authored for this contract | Fresh independent review pending | 15 synthetic contract tests, including bow-tie rejection and the 257-vertex resource-bound regression |
+| `docs/ocr/observation-contract.md` | `FC5D3B5689802E951F4F0367CEE86FC2D5125C5EB0D86473D63E6515D3299C25` | Authored for this public contract | Fresh independent review pending | Documents both the bow-tie counterexample and the 256-vertex bound with stable error behavior |
 | `README.md` | `1B1E427D3CDD15AD5A2D0FC5EF8CD16C6F7E090051D9C61BD15579859BC4AE38` | Existing public README with a scope update and contract link | Independent review READY (2026-11-06) | Keeps the repository description accurate and discloses that current CI does not yet run the new test module |
-| `docs/superpowers/specs/2026-11-06-r2-ocr-observation-contract-design.md` | `E18B5E207BB083A682C6CF62CAD03F3C5D8686E02BF4C7CE6FA5D39B9E6C8600` | Design derived from R2 acceptance criteria | Independent review READY (2026-11-06) | Records the engine-neutral design, concrete polygon self-intersection case, and deferred choices |
-| `docs/superpowers/plans/2026-11-06-r2-ocr-observation-contract.md` | `34F28BC8602293CFDDD10B53753192DA182D53A2FB0EFFF7788B11E963E121A5` | Execution plan for issue #17 | Independent review READY (2026-11-06) | Records files, tests, CI separation, non-goals, and prohibits discovery in favor of an explicit test allowlist |
+| `docs/superpowers/specs/2026-11-06-r2-ocr-observation-contract-design.md` | `3FAE1D82A179C15A6FA43E91339F4E495D9377C3632E90717CED400203EA27AA` | Design derived from R2 acceptance criteria | Fresh independent review pending | Records the engine-neutral design, self-intersection case, 256-vertex bound, and deferred choices |
+| `docs/superpowers/plans/2026-11-06-r2-ocr-observation-contract.md` | `AF67BA9F7D51835F783B2A7A5B9A2D10F904A91EBCF20B9AAA8E578F30474739` | Execution plan for issue #17 | Fresh independent review pending | Records files, tests, CI separation, resource-bound criterion, non-goals, and explicit test allowlist |
 
 The manifest does not include itself in the file-hash table. Record its own SHA-256 and the final review evidence in the PR after the content is frozen.
 
@@ -33,11 +33,11 @@ The manifest does not include itself in the file-hash table. Record its own SHA-
 
 ## Verification status
 
-- The new contract test module passed 14 tests on Windows CPython 3.13.15 (`python -B -m unittest -v test_ocr_contracts`).
+- The contract test module passes 15 tests on Windows CPython 3.13 (`python -B -m unittest -v test_ocr_contracts`). The new 257-vertex regression failed before the implementation change with `OCRContractError not raised` and passes after the early 256-vertex guard.
 - A fresh combined 36-test Windows run is not yet available: the task-scoped Python environment lacks `jsonschema`; network DNS blocked PyPI access in the restricted shell, and the hash-locked Linux dependency file cannot be applied to Windows wheels. No dependency was added to the repository. GitHub Actions on Ubuntu remains the intended combined verification environment.
 - `py_compile` on the production module and test module passed. `git diff --check` passed with Git line-ending warnings only.
-- Independent reviewer `review_r2_final` re-reviewed the final six-file manifest and scope on 2026-11-06: READY. Review confirmed the allowlist, no-discovery boundary, concrete self-intersection case, stable error-code assertion, and no blocked/runtime/real-data paths. Reviewer did not run tests.
-- The existing GitHub check still runs only the 22 taxonomy tests; workflow expansion is a separate PR. With the dedicated regression test, the explicit CI suite will contain 36 tests (22 taxonomy + 14 OCR contract).
+- The earlier independent READY applied to the prior six-file manifest and did not cover the 256-vertex bound. Fresh independent review is pending for the updated files.
+- The separate CI PR has an explicit allowlist and currently records 36 tests; it must be updated and rerun after this added regression so the expected total is 37 (22 taxonomy + 15 OCR contract).
 - No OCR, model, runtime, native Windows, real-data, A4, R7, R8, or full-application test was run.
 
-This heuristic manifest and test result are not a DLP guarantee, OCR accuracy evaluation, runtime acceptance, or product release.
+This manifest records an additional resource-boundary correction requested by independent review. The final state is pending fresh independent review and GitHub Actions rerun. This heuristic manifest and test result are not a DLP guarantee, OCR accuracy evaluation, runtime acceptance, or product release.

@@ -10,6 +10,7 @@ Define a small, engine-neutral Python boundary for one page entering OCR and the
 - A shared validator confirms both that the result belongs to the requested source page and that it matches the registered engine identity.
 - Reject malformed source hashes, invalid page numbers, invalid regions, invalid confidence values, and inconsistent failed/partial results with stable, sanitized error codes.
 - Reject self-intersecting polygons even if their signed shoelace area is nonzero. Regression fixture: `((0.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.8, 0.0))`; its non-adjacent edges cross, so construction must raise `OCRContractError` with code `ocr_region_invalid`.
+- Bound polygon validation to at most 256 vertices, rejecting larger regions before pairwise edge checks with `ocr_region_invalid`.
 - Provide a `Protocol` for future engine implementations without implementing or loading one.
 - Unit tests use synthetic byte strings and metadata only.
 

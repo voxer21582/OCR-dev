@@ -23,6 +23,7 @@
 - Malformed source digest or non-positive page number must fail with a stable sanitized error.
 - Degenerate, non-finite, or out-of-bounds polygon coordinates must fail.
 - Self-intersecting polygons must fail even when their signed area is nonzero.
+- Polygons with more than 256 vertices must fail before pairwise geometry validation to bound work on untrusted inputs.
 - Non-finite or out-of-range confidence must fail; absent confidence remains valid.
 - Failed results must not expose observations; failure codes must not carry exception text or paths.
 - Frozen records must not permit mutation of nested polygon or observation collections.
