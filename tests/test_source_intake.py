@@ -38,6 +38,12 @@ class SourceIntakeTests(unittest.TestCase):
             inspect_source(payload, max_bytes=len(payload) - 1)
         self.assertEqual(caught.exception.code, "source_too_large")
 
+    def test_rejects_pdf_header_starting_after_offset_1023(self) -> None:
+        payload = b" " * 1024 + b"%PDF-2.0\n"
+        with self.assertRaises(SourceInspectionError) as caught:
+            inspect_source(payload, max_bytes=len(payload))
+        self.assertEqual(caught.exception.code, "source_format_unsupported")
+
     def test_digest_is_for_exact_bytes_and_descriptor_is_immutable(self) -> None:
         payload = b"\x89PNG\r\n\x1a\nsynthetic image payload"
         descriptor = inspect_source(payload, max_bytes=len(payload))
