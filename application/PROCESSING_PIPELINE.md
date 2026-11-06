@@ -35,6 +35,6 @@ Synthetic unit tests cover stage prerequisites, source/page binding, full invent
 
 ## Optional browser processor path
 
-PR #70 added `document_processing.py` to verify that materialized source bytes match their SHA-256, decode each page under configured limits, adapt OCR results through the contract, update source-bound page metadata, and run uncertain semantic proposals plus deterministic document checks. Any failure discards partial proposals and uses a non-sensitive stage error code. `create_expense_report_app` and `serve_expense_report_local` accept an optional `document_processor(record, source_bytes)` callback; when supplied, it runs for the selected expense note and every attachment during explicit assignment. The callback must return a contract-valid record preserving document ID and source hash. With no callback, OCR remains `not_started`.
+OCR remains disabled by default. Application tests are present under `tests/`, but the repository-root required check currently runs only taxonomy tests; historical synthetic flows do not establish current product acceptance.
 
 A historical synthetic-only run does not establish public CI coverage or current application acceptance. The default app remains OCR-disabled; runtime dependencies, licenses, native decoder isolation, packaging, and full application verification remain open.

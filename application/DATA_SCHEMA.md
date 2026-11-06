@@ -40,7 +40,7 @@ Findings have a stable rule identifier and version, validation dimension, severi
 
 
 ## Expense report bundle (implemented in volatile local intake)
-An expense report is a parent case that groups one expense-note document with zero or more independent supporting-document records. The Python function `build_expense_report_bundle()` returns an in-memory parent object containing an opaque `expense_report_id`, a required note document reference, and ordered attachment links with `document_id`, attachment role, and optional expense-line reference. Each child document retains its own source hash, pages, extracted fields, validation findings, and review events. A bundle upload must preserve the explicit association and each original file boundary; ZIP membership does not merge documents or imply fiscal validity. Duplicate or unmatched attachments are surfaced as findings for human review, never silently discarded or automatically approved. Initial supported note/attachment formats remain PDF, scan, photograph, and ZIP; spreadsheet support is not currently in scope. The parent/link model landed in PR #45; bounded multi-file/ZIP materialization in PR #47; source-bound records and explicit note assignment in PR #49; and local browser upload, ZIP member listing, source preview, clear, and idle expiry in PR #50. Each document remains independent and source-bound. The active app session holds payloads in memory only; this does not approve fiscal validity, matching, or reimbursement.
+Schema contract tests are present under `tests/`. Formal JSON Schema meta-validation and instance validation remain pending selection of an approved validator dependency.
 
 
 ## Manual ChatGPT note-drafting handoff (implemented; no persistent draft schema)

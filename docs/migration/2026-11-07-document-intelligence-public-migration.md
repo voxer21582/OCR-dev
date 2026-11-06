@@ -17,9 +17,9 @@ The CSV records every tracked source file as included, excluded, or transformed,
 source tracked files=130
 source untracked files=5
 exclude=54
-include=75
+include=73
 new=4
-transform=7
+transform=9
 ```
 
 ## File-by-file decisions
