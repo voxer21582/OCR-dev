@@ -1,6 +1,6 @@
 # OCR2 contracts
 
-This repository currently contains a synthetic-testable slice of OCR2: versioned taxonomy catalog validation and updates, hash-bound taxonomy bindings, an engine-neutral OCR page/result contract, taxonomy-bound structured field candidates, and structural validation of candidate states against a taxonomy snapshot. It does not contain the full application or an operational OCR engine.
+This repository currently contains a synthetic-testable slice of OCR2: versioned taxonomy catalog validation and updates, hash-bound taxonomy bindings, an engine-neutral OCR page/result contract, taxonomy-bound structured field candidates, structural validation of candidate states, and an in-memory human review ledger. It does not contain the full application or an operational OCR engine.
 
 ## Continuous integration
 
@@ -28,6 +28,8 @@ The [OCR observation contract](docs/ocr/observation-contract.md) defines a passi
 The [field candidate contract](docs/ocr/field-candidate-contract.md) connects proposed structured values to the exact taxonomy snapshot and OCR page observations while preserving uncertainty and literal text. It does not perform extraction, normalization, fiscal interpretation, persistence, or human review.
 
 The [structural validation contract](docs/ocr/validation-contract.md) reports required-field gaps, candidate states, and duplicate-candidate conflicts against the exact taxonomy snapshot. It does not interpret values or accept them.
+
+The [review ledger contract](docs/ocr/review-ledger-contract.md) records immutable, in-memory human review events for an exact candidate/taxonomy snapshot and flags stale results. It does not provide a review UI or persistence; durable history belongs to the separate R7 storage work. Its 19 synthetic tests are tracked for explicit CI integration separately and are not yet in the current workflow.
 
 ## Data and scope
 
