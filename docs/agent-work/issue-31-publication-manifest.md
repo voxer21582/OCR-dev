@@ -10,7 +10,7 @@ Status: prepared for review; not a publication authorization by itself.
 | `README.md` | voxerino | Scoped addition describing R5 and accurately stating its tests are not yet in CI | `56fecfe41f7e3917ba379787161b0f9de839c67da6144d12f97bcfc16be2dc82` | Independent review READY after overview fix | Include if accepted |
 | `docs/superpowers/specs/2026-11-06-r5-structural-validation-design.md` | voxerino | R5 design for this issue | `5324e7b03e4997fcd0a61ccce283619d97247a5fef8ab8fa6ded751e43786d7a` | Independent review READY | Include if accepted |
 | `docs/superpowers/plans/2026-11-06-r5-structural-validation.md` | voxerino | Implementation plan for this issue | `65c45a6120efd85a84cbfb1a2917c8e5e99a5126221c1bfb443bb29cd6a5ff04` | Independent review READY | Include if accepted |
-| `docs/agent-work/issue-31-publication-manifest.md` | voxerino | This release manifest | recorded in branch/PR metadata | Independent review READY | Include if accepted |
+| `docs/agent-work/issue-31-publication-manifest.md` | voxerino | This release manifest | not listed (self-reference; included in the commit) | Independent review READY | Include if accepted |
 
 Excluded: all real documents, OCR outputs, local environments, caches, run logs,
 credentials, and files from the former OCR project. No such material is required
