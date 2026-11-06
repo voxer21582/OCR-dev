@@ -1,0 +1,949 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:alfa:document-intelligence:document-schema:0.1.0",
+  "title": "Alfa expense document and evidence record",
+  "description": "Evidence-bound extraction record. JSON numbers are excluded from field values; represent monetary and measured values as decimal strings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "document_id",
+    "source",
+    "document_family",
+    "language",
+    "fiscal_document_state",
+    "pages",
+    "processing",
+    "fields",
+    "validation_findings",
+    "review",
+    "administrative_verification"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "document_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "document_family": {
+      "enum": [
+        "invoice",
+        "expense_report",
+        "fiscal_receipt",
+        "parking_receipt",
+        "hotel_document",
+        "pos_slip",
+        "other",
+        "unknown"
+      ]
+    },
+    "language": {
+      "enum": [
+        "it",
+        "en",
+        "mixed",
+        "unknown"
+      ]
+    },
+    "fiscal_document_state": {
+      "$ref": "#/$defs/fiscalDocumentState"
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/page"
+      }
+    },
+    "processing": {
+      "$ref": "#/$defs/processing"
+    },
+    "fields": {
+      "type": "object",
+      "description": "Field names are stable semantic identifiers; each value is a candidate record with independent evidence.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{1,63}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/fieldCandidate"
+      }
+    },
+    "validation_findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/validationFinding"
+      }
+    },
+    "review": {
+      "$ref": "#/$defs/review"
+    },
+    "administrative_verification": {
+      "$ref": "#/$defs/administrativeVerification"
+    },
+    "related_document_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    }
+  },
+  "$defs": {
+    "jsonValue": {
+      "description": "Numbers are prohibited for extracted values to avoid binary floating-point ambiguity; use decimal strings for amounts.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object"
+        },
+        {
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-fA-F0-9]{64}$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "media_type",
+        "byte_length",
+        "received_at",
+        "storage_ref"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "media_type": {
+          "enum": [
+            "application/pdf",
+            "application/zip",
+            "image/jpeg",
+            "image/png",
+            "image/tiff",
+            "image/webp",
+            "application/octet-stream"
+          ]
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "original_filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "Sensitive local metadata; not logged by default and not sent outside the local app automatically."
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "storage_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque reference resolved only within the active in-memory session in the selected mode; it does not imply durable storage or a public URL."
+        },
+        "page_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "point": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinate_space",
+        "polygon"
+      ],
+      "properties": {
+        "coordinate_space": {
+          "const": "normalized_page"
+        },
+        "polygon": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "name",
+        "version"
+      ],
+      "properties": {
+        "stage": {
+          "enum": [
+            "ingestion",
+            "ocr",
+            "semantic_extraction",
+            "document_validation",
+            "human_review",
+            "administrative_verification"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_sha256",
+        "page_number",
+        "producer"
+      ],
+      "properties": {
+        "source_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "page_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "region": {
+          "$ref": "#/$defs/region"
+        },
+        "text_span": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start",
+            "end",
+            "unit"
+          ],
+          "properties": {
+            "start": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "unit": {
+              "const": "unicode_codepoint"
+            }
+          }
+        },
+        "token_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "literal": {
+          "type": "string",
+          "description": "Sensitive source text; access-controlled and redacted from ordinary logs."
+        },
+        "producer": {
+          "$ref": "#/$defs/producer"
+        },
+        "crop_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque reference to a derived evidence crop, if present; in the selected mode it is valid only in the active in-memory session and does not imply durable storage."
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "region"
+          ]
+        },
+        {
+          "required": [
+            "text_span"
+          ]
+        },
+        {
+          "required": [
+            "token_ids"
+          ]
+        }
+      ]
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "score",
+        "scope",
+        "producer"
+      ],
+      "properties": {
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "scope": {
+          "const": "field"
+        },
+        "producer": {
+          "$ref": "#/$defs/producer"
+        }
+      }
+    },
+    "normalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "rule_version",
+        "original_literal",
+        "normalized_value"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "original_literal": {
+          "type": "string"
+        },
+        "normalized_value": {
+          "$ref": "#/$defs/jsonValue"
+        }
+      }
+    },
+    "alternative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "uncertain",
+            "unreadable",
+            "rejected"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "normalization": {
+          "$ref": "#/$defs/normalization"
+        }
+      }
+    },
+    "fieldCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "status",
+        "alternatives",
+        "evidence"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "uncertain",
+            "unreadable",
+            "absent",
+            "not_applicable",
+            "rejected"
+          ]
+        },
+        "alternatives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/alternative"
+          }
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "normalization": {
+          "$ref": "#/$defs/normalization"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "observed",
+                  "uncertain",
+                  "unreadable",
+                  "rejected"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "uncertain"
+              },
+              "value": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "status",
+              "value"
+            ]
+          },
+          "then": {
+            "properties": {
+              "alternatives": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "fiscalDocumentState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "fiscal_document",
+            "payment_evidence",
+            "not_fiscal",
+            "uncertain",
+            "unknown"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "fiscal_document"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "page_number"
+      ],
+      "properties": {
+        "page_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "width_px": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height_px": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "orientation": {
+          "enum": [
+            "portrait",
+            "landscape",
+            "square",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "not_started",
+            "in_progress",
+            "completed",
+            "failed",
+            "skipped"
+          ]
+        },
+        "producer": {
+          "$ref": "#/$defs/producer"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "error_code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-sensitive code; do not store raw logs or source text here."
+        }
+      }
+    },
+    "processing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ingestion",
+        "ocr",
+        "semantic_extraction",
+        "document_validation",
+        "administrative_verification"
+      ],
+      "properties": {
+        "ingestion": {
+          "$ref": "#/$defs/stage"
+        },
+        "ocr": {
+          "$ref": "#/$defs/stage"
+        },
+        "semantic_extraction": {
+          "$ref": "#/$defs/stage"
+        },
+        "document_validation": {
+          "$ref": "#/$defs/stage"
+        },
+        "administrative_verification": {
+          "$ref": "#/$defs/stage"
+        }
+      }
+    },
+    "validationFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "rule_version",
+        "dimension",
+        "severity",
+        "outcome",
+        "evidence"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dimension": {
+          "enum": [
+            "document_consistency",
+            "tax_fiscality",
+            "payment_evidence",
+            "identity_roles",
+            "financial_totals",
+            "date_consistency",
+            "other"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "pass",
+            "warning",
+            "fail",
+            "indeterminate"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "field_names": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "message_code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable non-sensitive message identifier; source literals belong in evidence only."
+        }
+      }
+    },
+    "reviewEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "actor_id",
+        "action",
+        "timestamp",
+        "previous_event_hash",
+        "event_hash"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Opaque event identifier; unique within this review ledger."
+        },
+        "actor_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque local reviewer attribution reference; not authentication or an application identity system."
+        },
+        "action": {
+          "enum": [
+            "queued",
+            "opened",
+            "field_corrected",
+            "fiscal_state_corrected",
+            "alternative_selected",
+            "flagged",
+            "completed",
+            "returned"
+          ]
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "previous_event_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "event_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "field_name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,63}$"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "candidate": {
+          "$ref": "#/$defs/fieldCandidate"
+        },
+        "fiscal_state": {
+          "$ref": "#/$defs/fiscalDocumentState"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "field_corrected",
+                  "alternative_selected"
+                ]
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "field_name",
+              "reason_code",
+              "candidate"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "flagged"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason_code"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "queued",
+                  "opened",
+                  "completed",
+                  "returned"
+                ]
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "field_name"
+                  ]
+                },
+                {
+                  "required": [
+                    "reason_code"
+                  ]
+                },
+                {
+                  "required": [
+                    "candidate"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "fiscal_state_corrected"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason_code",
+              "fiscal_state"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "fiscal_state_corrected"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "field_name"
+                  ]
+                },
+                {
+                  "required": [
+                    "candidate"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "events"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "not_started",
+            "queued",
+            "in_progress",
+            "completed",
+            "blocked"
+          ]
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reviewEvent"
+          }
+        }
+      }
+    },
+    "administrativeVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "not_started",
+            "in_progress",
+            "completed",
+            "blocked"
+          ]
+        },
+        "checked_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "actor_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque local attribution reference, not authentication; completed status records verification only and never approves payment or accounting."
+        }
+      }
+    }
+  }
+}
