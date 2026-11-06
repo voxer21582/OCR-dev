@@ -1,0 +1,225 @@
+{
+  "schema_version": "0.1.0",
+  "document_id": "synthetic-fiscal-receipt-001",
+  "source": {
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "media_type": "application/pdf",
+    "byte_length": 1024,
+    "original_filename": "synthetic-fiscal-receipt-001.pdf",
+    "received_at": "2026-10-14T10:00:00Z",
+    "storage_ref": "private://synthetic/synthetic-fiscal-receipt-001",
+    "page_count": 1
+  },
+  "document_family": "fiscal_receipt",
+  "language": "it",
+  "fiscal_document_state": {
+    "status": "fiscal_document",
+    "evidence": [
+      {
+        "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "page_number": 1,
+        "region": {
+          "coordinate_space": "normalized_page",
+          "polygon": [
+            [
+              0.1,
+              0.1
+            ],
+            [
+              0.8,
+              0.1
+            ],
+            [
+              0.8,
+              0.2
+            ],
+            [
+              0.1,
+              0.2
+            ]
+          ]
+        },
+        "literal": "RICEVUTA FISCALE DEMO",
+        "producer": {
+          "stage": "human_review",
+          "name": "synthetic-label",
+          "version": "1"
+        }
+      }
+    ]
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width_px": 1000,
+      "height_px": 1400,
+      "orientation": "portrait"
+    }
+  ],
+  "processing": {
+    "ingestion": {
+      "status": "completed"
+    },
+    "ocr": {
+      "status": "not_started"
+    },
+    "semantic_extraction": {
+      "status": "not_started"
+    },
+    "document_validation": {
+      "status": "not_started"
+    },
+    "administrative_verification": {
+      "status": "not_started"
+    }
+  },
+  "fields": {
+    "merchant_name": {
+      "value": "Caffè Alfa S.r.l.",
+      "status": "observed",
+      "alternatives": [],
+      "evidence": [
+        {
+          "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "page_number": 1,
+          "region": {
+            "coordinate_space": "normalized_page",
+            "polygon": [
+              [
+                0.1,
+                0.1
+              ],
+              [
+                0.7,
+                0.1
+              ],
+              [
+                0.7,
+                0.16
+              ],
+              [
+                0.1,
+                0.16
+              ]
+            ]
+          },
+          "literal": "Caffè Alfa S.r.l.",
+          "producer": {
+            "stage": "human_review",
+            "name": "synthetic-label",
+            "version": "1"
+          }
+        }
+      ]
+    },
+    "issue_date": {
+      "value": "2026-09-08",
+      "status": "observed",
+      "alternatives": [],
+      "confidence": {
+        "score": 1,
+        "scope": "field",
+        "producer": {
+          "stage": "human_review",
+          "name": "synthetic-label",
+          "version": "1"
+        }
+      },
+      "evidence": [
+        {
+          "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "page_number": 1,
+          "text_span": {
+            "start": 0,
+            "end": 10,
+            "unit": "unicode_codepoint"
+          },
+          "literal": "08/09/2026",
+          "producer": {
+            "stage": "human_review",
+            "name": "synthetic-label",
+            "version": "1"
+          }
+        }
+      ],
+      "normalization": {
+        "rule_id": "it-date-dmy",
+        "rule_version": "1",
+        "original_literal": "08/09/2026",
+        "normalized_value": "2026-09-08"
+      }
+    },
+    "total_amount": {
+      "value": "18.00",
+      "status": "observed",
+      "alternatives": [],
+      "evidence": [
+        {
+          "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "page_number": 1,
+          "region": {
+            "coordinate_space": "normalized_page",
+            "polygon": [
+              [
+                0.7,
+                0.8
+              ],
+              [
+                0.9,
+                0.8
+              ],
+              [
+                0.9,
+                0.9
+              ],
+              [
+                0.7,
+                0.9
+              ]
+            ]
+          },
+          "literal": "TOTALE 18,00 EUR",
+          "producer": {
+            "stage": "human_review",
+            "name": "synthetic-label",
+            "version": "1"
+          }
+        }
+      ],
+      "normalization": {
+        "rule_id": "decimal-comma-eur",
+        "rule_version": "1",
+        "original_literal": "TOTALE 18,00 EUR",
+        "normalized_value": "18.00"
+      }
+    },
+    "currency": {
+      "value": "EUR",
+      "status": "observed",
+      "alternatives": [],
+      "evidence": [
+        {
+          "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "page_number": 1,
+          "token_ids": [
+            "synthetic-token-18"
+          ],
+          "literal": "EUR",
+          "producer": {
+            "stage": "human_review",
+            "name": "synthetic-label",
+            "version": "1"
+          }
+        }
+      ]
+    }
+  },
+  "validation_findings": [],
+  "review": {
+    "status": "not_started",
+    "events": []
+  },
+  "administrative_verification": {
+    "status": "not_started"
+  }
+}
