@@ -46,3 +46,4 @@ jobs:
           test_taxonomy_binding
           test_ocr_contracts
           test_extraction_contracts
+          test_validation_contracts
