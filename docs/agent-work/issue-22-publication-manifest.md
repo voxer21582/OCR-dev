@@ -29,6 +29,6 @@ The manifest itself is control metadata and is not self-hashed.
 
 - `PYTHONPATH=src;tests python -B -m unittest -v test_source_intake test_ocr_contracts`: PASS, 20 tests total (6 source preflight + 14 OCR contract). This does not exercise taxonomy modules locally because `jsonschema` is absent in the selected Python environment; no package was installed.
 - `git diff --check`: PASS.
-- The existing GitHub Actions workflow currently runs the prior explicit 36-test allowlist; `test_source_intake` is deliberately not selected until a separate CI PR is reviewed.
+- PR #23 push run [42194762167](https://github.com/voxer21582/OCR-dev/actions/runs/42194762167) and pull-request run [42194847377](https://github.com/voxer21582/OCR-dev/actions/runs/42194847377) both passed the existing explicit 36-test allowlist. These runs do not include `test_source_intake`; that module remains scheduled for a separate CI PR.
 - Synthetic signature matches do not establish actual PDF/image validity, decoding, page enumeration, multipage behavior, Windows runtime compatibility or full R1/A4 acceptance.
-- Independent review is READY. The code PR Actions run and corresponding readback are still pending; this manifest must be updated with those results if changed before publication.
+- Independent review is READY. The two PR #23 workflow runs above pass; this manifest must be updated if file hashes, review state, or CI results change before publication.
