@@ -36,5 +36,5 @@ Expected total: 52 synthetic tests. No discovery, glob, or implicit test collect
 - No R7/R8 or issue #8 tests; no real document, OCR output, model, runtime, network service, or paid runner.
 - R4 local test execution is unavailable in the isolated Python 3.13.15 environment because `jsonschema` is absent; no package was installed. PR #29's current green check only executes the existing 37-test allowlist.
 - Independent review of the exact workflow/README/manifest diff: READY. The reviewer verified test count, unchanged workflow controls, and both listed SHA-256 values.
-- GitHub Actions on this branch must report 52 tests on both push and pull_request before this CI change is reported as verified.
+- GitHub Actions on head `f3235154133bf29bee1d64dbcaecc6f503238baa` passed all 52 tests on both events: [push run 42214402336](https://github.com/voxer21582/OCR-dev/actions/runs/42214402336) and [pull_request run 42214503080](https://github.com/voxer21582/OCR-dev/actions/runs/42214503080). Both logs report `Ran 52 tests` and both required checks concluded SUCCESS.
 - Even a green 52-test run verifies only named synthetic contracts. It does not establish OCR accuracy, R4 real-document coverage, Windows runtime readiness, A4/A5, or application acceptance.
