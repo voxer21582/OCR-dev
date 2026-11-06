@@ -36,6 +36,29 @@ class TaxonomyBindingTests(unittest.TestCase):
         self.assertEqual(bound_v1_record["taxonomy_binding"], binding)
         self.assertEqual(unbound_record, {"schema_version": "0.1.0"})
 
+        # Rebinding an identical valid snapshot is idempotent, but a bound
+        # record must never be silently reassigned to another taxonomy.
+        bound_v1_before_rebind = copy.deepcopy(bound_v1_record)
+        self.assertEqual(bind_document_record(bound_v1_record, binding), bound_v1_record)
+        self.assertEqual(bound_v1_record, bound_v1_before_rebind)
+        changed_catalog = copy.deepcopy(catalog)
+        changed_catalog["types"][0]["label"] += " changed"
+        _canonical, changed_digest = taxonomy_registry.validate_catalog(changed_catalog)
+        changed_binding = create_taxonomy_binding(changed_catalog, changed_digest)
+        malformed_record = copy.deepcopy(bound_v1_record)
+        malformed_record["taxonomy_binding"]["catalog_sha256"] = "0" * 64
+        malformed_record_before_rebind = copy.deepcopy(malformed_record)
+        for existing_record, requested_binding in (
+            (bound_v1_record, changed_binding),
+            (malformed_record, binding),
+        ):
+            with self.subTest(existing_record=existing_record, requested_binding=requested_binding):
+                with self.assertRaises(TaxonomyBindingError):
+                    bind_document_record(existing_record, requested_binding)
+        self.assertEqual(bound_v1_record, bound_v1_before_rebind)
+        self.assertEqual(malformed_record, malformed_record_before_rebind)
+        self.assertEqual(unbound_record, {"schema_version": "0.1.0"})
+
         # Catalog schema generation is independent of its consecutive revision.
         # This v2 snapshot represents revision 2 after a synthetic v1 upgrade.
         catalog_v2 = taxonomy_registry.default_catalog_v2()
