@@ -47,3 +47,4 @@ jobs:
           test_ocr_contracts
           test_extraction_contracts
           test_validation_contracts
+          test_review_contracts
