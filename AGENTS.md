@@ -23,6 +23,7 @@ This public repository currently contains only the synthetic-testable taxonomy r
 ## Verification and CI
 
 - The current `Taxonomy registry and binding` workflow runs the two synthetic taxonomy test modules described in the README. Its 22 tests cover that slice only; they do not establish OCR accuracy, Windows runtime readiness, real-document safety, pilot usefulness, or release readiness.
+- For every newly authorized feature, assess which quality checks are automatable and which free GitHub capabilities are relevant. Add only checks within the approved scope; otherwise record the concrete decision or authorization needed. A green check does not accept the product or unblock restricted work.
 - Run only checks authorized for the issue and available evidence. Do not install dependencies, download models, or alter TLS settings without explicit authorization; keep TLS verification enabled.
 - Workflow changes belong in a separate pull request. Review triggers, permissions, untrusted code exposure, and cost before proposing them. Preserve read-only permissions and full-SHA action pins unless an approved change says otherwise.
 
