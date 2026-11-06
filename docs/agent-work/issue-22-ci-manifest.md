@@ -27,7 +27,7 @@ The manifest itself is control metadata and is not self-hashed. The new test mod
 ## Verification and limits
 
 - The source-preflight test module passed locally: 6 tests, synthetic bytes only.
-- The current feature branch CI on PR #23 passed the existing 36-test allowlist; this follow-up will ask GitHub Actions to execute all 42 tests with the new module.
+- GitHub Actions passed the exact 42-test allowlist on both the branch push ([run 42195965443](https://github.com/voxer21582/OCR-dev/actions/runs/42195965443)) and pull request ([run 42196030057](https://github.com/voxer21582/OCR-dev/actions/runs/42196030057)). Both logs report `Ran 42 tests`; both include all six `test_source_intake` tests.
 - Local taxonomy modules could not be run because `jsonschema` is absent from the selected environment; no dependency was installed. The GitHub runner uses the existing lock.
-- No test execution or workflow trigger has occurred yet on this candidate branch. Independent review and Actions readback remain pending.
+- The run links above use the workflow and test module hashes listed in this manifest. The recorded workflow runs predate this evidence-only manifest update; the workflow file and source/test code are unchanged. Independent workflow review is READY.
 - The added module does not prove file validity, page count, decoding, OCR, Windows runtime behavior, or full R1/A4 acceptance.
