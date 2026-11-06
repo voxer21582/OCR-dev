@@ -30,9 +30,9 @@ This PR is intentionally stacked on PR #18 so the `test_ocr_contracts` module an
 ## Verification record
 
 - Local `test_ocr_contracts`: 15 passed on Windows CPython 3.13; the new 257-vertex guard regression passed after first observing the expected RED failure.
-- Existing remote check on PR #18: passed on both push and pull_request; each run executes the current 22-test allowlist.
+- Existing remote check on current PR #18 head `d666463`: passed on both push ([run 42208842112](https://github.com/voxer21582/OCR-dev/actions/runs/42208842112)) and pull_request ([run 42208849893](https://github.com/voxer21582/OCR-dev/actions/runs/42208849893)); each run executes the unchanged 22-test taxonomy allowlist.
 - The initial GitHub Actions verification passed both events with 36 tests on the older base `c51bc96`: [push run 42188279476](https://github.com/voxer21582/OCR-dev/actions/runs/42188279476) and [pull request run 42188329769](https://github.com/voxer21582/OCR-dev/actions/runs/42188329769). A later run on head `23ff40c` also passed 36 tests because GitHub held the PR base at `c51bc96`; these historical runs do not execute the new 257-vertex regression.
-- This CI branch now includes PR #18 through base `d666463`; a new push/PR run must report 37 tests before the CI change is considered verified.
+- This CI branch includes PR #18 through base `d666463`. On head `98db484`, the updated allowlist passed 37 tests on push ([run 42208996416](https://github.com/voxer21582/OCR-dev/actions/runs/42208996416)) and pull_request ([run 42209004153](https://github.com/voxer21582/OCR-dev/actions/runs/42209004153)); both logs report `Ran 37 tests` and `OK`.
 - The combined 37-test suite was not run in the restricted local environment because the locked dependency closure is Ubuntu-specific and `jsonschema` is absent there. GitHub Actions on Ubuntu is the designated compatible runner for this combined allowlist.
 
 This CI result is limited to synthetic contract coverage and is not product acceptance.
