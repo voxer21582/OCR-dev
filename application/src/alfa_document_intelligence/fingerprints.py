@@ -81,5 +81,3 @@ class SqliteFingerprintRegistry:
             duplicate_document_sha256=tuple(duplicates["document"]),
             duplicate_archive_sha256=tuple(duplicates["archive"]),
         )
-
-

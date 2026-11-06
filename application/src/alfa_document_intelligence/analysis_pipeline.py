@@ -91,4 +91,3 @@ def analyze_ocr_results(
     if final_issues:
         raise AnalysisPipelineError("analysis output contract failed: " + "; ".join(final_issues))
     return AnalysisResult(result_document, unapplied)
-
