@@ -18,12 +18,16 @@ PYTHONPATH=src:tests python -B -m unittest -v \
   test_taxonomy_binding
 ```
 
-The test modules build synthetic catalogs and use temporary SQLite directories where persistence is needed. They do not require sample documents, OCR output, network access, or an OCR model. The same command selects 19 registry tests and 3 binding tests in this repository snapshot.
+The taxonomy test modules build synthetic catalogs and use temporary SQLite directories where persistence is needed. They do not require sample documents, OCR output, network access, or an OCR model. The same command selects 19 registry tests and 3 binding tests in this repository snapshot.
 
 ## Data and scope
 
-Do not add company documents, personal data, OCR text, credentials, or derived sensitive values to this public repository or its CI. No OCR engine, model, document ingestion, or external document service runs in this workflow. The workflow has read-only repository permissions and references GitHub Actions by full commit SHA.
+Do not add company documents, personal data, OCR text, credentials, or derived sensitive values to this public repository or its CI. The taxonomy workflow runs no OCR engine or model. The separate one-time Windows evaluation uses only generated synthetic pages and emits aggregate metrics and hashes. Both workflows use read-only repository permissions and Actions pinned to full commit SHAs.
 
 This CI result covers only the taxonomy registry and binding test modules. It is not a full application test suite and does not establish OCR accuracy, Windows runtime readiness, real-document safety, pilot usefulness, or release readiness.
 
 Project tracking: [OCR2 — Gestione e controllo](https://github.com/users/voxer21582/projects/1).
+
+## One-time synthetic Windows OCR evaluation
+
+This branch adds a separate, one-push-only evaluation of RapidOCR 3.10.0 with ONNX Runtime on seven generated synthetic pages. It is restricted to the branch `codex/rapidocr-windows-smoke-20261107`, uses a standard `windows-2025` runner, and reports aggregate metrics and hashes only. It does not upload images or OCR text and does not enable or select OCR in the application. The evaluation does not run on `main`, pull requests, schedules, or manual dispatches. See [the scope, dependency/license inventory, and limitations](docs/rapidocr-windows-synthetic-evaluation.md).
