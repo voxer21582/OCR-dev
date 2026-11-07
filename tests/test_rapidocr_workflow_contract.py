@@ -39,6 +39,9 @@ class RapidOCRWorkflowContractTests(unittest.TestCase):
                     continue
                 self.assertRegex(line, r"^[A-Za-z0-9_.-]+==[^ ]+ --hash=sha256:[0-9a-f]{64}$")
 
+    def test_humanfriendly_windows_dependency_is_hash_locked(self):
+        self.assertIn('pyreadline3==3.5.6 --hash=sha256:8449b734232e42a5dcd74048e39b60db2839a4c38cf3ae2bf7707d58b5389c0d', RUNTIME_LOCK)
+
     def test_python_minor_selector_uses_available_cpython_313_patch(self):
         self.assertIn('python-version: "3.13"', WORKFLOW)
         self.assertNotIn('python-version: "3.13.18"', WORKFLOW)

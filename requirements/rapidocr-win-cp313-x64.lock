@@ -18,6 +18,8 @@ opencv-python-headless==4.12.0.88 --hash=sha256:86b413bdd6c6bf497832e346cd537199
 packaging==25.0 --hash=sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484
 Pillow==12.1.0 --hash=sha256:461f9dfdafa394c59cd6d818bdfdbab4028b83b02caadaff0ffd433faf4c9a7a
 protobuf==6.33.5 --hash=sha256:3093804752167bcab3998bec9f1048baae6e29505adaf1afd14a37bddede533c
+# Required by humanfriendly on Windows; use the reviewed universal wheel.
+pyreadline3==3.5.6 --hash=sha256:8449b734232e42a5dcd74048e39b60db2839a4c38cf3ae2bf7707d58b5389c0d
 pyclipper==1.4.0 --hash=sha256:d4b2d7c41086f1927d14947c563dfc7beed2f6c0d9af13c42fe3dcdc20d35832
 PyYAML==6.0.3 --hash=sha256:79005a0d97d5ddabfeeea4cf676af11e647e41d81c9a7722a193022accdb6b7c
 rapidocr==3.10.0 --hash=sha256:2fc34e26cd0f48514804a94f8832283039c7334076bff60768b1fed9ad068050

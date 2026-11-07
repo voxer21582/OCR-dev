@@ -18,7 +18,7 @@ The one branch push also triggers the pre-existing `OCR2 synthetic taxonomy` wor
 
 ## Hash-locked temporary dependency closure
 
-The two lock files are specific to CPython 3.13 / Windows x64, and are not product runtime locks. PyPI JSON metadata and selected artifact SHA-256 values were checked directly. The normal wheel closure uses exact pins and hashes; the only source distribution is `antlr4-python3-runtime==4.9.3`, required by OmegaConf 2.3.0. Its sdist hash is fixed and it is built with network-isolated pip build isolation disabled, after installing separately hash-locked setuptools, wheel, and packaging build tools. All other runtime inputs are selected as compatible wheels for Windows CPython 3.13 or universal pure-Python wheels.
+The two lock files are specific to CPython 3.13 / Windows x64, and are not product runtime locks. PyPI JSON metadata and selected artifact SHA-256 values were checked directly. The normal wheel closure uses exact pins and hashes. The Windows-only `humanfriendly` dependency `pyreadline3==3.5.6` is pinned to its universal wheel. The only source distribution is `antlr4-python3-runtime==4.9.3`, required by OmegaConf 2.3.0. Its sdist hash is fixed and it is built with network-isolated pip build isolation disabled, after installing separately hash-locked setuptools, wheel, and packaging build tools. All other runtime inputs are selected as compatible wheels for Windows CPython 3.13 or universal pure-Python wheels.
 
 | Component | Pin | License/provenance reviewed |
 |---|---:|---|
@@ -34,6 +34,7 @@ The two lock files are specific to CPython 3.13 / Windows x64, and are not produ
 | OmegaConf, ANTLR runtime | 2.3.0, 4.9.3 | OmegaConf BSD-3-Clause; ANTLR BSD. The ANTLR source archive is hash-locked and built only in the disposable runner with separately pinned tools. |
 | Requests, urllib3, certifi, charset-normalizer, idna | 2.32.5, 2.6.2, 2025.11.12, 3.4.4, 3.11 | Apache-2.0, MIT, MPL-2.0, MIT, BSD-3-Clause respectively. |
 | colorlog, coloredlogs, humanfriendly | 6.10.1, 15.0.1, 10.0 | MIT. |
+| pyreadline3 | 3.5.6 | BSD; Windows-only transitive dependency of humanfriendly; PyPI metadata has no provenance attestation, so only the exact wheel hash and upstream BSD license notice were verified. |
 | flatbuffers, protobuf | 25.9.23, 6.33.5 | Apache-2.0 and BSD-3-Clause respectively. |
 | sympy, mpmath | 1.14.0, 1.3.0 | BSD. |
 | setuptools, wheel, packaging | 80.9.0, 0.45.1, 25.0 | MIT, MIT, Apache-2.0/BSD-2-Clause. Build tools are runner-only. |
@@ -54,4 +55,6 @@ No retry is authorized after a hash/provenance mismatch, unexpected network/mode
 - [RapidOCR model license and attribution notice at commit `4a3070f`](https://github.com/RapidAI/RapidOCR/blob/4a3070f304467e6d426e78a82afea5cb1181f305/python/MODEL_LICENSES.md)
 - [RapidOCR 3.10.0 PyPI files and metadata](https://pypi.org/project/rapidocr/3.10.0/)
 - [ONNX Runtime 1.31.1 PyPI files and metadata](https://pypi.org/project/onnxruntime/1.31.1/)
+- [pyreadline3 3.5.6 PyPI metadata and wheel hash](https://pypi.org/pypi/pyreadline3/3.5.6/json)
+- [pyreadline3 upstream BSD license notice](https://github.com/pyreadline3/pyreadline3/blob/master/LICENSE.md)
 - [PyPI JSON metadata](https://pypi.org/pypi/rapidocr/3.10.0/json)
