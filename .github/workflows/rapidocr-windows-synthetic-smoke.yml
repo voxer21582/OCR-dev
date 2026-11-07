@@ -1,0 +1,60 @@
+name: OCR2 RapidOCR synthetic Windows evaluation
+
+on:
+  push:
+    branches:
+      - codex/rapidocr-windows-smoke-20261107
+
+permissions:
+  contents: read
+
+jobs:
+  rapidocr-windows-synthetic:
+    name: RapidOCR seven-page synthetic Windows smoke
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      PYTHONPATH: ${{ github.workspace }}\tests
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PIP_NO_INPUT: "1"
+    steps:
+      - name: Check out the reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up CPython
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13.18"
+
+      - name: Install locked build tools for the single sdist dependency
+        run: >-
+          python -m pip install --disable-pip-version-check --no-input
+          --only-binary=:all: --require-hashes
+          -r requirements/rapidocr-build-tools-win-cp313.lock
+
+      - name: Install the hash-locked RapidOCR and ONNX Runtime closure
+        run: >-
+          python -m pip install --disable-pip-version-check --no-input
+          --no-build-isolation --require-hashes
+          -r requirements/rapidocr-win-cp313-x64.lock
+
+      - name: Verify the installed dependency closure
+        run: python -m pip check
+
+      - name: Run explicit synthetic contract tests
+        run: >-
+          python -B -m unittest -v
+          test_synthetic_page_generator
+          test_rapidocr_windows_smoke_contract
+          test_rapidocr_workflow_contract
+
+      - name: Run one aggregate-only OCR smoke
+        run: >-
+          python -B tools/rapidocr_synthetic_windows_smoke.py
+          | Tee-Object -FilePath "$env:RUNNER_TEMP\ocr2-rapidocr-aggregate.json"
+          | Add-Content -Path "$env:GITHUB_STEP_SUMMARY"
