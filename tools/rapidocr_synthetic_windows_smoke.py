@@ -7,6 +7,7 @@ import importlib.metadata
 import io
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import sys
@@ -218,6 +219,7 @@ def run_smoke() -> dict[str, object]:
         "input_bytes": total_bytes,
         "synthetic_inputs_sha256": input_digest.hexdigest(),
         "model_sha256": model_hashes,
+        "python_version": platform.python_version(),
         "rapidocr_version": rapidocr_version,
         "onnxruntime_version": onnxruntime.__version__,
         "pillow_version": pillow_version,

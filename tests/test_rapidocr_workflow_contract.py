@@ -39,6 +39,10 @@ class RapidOCRWorkflowContractTests(unittest.TestCase):
                     continue
                 self.assertRegex(line, r"^[A-Za-z0-9_.-]+==[^ ]+ --hash=sha256:[0-9a-f]{64}$")
 
+    def test_python_minor_selector_uses_available_cpython_313_patch(self):
+        self.assertIn('python-version: "3.13"', WORKFLOW)
+        self.assertNotIn('python-version: "3.13.18"', WORKFLOW)
+
     def test_runtime_lock_contains_the_reviewed_onnx_rapidocr_pair(self):
         self.assertIn("rapidocr==3.10.0 --hash=sha256:2fc34e26cd0f48514804a94f8832283039c7334076bff60768b1fed9ad068050", RUNTIME_LOCK)
         self.assertIn("onnxruntime==1.31.1 --hash=sha256:0558f29d5f6ac09957390c9c5495931485ee8ae7f0ce781ccee86a0ae5c2348b", RUNTIME_LOCK)

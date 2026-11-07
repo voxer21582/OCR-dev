@@ -42,7 +42,7 @@ This is a bounded metadata/license-notice review for the one evaluation, not a l
 
 ## Reproduction and gate
 
-The workflow has a fixed Python version, exact explicit test-module list, pinned Actions, hash-required package installs, package-consistency check, and aggregate-only smoke command. The generator and metrics contract tests can run locally with the Python standard library; the optional Pillow image-rendering test is skipped where Pillow is absent. Native inference is intentionally not run locally.
+The workflow has a CPython 3.13 minor selector with its resolved patch recorded in aggregate output, exact explicit test-module list, pinned Actions, hash-required package installs, package-consistency check, and aggregate-only smoke command. The generator and metrics contract tests can run locally with the Python standard library; the optional Pillow image-rendering test is skipped where Pillow is absent. Native inference is intentionally not run locally.
 
 No retry is authorized after a hash/provenance mismatch, unexpected network/model acquisition, non-synthetic input, raw text emission, or uncertain cleanup. A successful run is one feasibility observation only. It neither selects RapidOCR for product use nor closes any OCR2 acceptance gate.
 
