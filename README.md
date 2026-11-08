@@ -27,3 +27,5 @@ Do not add company documents, personal data, OCR text, credentials, or derived s
 This CI result covers only the taxonomy registry and binding test modules. It is not a full application test suite and does not establish OCR accuracy, Windows runtime readiness, real-document safety, pilot usefulness, or release readiness.
 
 Project tracking: [OCR2 — Gestione e controllo](https://github.com/users/voxer21582/projects/1).
+
+Windows runtime acceptance planning: [Windows 11 acceptance plan](docs/runtime/windows11-acceptance-plan.md). This is a planning document; it does not establish that an OCR runtime, model, or application has been accepted.
