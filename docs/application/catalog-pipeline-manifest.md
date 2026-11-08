@@ -1,6 +1,6 @@
 # Custom-family pipeline: publication manifest
 
-Date: 2026-11-08. Related migration: #42. Base: the progress prerequisite in PR #52 at `153fb41246d6c770935089869d5620b7407d2085`, which includes accepted public main `595753c5f92ece72b3081c340f31ae90795585e5`. This contribution preserves that callback and adds only optional catalog propagation; it does not include a worker or an application launcher.
+Date: 2026-11-08. Related migration: #42. Initial base: the progress prerequisite in PR #52 at `153fb41246d6c770935089869d5620b7407d2085`. After owner-approved integration of #52/#53, this candidate is reconciled with accepted public main `0b486a40434b793f295b4e08b689f0d5de238b74`. The five catalog source/test files remain byte-identical to the reviewed candidate; the callback and its now-accepted CI selector are preserved. This contribution adds only optional catalog propagation; it does not include a worker or an application launcher.
 
 ## Exact publication scope
 
