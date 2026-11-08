@@ -5,9 +5,10 @@ Updated: 2026-11-08
 ## Verified
 
 - Owner-approved PRs #48/#49/#50/#51 are merged. Public main `595753c5f92ece72b3081c340f31ae90795585e5` passes **227 synthetic tests** in [run 42524385069](https://github.com/voxer21582/OCR-dev/actions/runs/42524385069): 22 taxonomy + 205 application. The optional factory and explicit RGB bridge are included, with no default launcher activation. See the [factory manifest](../docs/application/optional-runtime-factory-manifest.md) for source review, synthetic scope and pending worker integration. The required check and administrator protections remain enabled; force-push and deletion remain disabled.
-- The integrated catalog and record contract preserve legacy 0.1.0 records and validate 0.2.0 embedded catalog snapshots, family references, field names and types. The [catalog manifest](../docs/application/document-family-catalog-manifest.md) and [record manifest](../docs/application/document-family-record-manifest.md) retain provenance, review and limits. Pipeline/UI/archive integration is separate.
+- The integrated catalog and record contract preserve legacy 0.1.0 records and validate 0.2.0 embedded catalog snapshots, family references, field names and types. The [catalog manifest](../docs/application/document-family-catalog-manifest.md) and [record manifest](../docs/application/document-family-record-manifest.md) retain provenance, review and limits. This candidate connects the catalog to processing, semantic proposals and neutral required-field findings; UI/archive integration remains separate.
 - This isolated candidate adds an optional page-count callback to document processing. Three direct synthetic tests passed locally after two expected missing-keyword failures; the existing no-callback behavior already passed. Failure returns an unprocessed copy instead of publishing partial results. Independent review found missing timing coverage; the strengthened success test rejects early and delayed callbacks and verifies that invalid geometry emits no progress. Both local mutations failed as expected, and the restored production implementation passed all three cases. The public decoder default and legacy tests remain unchanged. See the [scoped manifest](../docs/application/document-processing-progress-manifest.md).
 - Reproduction from `application/`: `PYTHONPATH=src:tests python -B -m unittest -v test_document_processing.DocumentProcessingProgressTests` (use `;` as the path separator on Windows). Only the three selected unittest cases ran; the four existing pytest-style free functions were not executed. Fake decoder/engine paths bypass all vendor and native decoders.
+- Catalog propagation passed **137 explicitly selected synthetic tests locally**, including 19 new test methods and existing semantic, analysis, validation, record, catalog and callback regressions. Independent read-only technical review is READY on the final files and retained output. The [propagation manifest](../docs/application/catalog-pipeline-manifest.md) gives the exact command, source pins, publication scope and limitations. No remote execution of the 19 new cases is claimed yet.
 
 ### Earlier dated evidence
 
@@ -24,10 +25,11 @@ Updated: 2026-11-08
 
 - The new progress tests are not yet selected by main CI. A separately reviewed explicit class selector is required; no discovery or workflow change is included in this product contribution.
 - The callback is a processor prerequisite, not a background-job implementation. No worker, UI, launcher, installer, production OCR runtime/model, real-document behavior or release is accepted here.
+- Catalog findings remain warning/indeterminate and depend on observed family-title alternatives. A manually selected family without those alternatives is not covered by this required-field behavior. No automatic catalog migration, semantic confirmation, fiscal classification or administrative approval is introduced.
 - Public migration remains selective; source ownership, privacy, licenses and scope require per-file review.
 
 ## Next steps
 
-1. Review this progress callback and its separate CI proposal. Merge requires owner approval.
-2. Continue bounded catalog propagation and worker dependency preparation, preserving existing public fixes and excluding unrelated source changes.
+1. Review the progress callback in PR #52 and its separate CI proposal in PR #53. Their CI candidate passed 230 synthetic tests in [run 42525601088](https://github.com/voxer21582/OCR-dev/actions/runs/42525601088); main remains at the dated 227-test result above. Merge requires owner approval.
+2. Review the separate catalog propagation contribution and explicitly allowlist its new synthetic cases in a CI-only PR. Worker dependency preparation can continue independently; no background worker is included here.
 3. Preserve the original checkout and all R7/R8 stop/no-retry restrictions.

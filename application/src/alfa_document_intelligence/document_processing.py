@@ -6,6 +6,7 @@ import hashlib
 from typing import Any, Callable, Iterable
 
 from .analysis_pipeline import AnalysisPipelineError, analyze_ocr_results
+from .document_family_catalog import DocumentFamilyCatalog
 from .document_decoder import DecodeLimits, DecodedPage, DocumentDecodeError, iter_decoded_pages
 from .ocr_adapter import OCRContractError, OCREngineAdapter, OCRPageResult, run_ocr
 
@@ -20,6 +21,7 @@ def process_document_record(
     *,
     decoder: Decoder = iter_decoded_pages,
     decode_limits: DecodeLimits = DecodeLimits(),
+    custom_family_catalog: DocumentFamilyCatalog | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     """Process one materialized source in memory and return an evidence-bound copy.
@@ -110,7 +112,7 @@ def process_document_record(
         },
     }
     try:
-        return analyze_ocr_results(prepared, decoded_results).document
+        return analyze_ocr_results(prepared, decoded_results, custom_family_catalog=custom_family_catalog).document
     except AnalysisPipelineError:
         prepared["processing"]["semantic_extraction"] = {
             "status": "failed",
