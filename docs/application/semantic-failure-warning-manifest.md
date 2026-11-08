@@ -1,6 +1,6 @@
 # Semantic extraction failure warning
 
-Status: isolated candidate, 2026-11-09. The assigned destination is the `OCR-dev-semantic-warning` worktree based on public `6facee4b814b4bffbe0f80a463d9077532313364`; the original historical sources remain intact. Independent technical review is READY. CI changes and publication are separate and require owner review and merge.
+Status: isolated candidate, 2026-11-09. The assigned `OCR-dev-semantic-warning` worktree was initially based on public `6facee4b814b4bffbe0f80a463d9077532313364` and reconciled with accepted main `a92ef319d5fd06ea0a209bbd3d0337e7d693bb81`; the reviewed UI and test bytes remain unchanged. The original historical sources remain intact. Independent technical review is READY. CI changes and publication are separate and require owner review and merge.
 
 ## Behavior
 
