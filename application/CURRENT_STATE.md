@@ -4,14 +4,10 @@ Updated: 2026-11-08
 
 ## Verified
 
-- Record-binding PR [#49](https://github.com/voxer21582/OCR-dev/pull/49), based on the newly integrated catalog, supports legacy 0.1.0 records and 0.2.0 records with self-verifying custom-family snapshots. Custom selections, field names and typed values are checked against those definitions. The existing 13-module local synthetic allowlist passes **195 tests**, including 28 document-contract and 41 catalog tests. At reviewed source commit `c08c6f6981755937289829261ac6077b38283f23`, [PR run 42520056083](https://github.com/voxer21582/OCR-dev/actions/runs/42520056083) and [push run 42520048656](https://github.com/voxer21582/OCR-dev/actions/runs/42520048656) passed the required check; the PR log confirms **22 + 195 = 217 synthetic tests**, and CodeQL Python/Actions passed. Independent review is READY, with 69 targeted tests and 35 synthetic probes also passed. The [scoped manifest](../docs/application/document-family-record-manifest.md) records hashes and the static-only JSON Schema validation limit. Pipeline/UI/archive integration is outside this contribution; PR #49 remains unmerged.
-
-- PR #47 was squash-merged into #46, then #46 into `main`, after explicit owner approval and refreshed successful synthetic/CodeQL checks. New `main` is `0a2fba0731e230f385e305826b66e4ce17df854d`. [Run 42519804658](https://github.com/voxer21582/OCR-dev/actions/runs/42519804658) passed **205 tests**: 22 taxonomy + 183 application. The required check and administrator protections remain enabled; force-push/deletion remain disabled. This integrates the catalog library and its CI selection, not its UI/pipeline or this new record-binding candidate.
-
-- API verification on 2026-11-08 confirms PRs [#41](https://github.com/voxer21582/OCR-dev/pull/41), [#43](https://github.com/voxer21582/OCR-dev/pull/43), and [#44](https://github.com/voxer21582/OCR-dev/pull/44) are merged. Public `main` is `5d07041366bd3875099a3667b5de0fa57a12a2d4`; it includes the selective application migration and the explicit 12-module application CI allowlist. The dated pre-merge evidence below remains historical.
-- The integrated document-family catalog adds configurable literal classifications, typed field proposals with source evidence, canonical version/hash snapshots and atomic local JSON catalog persistence. This is a library contribution, not a UI or archive implementation. Its [publication manifest](../docs/application/document-family-catalog-manifest.md) states provenance and exclusions.
-- On the canonical candidate base, the 12 existing synthetic application modules plus `test_document_family_catalog` pass **183 local tests** (142 existing + 41 catalog). The catalog regressions preserve valid large snapshot and save/reopen roundtrips while rejecting malformed/oversized input. No installed OCR engine is invoked.
-- Reproduction from `application/` with the existing Python environment: `PYTHONPATH=src:tests python -B -m unittest -q test_public_data_guard test_contract_baseline test_document_contract test_document_decoder_contract test_ingestion test_ocr_adapter test_semantic_proposals test_analysis_pipeline test_document_validation test_loopback_csrf test_manual_region_review test_rapidocr_adapter test_document_family_catalog` (use `;` as the path separator on Windows).
+- Owner-approved PRs #48 and #49 are merged. Public main `68fea56e51606f4efb122c5738dada7180a81aae` passes **217 synthetic tests** in [run 42522647362](https://github.com/voxer21582/OCR-dev/actions/runs/42522647362): 22 taxonomy + 195 application. [CodeQL run 42522647351](https://github.com/voxer21582/OCR-dev/actions/runs/42522647351) also passed. The required check and administrator protections remain enabled; force-push and deletion remain disabled.
+- The integrated catalog and record contract preserve legacy 0.1.0 records and validate 0.2.0 embedded catalog snapshots, family references, field names and types. The [catalog manifest](../docs/application/document-family-catalog-manifest.md) and [record manifest](../docs/application/document-family-record-manifest.md) retain provenance, review and limits. Pipeline/UI/archive integration is separate.
+- This isolated candidate adds an optional page-count callback to document processing. Three direct synthetic tests passed locally after two expected missing-keyword failures; the existing no-callback behavior already passed. Failure returns an unprocessed copy instead of publishing partial results. The public decoder default and legacy tests remain unchanged. See the [scoped manifest](../docs/application/document-processing-progress-manifest.md).
+- Reproduction from `application/`: `PYTHONPATH=src:tests python -B -m unittest -v test_document_processing.DocumentProcessingProgressTests` (use `;` as the path separator on Windows). Only the three selected unittest cases ran; the four existing pytest-style free functions were not executed. Fake decoder/engine paths bypass all vendor and native decoders.
 
 ### Earlier dated evidence
 
@@ -26,12 +22,12 @@ Updated: 2026-11-08
 
 ## Not verified
 
-- The record-binding candidate's 217-test remote result belongs to PR #49 until owner-approved integration. The catalog's 41 tests are already in `main` CI through PR #47; neither result validates a production OCR engine.
-- No Windows installer, production OCR runtime/model, real-document behavior, or release is accepted by this state record.
-- Public migration remains selective; other source files require file-level provenance, privacy, license, and scope review.
+- The new progress tests are not yet selected by main CI. A separately reviewed explicit class selector is required; no discovery or workflow change is included in this product contribution.
+- The callback is a processor prerequisite, not a background-job implementation. No worker, UI, launcher, installer, production OCR runtime/model, real-document behavior or release is accepted here.
+- Public migration remains selective; source ownership, privacy, licenses and scope require per-file review.
 
 ## Next steps
 
-1. Review the separate record-binding candidate; its merge remains subject to owner approval. PRs #41/#43/#44/#46/#47 no longer await integration.
-2. Continue the source-vs-public inventory and per-file manifest for remaining migration candidates; do not copy unreviewed or concurrent changes.
-3. Continue without modifying the original checkout or resuming R7/R8 work.
+1. Review this progress callback and its separate CI proposal. Merge requires owner approval.
+2. Continue bounded catalog propagation and worker dependency preparation, preserving existing public fixes and excluding unrelated source changes.
+3. Preserve the original checkout and all R7/R8 stop/no-retry restrictions.
