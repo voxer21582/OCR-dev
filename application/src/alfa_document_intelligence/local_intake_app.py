@@ -26,7 +26,9 @@ from .ingestion import IngestionLimits, MaterializedBatch, UploadRejected, mater
 from .review_ledger import append_review_event, reviewed_overlay
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
+from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
 from .local_document_store import LocalDocumentStore, StoreConcurrentUpdate, StoreError
+from .manual_region_review import build_human_region_evidence, encode_rgb8_png
 
 
 _MAX_UPLOAD_REQUEST_BYTES = 100 * 1024 * 1024
@@ -257,18 +259,66 @@ def _page(
         flags=re.IGNORECASE,
     )
     payload = body.replace('nonce="__CSP_NONCE__"', f'nonce="{nonce}"').encode("utf-8")
+    has_region_editor = 'data-region-image' in body
+    inline_style_nonce = '<style nonce="__CSP_NONCE__">' in body
+    style_policy = f"style-src 'self' 'nonce-{nonce}'; " if inline_style_nonce else "style-src 'self'; "
+    image_policy = "img-src 'self'; " if has_region_editor else ""
     headers = [
         ("Content-Type", content_type),
         ("Content-Length", str(len(payload))),
         ("Cache-Control", "no-store"),
         ("X-Content-Type-Options", "nosniff"),
-        ("Content-Security-Policy", f"default-src 'none'; style-src 'self'; script-src 'nonce-{nonce}'; base-uri 'none'; frame-ancestors 'none'"),
+        ("Content-Security-Policy", f"default-src 'none'; {style_policy}{image_policy}script-src 'nonce-{nonce}'; base-uri 'none'; frame-ancestors 'none'"),
         ("Referrer-Policy", "no-referrer"),
     ]
     if download_filename is not None:
         headers.append(("Content-Disposition", f'attachment; filename="{download_filename}"'))
     start_response(status, headers)
     return [payload]
+
+
+def _source_page_png(record: dict[str, Any], source_bytes: bytes, page_number: int) -> bytes:
+    """Render one verified source page to a bounded, in-memory PNG response."""
+    source = record.get("source")
+    if (
+        not isinstance(source, dict) or not isinstance(source_bytes, bytes)
+        or not isinstance(page_number, int) or isinstance(page_number, bool) or page_number < 1
+    ):
+        raise DocumentDecodeError("source page is unavailable")
+    limits = DecodeLimits()
+    expected_length = source.get("byte_length")
+    digest = source.get("sha256")
+    if (
+        not isinstance(expected_length, int) or isinstance(expected_length, bool)
+        or expected_length != len(source_bytes) or len(source_bytes) > limits.max_source_bytes
+        or not isinstance(digest, str) or hashlib.sha256(source_bytes).hexdigest() != digest
+    ):
+        raise DocumentDecodeError("source page integrity check failed")
+    pages = record.get("pages")
+    page_numbers = {
+        item.get("page_number") for item in pages if isinstance(item, dict)
+        and isinstance(item.get("page_number"), int) and not isinstance(item.get("page_number"), bool)
+    } if isinstance(pages, list) else set()
+    if page_number not in page_numbers:
+        raise DocumentDecodeError("source page is not in the record")
+    media_kind = {
+        "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpeg",
+        "image/tiff": "tiff", "image/webp": "webp",
+    }.get(source.get("media_type"))
+    if media_kind is None:
+        raise DocumentDecodeError("source media type is not supported")
+    decoded_pages = iter_decoded_pages(source_bytes, media_kind, source_sha256=digest, limits=limits)
+    try:
+        for decoded in decoded_pages:
+            if decoded.raster.page_number == page_number:
+                return encode_rgb8_png(
+                    decoded.raster.width_px, decoded.raster.height_px, decoded.raster.image_bytes
+                )
+    finally:
+        close = getattr(decoded_pages, "close", None)
+        if callable(close):
+            close()
+    raise DocumentDecodeError("source page is not available")
 
 
 def _upload_page(*, archive_enabled: bool = False) -> str:
@@ -512,12 +562,69 @@ def _render_fiscal_state_review(
         f'<input type="hidden" name="review_seconds" data-review-seconds value="{elapsed_seconds}">'
         '<button type="submit">Registra classificazione fiscale revisionata</button></form></section>'
     )
+def _render_region_correction_form(
+    *, document_id: str, field_name: str, page_numbers: list[int], elapsed_seconds: int,
+) -> str:
+    safe_id = quote(document_id, safe="")
+    safe_field = quote(field_name, safe="")
+    options = "".join(f'<option value="{number}">{number}</option>' for number in page_numbers)
+    return (
+        f'<form method="post" data-review-timer data-region-review action="/reviews/{safe_id}/fields/{safe_field}">'
+        "<h3>Correzione manuale con riferimento alla pagina</h3>"
+        "<p>Leggi il documento originale, delimita la regione del valore e digita la trascrizione. "
+        "Il valore sarà registrato come revisione umana, non come testo OCR.</p>"
+        f'<label>Pagina sorgente <select name="region_page" data-region-page>{options}</select></label>'
+        f'<div class="region-viewer"><img data-region-image alt="Pagina del documento; trascina per delimitare il valore da correggere" '
+        f'data-preview-base="/reviews/{safe_id}/pages" src="/reviews/{safe_id}/pages/{page_numbers[0]}.png" loading="lazy">'
+        '<svg data-region-overlay viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">'
+        '<rect data-region-selection x="0" y="0" width="0" height="0"></rect></svg></div>'
+        '<p data-region-status aria-live="polite">Trascina sulla pagina oppure inserisci le coordinate normalizzate.</p>'
+        '<fieldset><legend>Coordinate normalizzate da 0 a 1</legend>'
+        '<label>X iniziale <input type="number" name="region_x0" min="0" max="1" step="any" required></label>'
+        '<label>Y iniziale <input type="number" name="region_y0" min="0" max="1" step="any" required></label>'
+        '<label>X finale <input type="number" name="region_x1" min="0" max="1" step="any" required></label>'
+        '<label>Y finale <input type="number" name="region_y1" min="0" max="1" step="any" required></label></fieldset>'
+        '<label>Valore letto e verificato sulla pagina <input name="value" maxlength="512" required></label>'
+        f'<input type="hidden" name="review_seconds" data-review-seconds value="{elapsed_seconds}">'
+        '<button type="submit">Registra correzione umana</button></form>'
+    )
+
+
+_REGION_REVIEW_STYLE = (
+    '<style nonce="__CSP_NONCE__">'
+    '.region-viewer{position:relative;display:inline-block;width:min(100%,800px)}'
+    '.region-viewer img{display:block;width:100%;height:auto}'
+    '.region-viewer svg{position:absolute;inset:0;width:100%;height:100%;touch-action:none}'
+    '.region-viewer rect{fill:rgba(20,110,180,.22);stroke:#146eb4;stroke-width:.004}'
+    '</style>'
+)
+
+_REGION_REVIEW_SCRIPT = (
+    '(()=>{document.querySelectorAll("[data-region-review]").forEach(form=>{'
+    'const svg=form.querySelector("[data-region-overlay]"),img=form.querySelector("[data-region-image]"),'
+    'rect=form.querySelector("[data-region-selection]"),page=form.querySelector("[data-region-page]"),'
+    'status=form.querySelector("[data-region-status]"),fields=["x0","y0","x1","y1"].map(k=>form.querySelector(`[name=region_${k}]`));let start=null;'
+    'const clear=()=>{rect.setAttribute("width","0");rect.setAttribute("height","0");start=null};'
+    'page.addEventListener("change",()=>{img.src=`${img.dataset.previewBase}/${page.value}.png`;clear()});'
+    'const point=e=>{const r=svg.getBoundingClientRect();return [Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))]};'
+    'svg.addEventListener("pointerdown",e=>{if(e.button!==0)return;start=point(e);svg.setPointerCapture(e.pointerId);rect.setAttribute("x",start[0]);rect.setAttribute("y",start[1]);rect.setAttribute("width","0");rect.setAttribute("height","0")});'
+    'svg.addEventListener("pointermove",e=>{if(!start)return;const p=point(e),x0=Math.min(start[0],p[0]),y0=Math.min(start[1],p[1]),x1=Math.max(start[0],p[0]),y1=Math.max(start[1],p[1]);rect.setAttribute("x",x0);rect.setAttribute("y",y0);rect.setAttribute("width",x1-x0);rect.setAttribute("height",y1-y0)});'
+    'svg.addEventListener("pointerup",e=>{if(!start)return;const p=point(e),x0=Math.min(start[0],p[0]),y0=Math.min(start[1],p[1]),x1=Math.max(start[0],p[0]),y1=Math.max(start[1],p[1]);if(x1>x0&&y1>y0){[x0,y0,x1,y1].forEach((v,i)=>fields[i].value=v.toFixed(6));status.textContent=`Regione selezionata nella pagina ${page.value}. Verifica il testo e registra la correzione.`}else{clear();status.textContent="Selezione troppo piccola: trascina una regione più ampia."}start=null});'
+    '});})();'
+)
+
+
 def _render_editable_record(
     record: dict[str, Any], *, document_id: str, has_source: bool, elapsed_seconds: int = 0,
     archive_save_enabled: bool = False,
 ) -> str:
     overlay = reviewed_overlay(record)
     fields = overlay["reviewed_fields"]
+    page_numbers = sorted({
+        item.get("page_number") for item in record.get("pages", [])
+        if isinstance(item, dict) and isinstance(item.get("page_number"), int)
+        and not isinstance(item.get("page_number"), bool) and item.get("page_number") > 0
+    })
     rows = []
     for name, candidate in sorted(fields.items()):
         value = candidate.get("value")
@@ -526,7 +633,11 @@ def _render_editable_record(
         for item in evidence:
             literal = item.get("literal", "")
             page = item.get("page_number", "?")
-            snippets.append(f"<li>Pagina {escape(str(page))}: <q>{escape(str(literal))}</q></li>")
+            detail = f"<q>{escape(str(literal))}</q>" if literal else (
+                "regione selezionata e verificata da una persona"
+                if isinstance(item.get("region"), dict) else "riferimento sorgente senza testo OCR"
+            )
+            snippets.append(f"<li>Pagina {escape(str(page))}: {detail}</li>")
         correction = ""
         if evidence and name != "document_family_candidates":
             correction = (
@@ -535,6 +646,17 @@ def _render_editable_record(
                 f'<input type="hidden" name="review_seconds" data-review-seconds value="{elapsed_seconds}">'
                 '<button type="submit">Registra correzione</button></form>'
             )
+        elif candidate.get("status") == "absent" and name not in {
+            "document_family_candidates", "fiscal_document_state",
+        }:
+            correction = "<p>Non sono disponibili evidenze OCR per questo valore. Verifica la pagina originale e trascrivi la regione come revisione umana.</p>"
+            if has_source and page_numbers:
+                correction += _render_region_correction_form(
+                    document_id=document_id, field_name=name, page_numbers=page_numbers,
+                    elapsed_seconds=elapsed_seconds,
+                )
+            else:
+                correction += "<p>La selezione di una nuova regione non è disponibile: la pagina originale non è presente nella sessione corrente.</p>"
         rows.append(
             f"<section><h2>{escape(name)}</h2>"
             f"<p>Valore verificato: {escape(str(value)) if value is not None else '—'} "
@@ -563,6 +685,10 @@ def _render_editable_record(
         '<button type="submit">Salva modifiche in archivio</button></form>'
         if archive_save_enabled else ""
     )
+    has_region_editor = has_source and bool(page_numbers) and any(
+        candidate.get("status") == "absent" and name not in {"document_family_candidates", "fiscal_document_state"}
+        for name, candidate in fields.items()
+    )
     return (
         "<!doctype html><html lang=\"it\"><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
@@ -570,8 +696,10 @@ def _render_editable_record(
         f"<h1>Revisione {escape(document_id)}</h1>"
         f"<p>Stato revisione: {escape(str(overlay['review_status']))}. Le correzioni si aggiungono al registro; i dati OCR non vengono sovrascritti.</p>"
         f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{completion}{archive_save}"
-        '<script nonce="__CSP_NONCE__">'
-        '(()=>{let active=0,last=performance.now(),wasVisible=!document.hidden;const tick=()=>{const now=performance.now();if(wasVisible)active+=now-last;last=now;wasVisible=!document.hidden};'
+        + (_REGION_REVIEW_STYLE if has_region_editor else "")
+        + '<script nonce="__CSP_NONCE__">'
+        + (_REGION_REVIEW_SCRIPT if has_region_editor else "")
+        + '(()=>{let active=0,last=performance.now(),wasVisible=!document.hidden;const tick=()=>{const now=performance.now();if(wasVisible)active+=now-last;last=now;wasVisible=!document.hidden};'
         'document.addEventListener("visibilitychange",tick);setInterval(tick,1000);'
         'document.querySelectorAll("[data-review-timer]").forEach(form=>form.addEventListener("submit",()=>{tick();'
         'const input=form.querySelector("[data-review-seconds]");if(input)input.value=String(Math.floor(Number(input.value||0)+active/1000))}));})();'
@@ -609,18 +737,47 @@ def _apply_field_correction(
     field_name: str,
     value: str,
     timestamp: str,
+    region_page_number: int | None = None,
+    region_coordinates: tuple[str, str, str, str] | None = None,
 ) -> dict[str, Any]:
     """Append a source-bound correction while preserving the extracted record."""
     if not isinstance(value, str) or not value.strip() or len(value) > 512:
         raise IntakeRequestError("Il valore corretto deve contenere da 1 a 512 caratteri")
     original = record.get("fields", {}).get(field_name)
-    if not isinstance(original, dict) or not original.get("evidence"):
+    if not isinstance(original, dict):
         raise IntakeRequestError("Il campo non dispone di evidenze sorgente da revisionare")
+    original_evidence = original.get("evidence")
+    if isinstance(original_evidence, list) and original_evidence:
+        if region_page_number is not None or region_coordinates is not None:
+            raise IntakeRequestError("Il campo dispone già di evidenze sorgente specifiche")
+        correction_evidence = deepcopy(original_evidence)
+    else:
+        if original.get("status") != "absent" or field_name in {
+            "document_family_candidates", "fiscal_document_state",
+        }:
+            raise IntakeRequestError("Il campo non dispone di evidenze sorgente da revisionare")
+        if not isinstance(region_page_number, int) or isinstance(region_page_number, bool):
+            raise IntakeRequestError("Riferimento manuale alla pagina non valido")
+        if not isinstance(region_coordinates, tuple) or len(region_coordinates) != 4:
+            raise IntakeRequestError("Seleziona una regione della pagina originale")
+        page_numbers = {
+            item.get("page_number") for item in record.get("pages", [])
+            if isinstance(item, dict) and isinstance(item.get("page_number"), int)
+            and not isinstance(item.get("page_number"), bool)
+        }
+        if region_page_number not in page_numbers:
+            raise IntakeRequestError("La pagina selezionata non appartiene al documento")
+        try:
+            correction_evidence = [build_human_region_evidence(
+                record.get("source", {}).get("sha256"), region_page_number, *region_coordinates
+            )]
+        except ValueError as exc:
+            raise IntakeRequestError("Regione della pagina non valida") from exc
     candidate = {
         "value": value.strip(),
         "status": "observed",
         "alternatives": [],
-        "evidence": original["evidence"],
+        "evidence": correction_evidence,
     }
     if isinstance(original.get("confidence"), (int, float)) and not isinstance(original.get("confidence"), bool):
         candidate["confidence"] = original["confidence"]
@@ -1016,6 +1173,30 @@ def create_expense_report_app(
         if method == "POST" and path == "/clear":
             state = None
             return _page(environ, start_response, "200 OK", _upload_page(archive_enabled=archive_store is not None))
+        preview_match = re.fullmatch(r"/reviews/([^/]+)/pages/([1-9][0-9]{0,4})\.png", path)
+        if method == "GET" and preview_match is not None:
+            if state is None or state.intake is None:
+                return _page(environ, start_response, "404 Not Found", "Pagina non disponibile")
+            document_id, raw_page = preview_match.groups()
+            record = state.intake.documents.get(document_id)
+            source_bytes = state.intake.source_bytes.get(document_id)
+            if not isinstance(record, dict) or not isinstance(source_bytes, bytes):
+                return _page(environ, start_response, "404 Not Found", "Pagina non disponibile")
+            try:
+                page_png = _source_page_png(record, source_bytes, int(raw_page))
+            except (DocumentDecodeError, ValueError, OverflowError):
+                return _page(environ, start_response, "422 Unprocessable Content", "Pagina non disponibile per la revisione")
+            state.last_activity = now
+            headers = [
+                ("Content-Type", "image/png"),
+                ("Content-Length", str(len(page_png))),
+                ("Cache-Control", "no-store"),
+                ("X-Content-Type-Options", "nosniff"),
+                ("Content-Security-Policy", "default-src 'none'; sandbox"),
+                ("Referrer-Policy", "no-referrer"),
+            ]
+            start_response("200 OK", headers)
+            return [page_png]
         if method == "GET" and path.startswith("/reviews/") and state is not None and state.intake is not None:
             review_app = create_review_app(state.intake.documents, state.intake.source_bytes)
             if path.endswith("/source"):
@@ -1145,10 +1326,37 @@ def create_expense_report_app(
             document_id = prefix[len("/reviews/"):] if prefix.startswith("/reviews/") else ""
             try:
                 value = _multipart_scalar(environ, "value")
+                region_page_raw = _multipart_scalar(environ, "region_page", required=False)
+                coordinate_names = ("region_x0", "region_y0", "region_x1", "region_y1")
+                coordinate_values = tuple(
+                    _multipart_scalar(environ, name, required=False) for name in coordinate_names
+                )
+                has_region_values = bool(region_page_raw) or any(coordinate_values)
+                if has_region_values:
+                    if (
+                        not region_page_raw.isascii() or not region_page_raw.isdecimal()
+                        or len(region_page_raw) > 5 or not all(coordinate_values)
+                        or any(len(item) > 64 for item in coordinate_values)
+                    ):
+                        raise IntakeRequestError("Riferimento alla pagina o coordinate non valide")
+                    region_page_number = int(region_page_raw)
+                    region_coordinates = coordinate_values
+                else:
+                    region_page_number = None
+                    region_coordinates = None
                 seconds = _read_review_seconds(environ, required=False)
                 record = state.intake.documents.get(document_id)
                 if not document_id or "/" in document_id or not isinstance(record, dict):
                     raise IntakeRequestError("Documento non trovato")
+                if region_page_number is not None:
+                    source_bytes = state.intake.source_bytes.get(document_id)
+                    source = record.get("source", {})
+                    if (
+                        not isinstance(source_bytes, bytes)
+                        or source.get("byte_length") != len(source_bytes)
+                        or source.get("sha256") != hashlib.sha256(source_bytes).hexdigest()
+                    ):
+                        raise IntakeRequestError("Il documento originale non è disponibile o non corrisponde al record")
                 if seconds < state.review_seconds.get(document_id, 0):
                     raise IntakeRequestError("La durata non può diminuire durante la revisione")
                 updated = _apply_field_correction(
@@ -1156,7 +1364,11 @@ def create_expense_report_app(
                     field_name=field_name,
                     value=value,
                     timestamp=datetime.now(timezone.utc).isoformat(),
+                    region_page_number=region_page_number,
+                    region_coordinates=region_coordinates,
                 )
+                if region_page_number is not None and validate_document_record(updated):
+                    raise IntakeRequestError("La correzione manuale non soddisfa il contratto del documento")
                 state.intake.documents[document_id] = updated
                 state.review_seconds[document_id] = seconds
                 state.last_activity = now
