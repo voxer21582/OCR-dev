@@ -39,3 +39,13 @@ See [the CSV manifest](2026-11-07-document-intelligence-public-migration.csv).
 ## Independent review
 
 An independent code review returned READY for publication of this initial migration slice at application tree commit `f76b4e1`. The reviewer confirmed the file manifest, synthetic-only content scope, absence of secret/email/user-path matches, no binary model/document artifacts, clean relative documentation links, and unchanged root required workflow. Per-file `review_status` values stating “pending” describe manifest assembly time and are superseded by this review record. This does not complete repository unification: concurrent private-source changes remain preserved and unported.
+
+## Incremental follow-up — 2026-11-08 (PR #43)
+
+This supplemental CSV records the 13 application/documentation/test paths in PR #43. The source reference is the OCR2 Document Intelligence checkout at HEAD `e89305f19e4562d2026d252fdd2cf669fd154e3d` plus a dirty working-tree snapshot recorded on 2026-11-08; source file hashes are raw per-file hashes at that snapshot. The public target is PR #43 at code snapshot `651b8b39e7203ba763c5c9b1319e1601ce2ef880`, based on PR #41 (`64bd4f4444bfc8c6f9c2a0358b13f857961fbb8e`); `main` remains at `86c9398905fb4baf4a54b58b303ddf8325c4e768`. Hashes in the CSV refer to that target snapshot; this manifest-only follow-up does not alter those files. The repository license is MIT, as previously approved by the owner; this tranche adds no external dependency or third-party code.
+
+The supplement is limited to files in this tranche. Modified source files are marked `transformed` because only reviewed deltas were selected; the remaining dirty source changes are excluded. Two generated target files have no private-source counterpart. The source checkout was not modified. At inventory time it had 51 tracked modifications and 84 untracked paths; 42 changed paths had an existing public counterpart. None of those other changes is included here.
+
+The PR diff contains no new dependency, model, real document, raw OCR, or binary fixture. A targeted credential-marker scan found no matches. This is not an exhaustive DLP or legal audit. The workflow update is separate in PR #44 and is not a migrated source workflow.
+
+See [the supplemental file-level manifest](2026-11-08-pr43-follow-up.csv). Review statuses apply to the exact target files described; the updated state report and this supplement still require independent documentation review.
