@@ -65,3 +65,4 @@ jobs:
           test_rapidocr_adapter
           test_document_family_catalog
           test_rapidocr_runtime_factory
+          test_document_processing.DocumentProcessingProgressTests
