@@ -41,7 +41,7 @@ def _multipart_pdf(filename: str, payload: bytes, boundary: str = "archive-test"
     return body, f"multipart/form-data; boundary={boundary}"
 
 
-def _request(app, method="GET", path="/", body=b"", content_type="", *, query="", origin=None):
+def _request(app, method="GET", path="/", body=b"", content_type="", *, query="", origin="http://127.0.0.1:8000"):
     response = {}
 
     def start_response(status, headers):
