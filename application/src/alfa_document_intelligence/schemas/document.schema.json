@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:alfa:document-intelligence:document-schema:0.1.0",
+  "$id": "urn:alfa:document-intelligence:document-schema:0.2.0",
   "title": "Alfa expense document and evidence record",
   "description": "Evidence-bound extraction record. JSON numbers are excluded from field values; represent monetary and measured values as decimal strings.",
   "type": "object",
@@ -21,7 +21,10 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "0.1.0"
+      "enum": [
+        "0.1.0",
+        "0.2.0"
+      ]
     },
     "document_id": {
       "type": "string",
@@ -33,15 +36,23 @@
       "$ref": "#/$defs/source"
     },
     "document_family": {
-      "enum": [
-        "invoice",
-        "expense_report",
-        "fiscal_receipt",
-        "parking_receipt",
-        "hotel_document",
-        "pos_slip",
-        "other",
-        "unknown"
+      "oneOf": [
+        {
+          "enum": [
+            "invoice",
+            "expense_report",
+            "fiscal_receipt",
+            "parking_receipt",
+            "hotel_document",
+            "pos_slip",
+            "other",
+            "unknown"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^custom_[a-z][a-z0-9_]{1,24}$"
+        }
       ]
     },
     "language": {
@@ -93,6 +104,14 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 128
+      }
+    },
+    "document_family_definitions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 25,
+      "items": {
+        "$ref": "#/$defs/documentFamilyDefinition"
       }
     }
   },
@@ -944,6 +963,189 @@
           "description": "Opaque local attribution reference, not authentication; completed status records verification only and never approves payment or accounting."
         }
       }
+    },
+    "documentFamilyDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalog_version",
+        "family",
+        "family_sha256"
+      ],
+      "properties": {
+        "catalog_version": {
+          "enum": [
+            "1",
+            "2"
+          ]
+        },
+        "family_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "family": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "label",
+            "title_cues",
+            "fields"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^custom_[a-z][a-z0-9_]{1,24}$"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "title_cues": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 12,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              }
+            },
+            "fields": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "label",
+                  "aliases"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]{1,20}$"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "aliases": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 12,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    }
+                  },
+                  "type": {
+                    "enum": [
+                      "text",
+                      "identifier",
+                      "date",
+                      "amount"
+                    ]
+                  },
+                  "required": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "catalog_version": {
+                "const": "1"
+              }
+            },
+            "required": [
+              "catalog_version"
+            ]
+          },
+          "then": {
+            "properties": {
+              "family": {
+                "properties": {
+                  "fields": {
+                    "items": {
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "type"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "required"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "0.1.0"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "document_family": {
+            "enum": [
+              "invoice",
+              "expense_report",
+              "fiscal_receipt",
+              "parking_receipt",
+              "hotel_document",
+              "pos_slip",
+              "other",
+              "unknown"
+            ]
+          }
+        },
+        "not": {
+          "required": [
+            "document_family_definitions"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "0.2.0"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "document_family_definitions"
+        ]
+      }
+    }
+  ]
 }
