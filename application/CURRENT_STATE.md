@@ -1,14 +1,16 @@
 # Document Intelligence current state
 
-Updated: 2026-11-08
+Updated: 2026-11-09
 
-## Manual handoff correction candidate (2026-11-09)
+## Accepted manual handoff correction (2026-11-09)
 
-The isolated candidate retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.
+The accepted implementation retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.
 
-The allowlist and a `flagged` event do not constitute approval. A blocked review remains blocked, but the prompt does not necessarily display that state. No API call is made. The reviewer identified a missing explicit CI selector; it requires a separate CI PR. Remote tests and CI have not run for this candidate; no merge or R7/R8 work is claimed.
+The allowlist and a `flagged` event do not constitute approval. A blocked review remains blocked, but the prompt does not necessarily display that state. No API call is made. PRs #61/#62 were merged by owner approval; main `e5cc34232702a164e24e0a6e4e2e959d43b29c63` passed 270 synthetic tests in [run 42536807942](https://github.com/voxer21582/OCR-dev/actions/runs/42536807942). No R7/R8 work is claimed.
 
 ## Verified
+
+- This isolated candidate corrects context-dependent tax arithmetic using exact integer cents. Canonical amount strings longer than 128 characters intentionally produce the existing warning/indeterminate finding; the limit applies to the calculation, not the full input or evidence. Ten selected synthetic tests passed locally, with RED and the reproduction command recorded in the [exact arithmetic manifest](../docs/application/exact-tax-arithmetic-manifest.md). Evidence and input remain preserved; no fiscal or payment approval is implied. The technical review is READY; remote CI has not run. A separate CI PR must add the new test selector, and merge remains with the owner.
 
 - This isolated candidate distinguishes three proposal overflow causes with fixed non-sensitive error codes and retains failed semantic extraction without returning new partial proposals. The explicit local synthetic regression command passed 84 tests; see the scoped diagnostic manifest. This is diagnostic preparation, not partial extraction, bounded accumulation, UI acceptance or an operational release.
 
