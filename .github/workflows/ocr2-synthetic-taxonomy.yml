@@ -70,3 +70,5 @@ jobs:
           test_catalog_pipeline.CatalogAnalysisPipelineTests
           test_catalog_pipeline.RequiredCustomFieldValidationTests
           test_catalog_pipeline.CatalogDocumentProcessingTests
+          test_ocr_processing.OCRProcessLimitsTests
+          test_ocr_processing.OCRFrameProtocolTests
