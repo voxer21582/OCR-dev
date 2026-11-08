@@ -19,6 +19,8 @@ def _request(app, method="GET", path="/", body=b"", content_type=""):
     environ = {
         "REQUEST_METHOD": method,
         "PATH_INFO": path,
+        "HTTP_HOST": "127.0.0.1:8080",
+        "HTTP_ORIGIN": "http://127.0.0.1:8080",
         "CONTENT_LENGTH": str(len(body)) if body else "",
         "CONTENT_TYPE": content_type,
         "wsgi.input": io.BytesIO(body),

@@ -31,6 +31,7 @@ from .local_document_store import LocalDocumentStore, StoreConcurrentUpdate, Sto
 
 _MAX_UPLOAD_REQUEST_BYTES = 100 * 1024 * 1024
 _MAX_UPLOAD_FILES = 20
+_MAX_URLENCODED_FIELDS = 16
 _SESSION_IDLE_SECONDS = 30 * 60
 _ACCEPT = ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.webp,.zip"
 
@@ -58,19 +59,121 @@ def _record_fingerprint(record: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _loopback_host_parts(value: Any) -> tuple[str, int | None] | None:
+    """Parse a strict loopback authority without accepting suffixes or invalid ports."""
+    match = re.fullmatch(r"(localhost|127\.0\.0\.1)(?::([0-9]{1,5}))?", str(value).lower())
+    if match is None:
+        return None
+    raw_port = match.group(2)
+    if raw_port is None:
+        return match.group(1), None
+    port = int(raw_port)
+    if not 1 <= port <= 65535:
+        return None
+    return match.group(1), port
+
+
 def _same_origin_loopback_post(environ: dict[str, Any]) -> bool:
-    """Require an explicit same-origin Origin and loopback Host for archive mutations."""
-    host = str(environ.get("HTTP_HOST", "")).lower()
-    origin = str(environ.get("HTTP_ORIGIN", ""))
-    if not (host == "localhost" or host.startswith("localhost:") or host == "127.0.0.1" or host.startswith("127.0.0.1:")):
+    """Require explicit matching loopback Host and Origin authorities for POSTs."""
+    if environ.get("_opaque_origin_csrf_validated") is True:
+        return _loopback_host_parts(environ.get("HTTP_HOST", "")) is not None
+    host = _loopback_host_parts(environ.get("HTTP_HOST", ""))
+    origin = str(environ.get("HTTP_ORIGIN", "")).lower()
+    match = re.fullmatch(r"http://(localhost|127\.0\.0\.1)(?::([0-9]{1,5}))?", origin)
+    if host is None or match is None:
         return False
-    match = re.fullmatch(r"http://(localhost|127\.0\.0\.1)(?::([0-9]{1,5}))?", origin.lower())
-    if not match:
+    authority = match.group(1) + (f":{match.group(2)}" if match.group(2) is not None else "")
+    return host == _loopback_host_parts(authority)
+
+
+class _PrefixedInput:
+    """Replay a bounded prefix already inspected by the opaque-origin gate."""
+
+    def __init__(self, prefix: bytes, stream: Any) -> None:
+        self._prefix = io.BytesIO(prefix)
+        self._stream = stream
+
+    def read(self, size: int = -1) -> bytes:
+        head = self._prefix.read(size)
+        if size < 0:
+            return head + self._stream.read()
+        if len(head) == size:
+            return head
+        return head + self._stream.read(size - len(head))
+
+
+def _validate_loopback_post(environ: dict[str, Any], csrf_token: str) -> bool:
+    """Allow exact same-origin loopback posts or bounded token-verified opaque-origin forms."""
+    if _same_origin_loopback_post(environ):
+        return True
+    if str(environ.get("HTTP_ORIGIN", "")).lower() != "null":
         return False
-    origin_host = match.group(1)
-    origin_port = match.group(2)
-    host_port = host.rsplit(":", 1)[1] if ":" in host else None
-    return origin_host == host.split(":", 1)[0] and (origin_port or None) == host_port
+    if _loopback_host_parts(environ.get("HTTP_HOST", "")) is None:
+        return False
+    header = Message()
+    header["content-type"] = environ.get("CONTENT_TYPE", "")
+    stream = environ.get("wsgi.input")
+    if stream is None or not hasattr(stream, "read"):
+        return False
+    if header.get_content_type() == "application/x-www-form-urlencoded":
+        try:
+            length = int(environ.get("CONTENT_LENGTH", ""))
+        except (TypeError, ValueError):
+            return False
+        if length <= 0 or length > 64 * 1024:
+            return False
+        body = stream.read(length)
+        if not isinstance(body, bytes) or len(body) != length:
+            return False
+        try:
+            values = parse_qs(body.decode("ascii"), strict_parsing=True,
+                              keep_blank_values=True, max_num_fields=_MAX_URLENCODED_FIELDS)
+        except (UnicodeDecodeError, ValueError):
+            return False
+        tokens = values.pop("_ocr2_csrf", [])
+        if len(tokens) != 1 or not tokens[0].isascii() or not secrets.compare_digest(tokens[0], csrf_token):
+            return False
+        if sum(len(items) for items in values.values()) >= _MAX_URLENCODED_FIELDS:
+            return False
+        environ["_parsed_form_values"] = values
+        environ["_opaque_origin_csrf_validated"] = True
+        return True
+    if header.get_content_type() != "multipart/form-data":
+        return False
+    try:
+        length = int(environ.get("CONTENT_LENGTH", ""))
+    except (TypeError, ValueError):
+        return False
+    boundary = header.get_param("boundary", header="content-type")
+    if length <= 0 or length > _MAX_UPLOAD_REQUEST_BYTES or not isinstance(boundary, str) or not boundary or len(boundary) > 200:
+        return False
+    prefix = stream.read(min(length, 4096))
+    if not isinstance(prefix, bytes) or len(prefix) != min(length, 4096):
+        return False
+    marker = b"--" + boundary.encode("ascii", errors="ignore") + b"\r\n"
+    if not prefix.startswith(marker):
+        return False
+    header_end = prefix.find(b"\r\n\r\n", len(marker))
+    if header_end < 0:
+        return False
+    part_headers = BytesParser(policy=policy.default).parsebytes(prefix[len(marker):header_end] + b"\r\n\r\n")
+    if (part_headers.get_content_disposition() != "form-data"
+            or part_headers.get_param("name", header="content-disposition") != "_ocr2_csrf"
+            or part_headers.get_filename() is not None):
+        return False
+    value_start = header_end + 4
+    value_end = prefix.find(b"\r\n", value_start)
+    if value_end < 0 or value_end - value_start > 256:
+        return False
+    try:
+        submitted_token = prefix[value_start:value_end].decode("ascii")
+    except UnicodeDecodeError:
+        return False
+    if not secrets.compare_digest(submitted_token, csrf_token):
+        return False
+    environ["wsgi.input"] = _PrefixedInput(prefix, stream)
+    environ["_opaque_origin_csrf_validated"] = True
+    return True
 
 
 class IntakeRequestError(ValueError):
@@ -111,8 +214,15 @@ def _multipart_files(environ: dict[str, Any]) -> list[tuple[str, bytes]]:
     if not message.is_multipart():
         raise IntakeRequestError("Corpo multipart non valido")
     files: list[tuple[str, bytes]] = []
+    csrf_count = 0
     for part in message.iter_parts():
-        if part.get_content_disposition() != "form-data" or part.get_param("name", header="content-disposition") != "files":
+        if part.get_content_disposition() != "form-data":
+            raise IntakeRequestError("Sono accettati soltanto campi file denominati 'files'")
+        field_name = part.get_param("name", header="content-disposition")
+        if field_name == "_ocr2_csrf" and part.get_filename() is None:
+            csrf_count += 1
+            continue
+        if field_name != "files":
             raise IntakeRequestError("Sono accettati soltanto campi file denominati 'files'")
         filename = part.get_filename()
         if not isinstance(filename, str) or not filename:
@@ -128,6 +238,8 @@ def _multipart_files(environ: dict[str, Any]) -> list[tuple[str, bytes]]:
             raise IntakeRequestError("Numero massimo di file superato")
     if not files:
         raise IntakeRequestError("Seleziona almeno un PDF, un'immagine o uno ZIP")
+    if csrf_count > 1 or (environ.get("_opaque_origin_csrf_validated") is True and csrf_count != 1):
+        raise IntakeRequestError("Richiesta locale non valida")
     return files
 
 
@@ -136,6 +248,14 @@ def _page(
     content_type: str = "text/html; charset=utf-8", *, download_filename: str | None = None,
 ) -> list[bytes]:
     nonce = secrets.token_urlsafe(18)
+    token = str(environ.get("_ocr2_csrf_token", ""))
+    csrf_field = f'<input type="hidden" name="_ocr2_csrf" value="{escape(token, quote=True)}">'
+    body = re.sub(
+        r'(<form\b(?=[^>]*\bmethod\s*=\s*["\']?post\b)[^>]*>)',
+        lambda match: match.group(1) + csrf_field,
+        body,
+        flags=re.IGNORECASE,
+    )
     payload = body.replace('nonce="__CSP_NONCE__"', f'nonce="{nonce}"').encode("utf-8")
     headers = [
         ("Content-Type", content_type),
@@ -636,9 +756,15 @@ def create_expense_report_app(
     if not isinstance(idle_timeout_seconds, int) or isinstance(idle_timeout_seconds, bool) or idle_timeout_seconds <= 0:
         raise ValueError("idle_timeout_seconds must be a positive integer")
     state: _VolatileSession | None = None
+    csrf_token = secrets.token_urlsafe(32)
 
     def app(environ: dict[str, Any], start_response: Callable) -> list[bytes]:
         nonlocal state
+        environ["_ocr2_csrf_token"] = csrf_token
+        if _loopback_host_parts(environ.get("HTTP_HOST", "")) is None:
+            return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+        if environ.get("REQUEST_METHOD", "") == "POST" and not _validate_loopback_post(environ, csrf_token):
+            return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
         now = clock()
         if state is not None and now - state.last_activity > idle_timeout_seconds:
             state = None
@@ -1075,10 +1201,14 @@ def _multipart_form_values(environ: dict[str, Any], *, max_form_bytes: int = 64 
     try:
         from urllib.parse import parse_qs
         values = parse_qs(
-            body.decode("ascii"), strict_parsing=True, keep_blank_values=True, max_num_fields=4
+            body.decode("ascii"), strict_parsing=True, keep_blank_values=True,
+            max_num_fields=_MAX_URLENCODED_FIELDS,
         )
     except (UnicodeDecodeError, ValueError) as exc:
         raise IntakeRequestError("Modulo di assegnazione non valido") from exc
+    tokens = values.pop("_ocr2_csrf", [])
+    if len(tokens) > 1 or sum(len(items) for items in values.values()) >= _MAX_URLENCODED_FIELDS:
+        raise IntakeRequestError("Modulo di assegnazione non valido")
     environ["_parsed_form_values"] = values
     return values
 
