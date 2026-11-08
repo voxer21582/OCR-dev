@@ -14,11 +14,19 @@ from .document_family_catalog import DocumentFamilyCatalog, catalog_from_snapsho
 from .contracts import validate_document_record
 from .document_validation import DocumentValidationError, validate_document_consistency
 from .ocr_adapter import OCRPageResult
-from .semantic_proposals import SemanticProposalError, propose_common_fields
+from .semantic_proposals import SemanticProposalError, SemanticProposalLimitError, propose_common_fields
 
 
 class AnalysisPipelineError(ValueError):
     """The source record and OCR observations cannot be safely combined."""
+
+
+class AnalysisProposalLimitError(AnalysisPipelineError):
+    """A proposal review limit prevented analysis."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
 
 
 @dataclass(frozen=True)
@@ -90,6 +98,8 @@ def analyze_ocr_results(
             document_family=document["document_family"],
             custom_family_catalog=active_catalog,
         )
+    except SemanticProposalLimitError as exc:
+        raise AnalysisProposalLimitError(exc.code) from exc
     except SemanticProposalError as exc:
         raise AnalysisPipelineError(f"OCR proposal validation failed: {exc}") from exc
 

@@ -532,5 +532,38 @@ class SemanticProposalTests(unittest.TestCase):
         self.assertNotIn("trip_start_date", invoice)
 
 
+from unittest.mock import patch
+
+class OverflowDiagnosticTests(unittest.TestCase):
+    def test_per_field_overflow_has_stable_code(self):
+        tokens = [OCRToken(str(i), '12,50', POLYGON) for i in range(101)]
+        with self.assertRaises(SemanticProposalError) as caught:
+            propose_common_fields([page(1, tokens)])
+        self.assertEqual(caught.exception.code, 'semantic_proposal_field_limit')
+
+    def test_catalog_overflow_has_stable_code(self):
+        from test_document_family_catalog import catalog_payload
+        from alfa_document_intelligence.document_family_catalog import load_custom_family_catalog
+        catalog = load_custom_family_catalog(json.dumps(catalog_payload()))
+        tokens = [OCRToken(str(i), 'RICEVUTA TAXI', POLYGON) for i in range(101)]
+        with self.assertRaises(SemanticProposalError) as caught:
+            propose_common_fields([page(1, tokens)], custom_family_catalog=catalog)
+        self.assertEqual(caught.exception.code, 'semantic_proposal_catalog_limit')
+
+    def test_family_merge_overflow_has_stable_code(self):
+        from test_document_family_catalog import catalog_payload
+        from alfa_document_intelligence.document_family_catalog import load_custom_family_catalog
+        catalog = load_custom_family_catalog(json.dumps(catalog_payload()))
+        tokens = [OCRToken('built'+str(i), 'INVOICE', POLYGON) for i in range(51)]
+        tokens += [OCRToken('custom'+str(i), 'RICEVUTA TAXI', POLYGON) for i in range(50)]
+        with self.assertRaises(SemanticProposalError) as caught:
+            propose_common_fields([page(1, tokens)], custom_family_catalog=catalog)
+        self.assertEqual(caught.exception.code, 'semantic_proposal_family_limit')
+    def test_invalid_input_is_not_overflow(self):
+        with self.assertRaises(SemanticProposalError) as caught:
+            propose_common_fields([page(1, []), page(1, [])])
+        self.assertFalse(hasattr(caught.exception, 'code'))
+
+
 if __name__ == "__main__":
     unittest.main()

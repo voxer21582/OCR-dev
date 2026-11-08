@@ -97,5 +97,16 @@ class AnalysisPipelineTests(unittest.TestCase):
             analyze_ocr_results(self.document, [self.page])
 
 
+
+class OverflowPipelineTests(AnalysisPipelineTests):
+    def test_overflow_code_propagates_without_output(self):
+        tokens = tuple(OCRToken(str(i), '12,50', POLYGON) for i in range(101))
+        page = OCRPageResult(self.document['source']['sha256'], 1, 'synthetic', '1', 'it', tokens)
+        with self.assertRaises(AnalysisPipelineError) as caught:
+            analyze_ocr_results(self.document, [page])
+        self.assertEqual(caught.exception.code, 'semantic_proposal_field_limit')
+        self.assertEqual(self.document, self.original)
+
+
 if __name__ == "__main__":
     unittest.main()
