@@ -1,5 +1,6 @@
 from io import BytesIO
 import hashlib
+import unittest
 
 from alfa_document_intelligence.document_decoder import DecodedPage
 from alfa_document_intelligence.ingestion import materialize_stream_batch
@@ -123,3 +124,95 @@ def test_local_processing_fails_closed_on_invalid_ocr_geometry():
         "status": "failed", "error_code": "ocr_contract_failed"
     }
     assert result["fields"] == {}
+
+
+class DocumentProcessingProgressTests(unittest.TestCase):
+    def setUp(self):
+        self.intake = _intake()
+        self.original = self.intake.documents["doc-1"]
+        self.adapter = PaddleOCRAdapter(FakeEngine(), "3.7.0", image_decoder=lambda page: None)
+
+    @staticmethod
+    def _decoder(page_count=1, emitted=1):
+        def decode(data, media_kind, *, source_sha256, limits):
+            assert hashlib.sha256(data).hexdigest() == source_sha256
+            assert media_kind == "pdf"
+            for number in range(1, emitted + 1):
+                yield DecodedPage(
+                    RasterPage(number, 100, 80, b"\x00" * (100 * 80 * 3)), page_count
+                )
+        return decode
+
+    def test_reports_page_progress_after_each_valid_page(self):
+        for reject_second_page in (False, True):
+            with self.subTest(reject_second_page=reject_second_page):
+                events = []
+
+                class RecordingEngine(FakeEngine):
+                    calls = 0
+
+                    def predict(self, image):
+                        self.calls += 1
+                        events.append(("ocr", self.calls))
+                        if reject_second_page and self.calls == 2:
+                            return FakeEngine(
+                                polygon=[[-1, 10], [40, 10], [40, 20], [10, 20]]
+                            ).predict(image)
+                        return super().predict(image)
+
+                adapter = PaddleOCRAdapter(
+                    RecordingEngine(), "3.7.0", image_decoder=lambda page: None
+                )
+                result = process_document_record(
+                    self.original,
+                    self.intake.source_bytes["doc-1"],
+                    adapter,
+                    decoder=self._decoder(page_count=2, emitted=2),
+                    progress_callback=lambda completed, total: events.append(
+                        ("progress", completed, total)
+                    ),
+                )
+                expected = [("ocr", 1), ("progress", 1, 2), ("ocr", 2)]
+                if reject_second_page:
+                    self.assertEqual(result["processing"]["ocr"], {
+                        "status": "failed", "error_code": "ocr_contract_failed",
+                    })
+                    self.assertEqual(result["pages"], [])
+                    self.assertEqual(result["fields"], {})
+                else:
+                    expected.append(("progress", 2, 2))
+                    self.assertEqual(result["source"]["page_count"], 2)
+                    self.assertEqual(result["processing"]["ocr"]["status"], "completed")
+                self.assertEqual(events, expected)
+
+    def test_progress_callback_is_optional(self):
+        result = process_document_record(
+            self.original,
+            self.intake.source_bytes["doc-1"],
+            self.adapter,
+            decoder=self._decoder(),
+        )
+        self.assertEqual(result["processing"]["ocr"]["status"], "completed")
+
+    def test_progress_callback_failure_returns_unprocessed_failure_record(self):
+        def fail_progress(_completed, _total):
+            raise RuntimeError("synthetic progress channel failure")
+
+        result = process_document_record(
+            self.original,
+            self.intake.source_bytes["doc-1"],
+            self.adapter,
+            decoder=self._decoder(),
+            progress_callback=fail_progress,
+        )
+        self.assertIsNot(result, self.original)
+        self.assertEqual(result["processing"]["ocr"], {
+            "status": "failed", "error_code": "ocr_failed",
+        })
+        self.assertEqual(result["fields"], {})
+        self.assertEqual(result["pages"], [])
+        self.assertEqual(result["source"], self.original["source"])
+        self.assertNotIn("page_count", self.original["source"])
+        self.assertEqual(result["processing"]["semantic_extraction"]["status"], "not_started")
+        self.assertEqual(result["processing"]["document_validation"]["status"], "not_started")
+        self.assertEqual(self.original["processing"]["ocr"]["status"], "not_started")

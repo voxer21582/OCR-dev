@@ -20,6 +20,7 @@ def process_document_record(
     *,
     decoder: Decoder = iter_decoded_pages,
     decode_limits: DecodeLimits = DecodeLimits(),
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     """Process one materialized source in memory and return an evidence-bound copy.
 
@@ -86,6 +87,8 @@ def process_document_record(
                 "width_px": decoded.raster.width_px,
                 "height_px": decoded.raster.height_px,
             })
+            if progress_callback is not None:
+                progress_callback(expected_page_number, declared_page_count)
         if declared_page_count is None or len(decoded_results) != declared_page_count:
             raise DocumentDecodeError("decoder did not produce every declared page")
     except DocumentDecodeError:
