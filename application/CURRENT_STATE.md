@@ -2,6 +2,12 @@
 
 Updated: 2026-11-08
 
+## Manual handoff correction candidate (2026-11-09)
+
+The isolated candidate retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.
+
+The allowlist and a `flagged` event do not constitute approval. A blocked review remains blocked, but the prompt does not necessarily display that state. No API call is made. The reviewer identified a missing explicit CI selector; it requires a separate CI PR. Remote tests and CI have not run for this candidate; no merge or R7/R8 work is claimed.
+
 ## Verified
 
 - This isolated candidate distinguishes three proposal overflow causes with fixed non-sensitive error codes and retains failed semantic extraction without returning new partial proposals. The explicit local synthetic regression command passed 84 tests; see the scoped diagnostic manifest. This is diagnostic preparation, not partial extraction, bounded accumulation, UI acceptance or an operational release.

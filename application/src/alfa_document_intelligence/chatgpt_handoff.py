@@ -25,13 +25,13 @@ def _human_confirmed_fields(
             isinstance(field_name, str)
             and field_name in allowed_fields
             and isinstance(candidate, dict)
-            and candidate.get("status") == "observed"
-            and candidate.get("value") is not None
         ):
             latest[field_name] = candidate
 
     fields: dict[str, dict[str, Any]] = {}
     for field_name, candidate in sorted(latest.items()):
+        if candidate.get("status") != "observed" or candidate.get("value") is None:
+            continue
         page_numbers = sorted({
             item["page_number"]
             for item in candidate.get("evidence", [])
