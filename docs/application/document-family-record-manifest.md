@@ -1,6 +1,6 @@
 # Document-family record binding: publication manifest
 
-Date: 2026-11-08. Base: PR [#46](https://github.com/voxer21582/OCR-dev/pull/46), commit `51925e7e1cedc1a2c639627e074b58d100efb921`. Related migration: [#42](https://github.com/voxer21582/OCR-dev/issues/42).
+Date: 2026-11-08. Base: canonical `main` at `0a2fba0731e230f385e305826b66e4ce17df854d`, after the owner-approved merges of PRs [#47](https://github.com/voxer21582/OCR-dev/pull/47) and [#46](https://github.com/voxer21582/OCR-dev/pull/46). This slice was initially developed on catalog commit `51925e7e1cedc1a2c639627e074b58d100efb921`, then rebased without source/test changes onto the merged base. Related migration: [#42](https://github.com/voxer21582/OCR-dev/issues/42).
 
 This candidate binds custom document families and fields to self-verifying definitions in the record. Schema 0.1.0 records remain supported without conversion; 0.2.0 records require embedded catalog snapshots. Selecting a family, observing a candidate, or assigning a custom field never establishes fiscal validity or administrative approval.
 
@@ -26,7 +26,7 @@ Only selected hunks are migrated, not those complete mixed files or their privat
 
 The 13-module synthetic application allowlist passes 195 tests locally, including 28 document-contract tests and 41 catalog tests. Before migration, the updated 25-test contract module reported seven failures and three absent-schema-key errors. After migration, two further binding gaps were reproduced and corrected: direct selected custom-family candidates lacked snapshot enforcement, and legacy records could declare empty snapshots contrary to their schema. Legacy schema versions are compared without assuming hashable input.
 
-The existing public workflow already selects `test_document_contract`; its import extension reaches only the catalog and OCR contract dataclasses, not an OCR engine. No workflow changes are included. The separate catalog CI extension remains PR #47. Local success is not a claim of a GitHub run for this branch or product acceptance.
+The existing public workflow already selects `test_document_contract` and, following PR #47, `test_document_family_catalog`; the import extension reaches only the catalog and OCR contract dataclasses, not an OCR engine. No workflow changes are included. Base `main` passed 22 taxonomy and 183 application tests in [run 42519804658](https://github.com/voxer21582/OCR-dev/actions/runs/42519804658). Local success is not a claim of a GitHub run for this new branch or product acceptance.
 
 Independent read-only review returned **READY**: 69 targeted contract/catalog tests and 35 additional synthetic probes passed, including valid v1/v2 snapshots, non-mutation, malformed shapes, altered hashes, duplicates and alternative amounts. The reviewer inspected the 195-test run evidence and the final publication scope. This is an agent review, not a formal GitHub approval. JSON Schema validation with a schema engine was not executed locally because `jsonschema` is absent in that environment; schema checks here are static/structural. No dependency was installed.
 
