@@ -1,8 +1,10 @@
 # Document Intelligence current state
 
-Updated: 2026-11-08
+Updated: 2026-11-09
 
 ## Verified
+
+- The isolated semantic-warning candidate displays a manual-verification warning for failed semantic extraction, with a fixed limit reason for three known overflow codes and no reflection of unknown codes. It does not assert that existing fields are absent. Five selected synthetic unittest cases passed locally; independent technical review is READY. See the [semantic warning manifest](../docs/application/semantic-failure-warning-manifest.md) for the exact command, scope and limits. CI and publication are separate and require owner review and merge.
 
 - This isolated candidate distinguishes three proposal overflow causes with fixed non-sensitive error codes and retains failed semantic extraction without returning new partial proposals. The explicit local synthetic regression command passed 84 tests; see the scoped diagnostic manifest. This is diagnostic preparation, not partial extraction, bounded accumulation, UI acceptance or an operational release.
 
