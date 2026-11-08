@@ -12,7 +12,7 @@ import re
 from typing import Iterable
 
 from .ocr_adapter import OCRPageResult, OCRToken
-from .document_family_catalog import DocumentFamilyCatalog, build_custom_family_proposals
+from .document_family_catalog import CatalogProposalLimitError, DocumentFamilyCatalog, build_custom_family_proposals
 
 _SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
 _ISO_DATE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
@@ -103,6 +103,14 @@ MAX_PROPOSALS_PER_FIELD = 100
 
 class SemanticProposalError(ValueError):
     """OCR pages cannot safely be converted to bounded, source-bound proposals."""
+
+class SemanticProposalLimitError(SemanticProposalError):
+    """A fixed proposal review limit was exceeded."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
 
 
 @dataclass(frozen=True)
@@ -216,7 +224,7 @@ def _candidate(proposals: list[_Proposal]) -> dict[str, object] | None:
     if not proposals:
         return None
     if len(proposals) > MAX_PROPOSALS_PER_FIELD:
-        raise SemanticProposalError("proposal count exceeds the review-safe limit")
+        raise SemanticProposalLimitError("semantic_proposal_field_limit")
     evidence: list[dict[str, object]] = []
     alternatives: list[dict[str, object]] = []
     for proposal in proposals:
@@ -440,6 +448,8 @@ def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: st
     if custom_family_catalog is not None:
         try:
             custom = build_custom_family_proposals(ordered_pages, custom_family_catalog)
+        except CatalogProposalLimitError as exc:
+            raise SemanticProposalLimitError("semantic_proposal_catalog_limit") from exc
         except ValueError as exc:
             raise SemanticProposalError("custom document-family catalog proposal failed") from exc
         for name, candidate in custom.items():
@@ -448,7 +458,7 @@ def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: st
                     raise SemanticProposalError("custom field identifier collides with a built-in field")
                 combined = result[name]
                 if len(combined["alternatives"]) + len(candidate["alternatives"]) > MAX_PROPOSALS_PER_FIELD:
-                    raise SemanticProposalError("proposal limit exceeded")
+                    raise SemanticProposalLimitError("semantic_proposal_family_limit")
                 combined["alternatives"].extend(candidate["alternatives"])
                 combined["evidence"].extend(candidate["evidence"])
             else:
