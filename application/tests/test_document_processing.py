@@ -216,3 +216,25 @@ class DocumentProcessingProgressTests(unittest.TestCase):
         self.assertEqual(result["processing"]["semantic_extraction"]["status"], "not_started")
         self.assertEqual(result["processing"]["document_validation"]["status"], "not_started")
         self.assertEqual(self.original["processing"]["ocr"]["status"], "not_started")
+
+class OverflowProcessingTests(unittest.TestCase):
+    def test_overflow_failed_status_is_distinct_and_no_partial_fields(self):
+        from unittest.mock import patch
+        intake = _intake()
+        adapter = PaddleOCRAdapter(FakeEngine(), '3.7.0', image_decoder=lambda page: None)
+        with patch('alfa_document_intelligence.semantic_proposals.MAX_PROPOSALS_PER_FIELD', 0):
+            result = process_document_record(intake.documents['doc-1'], intake.source_bytes['doc-1'], adapter, decoder=_decoder())
+        self.assertEqual(result['processing']['semantic_extraction'], {'status': 'failed', 'error_code': 'semantic_proposal_field_limit'})
+        self.assertEqual(result['fields'], {})
+    def test_all_overflow_codes_reach_processing(self):
+        from unittest.mock import patch
+        from alfa_document_intelligence.analysis_pipeline import AnalysisProposalLimitError
+        from alfa_document_intelligence.contracts import validate_document_record
+        intake = _intake()
+        adapter = PaddleOCRAdapter(FakeEngine(), '3.7.0', image_decoder=lambda page: None)
+        for code in ('semantic_proposal_field_limit', 'semantic_proposal_catalog_limit', 'semantic_proposal_family_limit'):
+            with self.subTest(code=code), patch('alfa_document_intelligence.document_processing.analyze_ocr_results', side_effect=AnalysisProposalLimitError(code)):
+                result = process_document_record(intake.documents['doc-1'], intake.source_bytes['doc-1'], adapter, decoder=_decoder())
+                self.assertEqual(result['processing']['semantic_extraction'], {'status': 'failed', 'error_code': code})
+                self.assertEqual(result['fields'], {})
+                self.assertEqual(validate_document_record(result), [])
