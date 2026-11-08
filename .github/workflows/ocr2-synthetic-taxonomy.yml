@@ -44,3 +44,19 @@ jobs:
           python -B -m unittest -v
           test_taxonomy_registry
           test_taxonomy_binding
+
+      - name: Run explicitly allowed synthetic application contracts
+        working-directory: application
+        env:
+          PYTHONPATH: ${{ github.workspace }}/application/src:${{ github.workspace }}/application/tests
+        run: >-
+          python -B -m unittest -v
+          test_public_data_guard
+          test_contract_baseline
+          test_document_contract
+          test_document_decoder_contract
+          test_ingestion
+          test_ocr_adapter
+          test_semantic_proposals
+          test_analysis_pipeline
+          test_document_validation
