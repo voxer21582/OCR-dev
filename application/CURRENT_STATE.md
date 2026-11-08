@@ -4,20 +4,21 @@ Updated: 2026-11-08
 
 ## Verified
 
-- The previously observed `main` snapshot `86c9398905fb4baf4a54b58b303ddf8325c4e768` contains the initial selective application snapshot under `application/` (PR #38), not the entire private application checkout.
-- A follow-up local branch contains loopback request-security changes and a source-hash-bound human region review for absent fields. Region correction does not run OCR, write to the archive, or change R7/R8.
-- On the isolated local clone, the explicit synthetic application test list including the optional RapidOCR adapter completed 142 tests; `py_compile` and `git diff --check` passed. Independent reviews marked the security code, manual-region UI after correction, RapidOCR adapter after raw-type validation fixes, and explicit CI test-list extensions READY.
-- The feature, security, and workflow commits are recorded in `../docs/migration/2026-11-07-document-intelligence-public-migration.md`; status-documentation commits follow those changes.
-- `rapidocr_adapter.py` defines a dependency-lazy adapter for an already-configured RapidOCR engine. It rejects boolean/text coordinates and confidence values before conversion. No RapidOCR package or model was installed or downloaded, and no engine/runtime result is claimed.
+- Public `main` at `86c9398905fb4baf4a54b58b303ddf8325c4e768` contains the initial selective application snapshot under `application/` (PR #38); it is not the full private checkout.
+- The isolated branch `codex/ocr2-manual-review-rapidocr` is based on the explicit synthetic application test baseline from PR #41 (`64bd4f4444bfc8c6f9c2a0358b13f857961fbb8e`). It adds loopback mutation protection, human-authored source-region evidence for absent fields, and an optional RapidOCR adapter around an already configured engine.
+- The explicit synthetic test command for this branch completed 142 tests successfully on 2026-11-08. It names `test_public_data_guard`, `test_contract_baseline`, `test_document_contract`, `test_document_decoder_contract`, `test_ingestion`, `test_ocr_adapter`, `test_semantic_proposals`, `test_analysis_pipeline`, `test_document_validation`, `test_loopback_csrf`, `test_manual_region_review`, and `test_rapidocr_adapter`.
+- `py_compile` passed for the changed application modules/tests, and `git diff --check` passed.
+- Manual region correction is bound to the source hash/page, does not run OCR, and does not write to the archive. R7/R8 were not touched.
+- `rapidocr_adapter.py` is dependency-lazy and accepts an already configured engine; no RapidOCR package/model was installed or downloaded, and no production OCR result is claimed.
 
-## Not verified / blocked
+## Not verified
 
-- The follow-up commits have not been pushed or run by GitHub Actions. This session could not reach GitHub, so no PR or Project update was made.
+- The follow-up branch is local and has not yet run through GitHub Actions; the 142-test result is local evidence only.
 - No Windows installer, production OCR runtime/model, real-document behavior, or release is accepted by this state record.
-- Public migration remains selective and incomplete. Further source files need provenance, privacy/licensing review, and an explicit migration decision.
+- Public migration remains selective; other source files require file-level provenance, privacy, license, and scope review.
 
 ## Next steps
 
-1. Publish the reviewed commits as separate, reviewable PRs when GitHub access is available; verify their bases and triggered checks.
-2. Merge only after required CI and owner approval, then record the merged commit and GitHub Actions evidence.
-3. Continue the file-by-file migration without modifying the original checkout or resuming blocked R7/R8 work.
+1. Publish the product changes as a reviewable PR stacked on PR #41, then verify its exact diff and triggered checks.
+2. Prepare a separate CI PR that adds only the three new synthetic test modules to the explicit allowlist; verify Actions before asking for integration.
+3. Do not merge either PR without the owner's merge approval; continue the migration file by file without modifying the original checkout or resuming R7/R8 work.
