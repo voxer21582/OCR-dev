@@ -535,6 +535,21 @@ class SemanticProposalTests(unittest.TestCase):
 from unittest.mock import patch
 
 class OverflowDiagnosticTests(unittest.TestCase):
+    def test_accumulation_stops_at_first_overflow_and_preserves_limit_order(self):
+        from alfa_document_intelligence import semantic_proposals as module
+        tokens = [OCRToken(str(i), f"{i + 1},50", POLYGON) for i in range(102)]
+        result = propose_common_fields([page(1, tokens[:100])])
+        self.assertEqual(
+            [item["value"] for item in result["amount_candidates"]["alternatives"]],
+            [f"{i + 1}.50" for i in range(100)],
+        )
+        original = module._evidence
+        with patch.object(module, "_evidence", wraps=original) as evidence:
+            with self.assertRaises(SemanticProposalError) as caught:
+                propose_common_fields([page(1, tokens)])
+        self.assertEqual(caught.exception.code, "semantic_proposal_field_limit")
+        self.assertLessEqual(evidence.call_count, 101)
+
     def test_per_field_overflow_has_stable_code(self):
         tokens = [OCRToken(str(i), '12,50', POLYGON) for i in range(101)]
         with self.assertRaises(SemanticProposalError) as caught:

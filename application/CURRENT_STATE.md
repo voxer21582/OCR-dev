@@ -4,6 +4,8 @@ Updated: 2026-11-08
 
 ## Verified
 
+- This isolated candidate bounds each common semantic proposal list during accumulation and retains the existing fail-closed overflow diagnostic. The selected local synthetic regression run passed 36 tests after an initial RED. Independent technical review is READY; see the scoped [manifest](../docs/application/bounded-proposal-accumulation-manifest.md). It does not implement partial extraction or bound all OCR inputs.
+
 - This isolated candidate distinguishes three proposal overflow causes with fixed non-sensitive error codes and retains failed semantic extraction without returning new partial proposals. The explicit local synthetic regression command passed 84 tests; see the scoped diagnostic manifest. This is diagnostic preparation, not partial extraction, bounded accumulation, UI acceptance or an operational release.
 
 - Owner-approved PRs #48/#49/#50/#51/#52/#53 are merged. Public main `0b486a40434b793f295b4e08b689f0d5de238b74` passes **230 synthetic tests** in [run 42527883161](https://github.com/voxer21582/OCR-dev/actions/runs/42527883161): 22 taxonomy + 208 application. The optional factory, explicit RGB bridge and page-progress callback are included, with no default launcher activation. See the [factory manifest](../docs/application/optional-runtime-factory-manifest.md) for source review, synthetic scope and pending worker integration. The required check and administrator protections remain enabled; force-push and deletion remain disabled.
