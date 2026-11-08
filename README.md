@@ -6,7 +6,7 @@ This public repository is the shared OCR2 workspace. It contains versioned taxon
 
 The GitHub Actions workflow [OCR2 synthetic taxonomy](.github/workflows/ocr2-synthetic-taxonomy.yml) runs on pushes, pull requests, and manual dispatch. It uses the standard Ubuntu 24.04 runner with CPython 3.13.18 and the hash-locked JSON Schema dependency closure from `requirements/ci-taxonomy-cp313-ubuntu-24_04.lock`. The `main` branch requires a pull request and a successful **Taxonomy registry and binding** check before merge.
 
-Verified on 2026-11-08 at `main` commit `5d07041366bd3875099a3667b5de0fa57a12a2d4`: [Actions run 42471102240](https://github.com/voxer21582/OCR-dev/actions/runs/42471102240) passed **164 synthetic tests**: 22 taxonomy tests and 142 application tests from the 12 explicitly listed modules. The workflow uses no automatic test discovery. The application coverage includes ingestion and evidence contracts, semantic proposals and validation, loopback request protection, manual source-region review, and the RapidOCR adapter contract with an injected synthetic engine.
+Verified on 2026-11-08 at `main` commit `0a2fba0731e230f385e305826b66e4ce17df854d`: [Actions run 42519804658](https://github.com/voxer21582/OCR-dev/actions/runs/42519804658) passed **205 synthetic tests**: 22 taxonomy tests and 183 application tests from the 13 explicitly listed modules. The workflow uses no automatic test discovery. The application coverage includes ingestion and evidence contracts, semantic proposals and validation, loopback request protection, manual source-region review, the configurable document-family catalog, and the RapidOCR adapter contract with an injected synthetic engine.
 
 To reproduce the taxonomy portion on Ubuntu 24.04 x86-64 with Python 3.13, install the locked dependencies and run these two modules:
 
@@ -27,12 +27,13 @@ PYTHONPATH=src:tests python -B -m unittest -v \
   test_public_data_guard test_contract_baseline test_document_contract \
   test_document_decoder_contract test_ingestion test_ocr_adapter \
   test_semantic_proposals test_analysis_pipeline test_document_validation \
-  test_loopback_csrf test_manual_region_review test_rapidocr_adapter
+  test_loopback_csrf test_manual_region_review test_rapidocr_adapter \
+  test_document_family_catalog
 ```
 
 On Windows PowerShell, set `$env:PYTHONPATH='src;tests'` first and invoke the same `python -B -m unittest` module list. These tests use synthetic inputs and isolated temporary files where required. They do not invoke an installed OCR engine, download models or transmit documents.
 
-The configurable document-family catalog and its separate CI extension are under review in [PR #46](https://github.com/voxer21582/OCR-dev/pull/46) and [PR #47](https://github.com/voxer21582/OCR-dev/pull/47). Their [verified PR run](https://github.com/voxer21582/OCR-dev/actions/runs/42517495781) passed 205 synthetic tests (22 taxonomy + 183 application). That additional coverage belongs to the PR branch until integration; it is not part of the `main` result above.
+The configurable document-family catalog and its separate CI extension were integrated through [PR #46](https://github.com/voxer21582/OCR-dev/pull/46) and [PR #47](https://github.com/voxer21582/OCR-dev/pull/47). The catalog's 41 synthetic tests are included in the `main` result above; this library coverage does not establish its UI or archive integration.
 
 ## Data and scope
 
