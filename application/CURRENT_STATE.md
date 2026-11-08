@@ -1,8 +1,10 @@
 # Document Intelligence current state
 
-Updated: 2026-11-08
+Updated: 2026-11-09
 
 ## Verified
+
+- This isolated candidate corrects context-dependent tax arithmetic using exact integer cents. Canonical amount strings longer than 128 characters intentionally produce the existing warning/indeterminate finding; the limit applies to the calculation, not the full input or evidence. Ten selected synthetic tests passed locally, with RED and the reproduction command recorded in the [exact arithmetic manifest](../docs/application/exact-tax-arithmetic-manifest.md). Evidence and input remain preserved; no fiscal or payment approval is implied. The technical review is READY; remote CI has not run. A separate CI PR must add the new test selector, and merge remains with the owner.
 
 - This isolated candidate distinguishes three proposal overflow causes with fixed non-sensitive error codes and retains failed semantic extraction without returning new partial proposals. The explicit local synthetic regression command passed 84 tests; see the scoped diagnostic manifest. This is diagnostic preparation, not partial extraction, bounded accumulation, UI acceptance or an operational release.
 
