@@ -7,6 +7,12 @@ import re
 from typing import Protocol, Sequence
 
 _SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
+MAX_OCR_PAGES_PER_DOCUMENT = 100
+MAX_OCR_TOKENS_PER_PAGE = 10_000
+MAX_OCR_TOKENS_PER_DOCUMENT = 100_000
+MAX_OCR_TOKEN_ID_CHARS = 256
+MAX_OCR_TOKEN_TEXT_CHARS = 4_096
+MAX_OCR_POLYGON_VERTICES = 256
 Point = tuple[float, float]
 Polygon = tuple[Point, ...]
 

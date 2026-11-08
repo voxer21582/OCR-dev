@@ -63,3 +63,4 @@ jobs:
           test_loopback_csrf
           test_manual_region_review
           test_rapidocr_adapter
+          test_document_family_catalog
