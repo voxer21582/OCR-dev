@@ -1,5 +1,10 @@
+import ctypes
+import gc
+import sys
 import unittest
-from types import SimpleNamespace
+import weakref
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
 
 from alfa_document_intelligence.ocr_adapter import OCRContractError, RasterPage, run_ocr
 from alfa_document_intelligence.rapidocr_adapter import RapidOCRAdapter
@@ -16,6 +21,88 @@ class FakeEngine:
 
 
 class RapidOCRAdapterContractTests(unittest.TestCase):
+    def test_default_bridge_declares_rgb_and_owns_buffer_through_engine_call(self):
+        rgb = bytes((5, 17, 241, 42, 83, 127, 9, 111, 202, 210, 16, 3))
+        page = RasterPage(1, 2, 2, rgb)
+        captured = {}
+        buffer_refs = []
+        array_calls = []
+        create_buffer = ctypes.create_string_buffer
+
+        def tracked_buffer(*args):
+            buffer = create_buffer(*args)
+            buffer_refs.append(weakref.ref(buffer))
+            return buffer
+
+        def raw_memory_image(**kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(**kwargs)
+
+        def fake_frombuffer(*args, **kwargs):
+            array_calls.append((args, kwargs))
+            return SimpleNamespace(reshape=lambda shape: SimpleNamespace(shape=shape))
+
+        package = ModuleType("rapidocr")
+        utils = ModuleType("rapidocr.utils")
+        image_module = ModuleType("rapidocr.utils.load_image")
+        image_module.RawMemoryImage = raw_memory_image
+        numpy_module = ModuleType("numpy")
+        numpy_module.uint8 = "synthetic uint8"
+        numpy_module.frombuffer = fake_frombuffer
+        modules = {
+            "rapidocr": package,
+            "rapidocr.utils": utils,
+            "rapidocr.utils.load_image": image_module,
+            "numpy": numpy_module,
+        }
+
+        def engine(image):
+            self.assertEqual(getattr(image, "pixel_format", None), "RGB")
+            self.assertEqual((image.width, image.height, image.stride, image.length), (2, 2, 6, 12))
+            gc.collect()
+            self.assertEqual(len(buffer_refs), 1)
+            owner = buffer_refs[0]()
+            self.assertIsNotNone(owner)
+            self.assertEqual(image.address, ctypes.addressof(owner))
+            self.assertEqual(ctypes.string_at(image.address, image.length), rgb)
+            return SimpleNamespace(boxes=[], txts=[], scores=[])
+
+        with patch.dict(sys.modules, modules), patch.object(
+            ctypes, "create_string_buffer", side_effect=tracked_buffer
+        ):
+            adapter = RapidOCRAdapter(engine, "3.10.0")
+            self.assertEqual(adapter.recognize(page, ("it", "en")), ())
+
+        self.assertEqual(captured["pixel_format"], "RGB")
+        self.assertEqual(array_calls, [])
+        gc.collect()
+        self.assertIsNone(buffer_refs[0]())
+
+    def test_default_bridge_rejects_versions_without_raw_memory_image(self):
+        for version in ("3.9.9", "3", "unknown"):
+            with self.subTest(version=version):
+                with self.assertRaisesRegex(ValueError, "requires RapidOCR >=3.10"):
+                    RapidOCRAdapter(FakeEngine(None), version)
+
+    def test_injected_decoder_preserves_single_object_and_legacy_version(self):
+        marker = (object(), object())
+        page = RasterPage(1, 1, 1, b"synthetic callback data")
+        decoded = []
+
+        def decode(supplied_page):
+            decoded.append(supplied_page)
+            return marker
+
+        for version in ("3.9.9", "external-engine"):
+            with self.subTest(version=version):
+                engine = FakeEngine(SimpleNamespace(boxes=[], txts=[], scores=[]))
+                adapter = RapidOCRAdapter(engine, version, image_decoder=decode)
+                with patch.dict(sys.modules, {"rapidocr": None, "numpy": None}):
+                    self.assertEqual(adapter.recognize(page, ("it", "en")), ())
+                self.assertIs(adapter.image_decoder, decode)
+                self.assertIs(engine.seen[0], marker)
+        self.assertEqual(decoded, [page, page])
+
     def test_normalizes_rapidocr_boxes_and_binds_page_and_source(self):
         marker = object()
         engine = FakeEngine(SimpleNamespace(
