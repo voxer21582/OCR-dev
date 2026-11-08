@@ -2,11 +2,11 @@
 
 Updated: 2026-11-09
 
-## Manual handoff correction candidate (2026-11-09)
+## Accepted manual handoff correction (2026-11-09)
 
-The isolated candidate retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.
+The accepted implementation retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.
 
-The allowlist and a `flagged` event do not constitute approval. A blocked review remains blocked, but the prompt does not necessarily display that state. No API call is made. The reviewer identified a missing explicit CI selector; it requires a separate CI PR. Remote tests and CI have not run for this candidate; no merge or R7/R8 work is claimed.
+The allowlist and a `flagged` event do not constitute approval. A blocked review remains blocked, but the prompt does not necessarily display that state. No API call is made. PRs #61/#62 were merged by owner approval; main `e5cc34232702a164e24e0a6e4e2e959d43b29c63` passed 270 synthetic tests in [run 42536807942](https://github.com/voxer21582/OCR-dev/actions/runs/42536807942). No R7/R8 work is claimed.
 
 ## Verified
 
