@@ -31,7 +31,7 @@ Independent review identified a test gap: checking only final counts could miss 
 
 Static import inspection confirms all selected calls use existing application modules and the standard library. Every case injects a fake decoder and fake engine/image converter; lazy PIL, PDFium and NumPy paths are not called. The synthetic PDF header is held in memory and is not decoded by a native engine. No model, vendor runtime, process or UI is started.
 
-The four existing pytest-style free-function tests are **not executed by this unittest class** and are not claimed as verified. The three new cases require an explicit class selector in a separate CI change; no discovery or workflow edit is included here. Independent review and remote results must be recorded before claiming those gates have passed.
+The four existing pytest-style free-function tests are **not executed by this unittest class** and are not claimed as verified. Independent final review is READY after inspecting the strengthened timing tests, mutation evidence, final diff and import closure. This is agent review, not formal GitHub approval. The three new cases require an explicit class selector in a separate CI change; no discovery or workflow edit is included here. Remote results must be read separately before claiming CI coverage.
 
 ## Exclusions
 
