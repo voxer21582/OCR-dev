@@ -1,6 +1,6 @@
 # Optional page progress: publication manifest
 
-Date: 2026-11-08. Base: public `main` at `68fea56e51606f4efb122c5738dada7180a81aae`. Related migration: #42. The existing owner-approved background-job design includes this small processor interface; this contribution does not include the worker itself.
+Date: 2026-11-08. Initial base: public `main` at `68fea56e51606f4efb122c5738dada7180a81aae`; refreshed onto accepted `595753c5f92ece72b3081c340f31ae90795585e5` without changing the callback source or tests. Related migration: #42. The existing owner-approved background-job design includes this small processor interface; this contribution does not include the worker itself.
 
 ## Scope and provenance
 

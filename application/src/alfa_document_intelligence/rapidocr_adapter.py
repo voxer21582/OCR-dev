@@ -6,7 +6,9 @@ whose recognition route is configured for a model covering Italian and English.
 """
 from __future__ import annotations
 
+import ctypes
 import math
+import re
 from numbers import Real
 from typing import Any, Callable
 
@@ -14,7 +16,7 @@ from .ocr_adapter import OCRToken, RasterPage
 
 
 def _decode_rgb(page: RasterPage) -> Any:
-    """Convert a bounded, tightly packed RGB8 page to the array RapidOCR accepts."""
+    """Retained array decoder; recognize replaces this default with the RGB bridge."""
     import numpy as np
 
     expected = page.width_px * page.height_px * 3
@@ -23,6 +25,30 @@ def _decode_rgb(page: RasterPage) -> Any:
     return np.frombuffer(page.image_bytes, dtype=np.uint8).reshape(
         (page.height_px, page.width_px, 3)
     )
+
+
+def _build_rgb_memory_image(page: RasterPage) -> tuple[Any, Any]:
+    """Build RapidOCR 3.10's explicit RGB view and retain its backing buffer."""
+    expected = page.width_px * page.height_px * 3
+    if not isinstance(page.image_bytes, bytes) or len(page.image_bytes) != expected:
+        raise ValueError("RasterPage must contain tightly packed RGB8 pixel bytes")
+    if page.width_px < 1 or page.height_px < 1:
+        raise ValueError("page dimensions must be positive")
+
+    # Delayed import keeps the engine optional and does not initialize or fetch
+    # any models. RawMemoryImage avoids RapidOCR's OpenCV-style ndarray BGR path.
+    from rapidocr.utils.load_image import RawMemoryImage
+
+    buffer = ctypes.create_string_buffer(page.image_bytes, len(page.image_bytes))
+    image = RawMemoryImage(
+        address=ctypes.addressof(buffer),
+        length=len(page.image_bytes),
+        width=page.width_px,
+        height=page.height_px,
+        pixel_format="RGB",
+        stride=page.width_px * 3,
+    )
+    return image, buffer
 
 
 def _output_sequences(result: Any) -> tuple[Any, Any, Any]:
@@ -54,6 +80,8 @@ class RapidOCRAdapter:
     route such as PP-OCRv6 `multi`; a PP-OCRv6 `latin` route is not assumed.
     Engine creation and model provenance remain outside this class so merely
     importing this optional adapter cannot load a runtime or acquire a model.
+    The default bridge requires RapidOCR 3.10 and declares RGB explicitly;
+    injected image_decoder callbacks still return one engine-input object.
     """
 
     name = "RapidOCR"
@@ -71,6 +99,10 @@ class RapidOCRAdapter:
             raise ValueError("RapidOCR version is required")
         if not callable(image_decoder):
             raise ValueError("image_decoder must be callable")
+        if image_decoder is _decode_rgb:
+            match = re.match(r"^(\d+)\.(\d+)(?:\.|$)", version)
+            if match is None or tuple(map(int, match.groups())) < (3, 10):
+                raise ValueError("RapidOCR RawMemoryImage input requires RapidOCR >=3.10")
         self.engine = engine
         self.version = version
         self.image_decoder = image_decoder
@@ -81,7 +113,15 @@ class RapidOCRAdapter:
         if page.width_px < 1 or page.height_px < 1:
             raise ValueError("page dimensions must be positive")
 
-        result = self.engine(self.image_decoder(page))
+        if self.image_decoder is _decode_rgb:
+            image, image_owner = _build_rgb_memory_image(page)
+            try:
+                result = self.engine(image)
+            finally:
+                # The raw address stays valid throughout synchronous inference.
+                del image_owner
+        else:
+            result = self.engine(self.image_decoder(page))
         boxes, texts, scores = _output_sequences(result)
         tokens: list[OCRToken] = []
         for index, (box, text, score) in enumerate(zip(boxes, texts, scores), start=1):
