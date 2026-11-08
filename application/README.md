@@ -19,4 +19,6 @@ Open `http://127.0.0.1:8000/`. This preview binds to loopback and is not a produ
 
 ## Verification limits
 
-The repository-root required check currently validates only taxonomy registry and binding contracts. Application test files are included for review but are not automatically executed by that required check. Native PDF isolation, Windows packaging, real-document performance, runtime dependency licensing, and product acceptance remain separate gates.
+The repository-root required check runs taxonomy contracts and an explicit allowlist of application contract modules. On 2026-11-08, [main CI run 42471102240](https://github.com/voxer21582/OCR-dev/actions/runs/42471102240) passed 22 taxonomy tests and 142 application tests. The [workflow](../.github/workflows/ocr2-synthetic-taxonomy.yml) gives the exact module list. The separate catalog CI extension is under review in [PR #47](https://github.com/voxer21582/OCR-dev/pull/47), whose [205-test result](https://github.com/voxer21582/OCR-dev/actions/runs/42517495781) is not yet part of main.
+
+Other test files in this directory are not automatically selected. Native OCR/PDF behavior, Windows packaging, real-document performance, runtime dependency licensing, archive acceptance, and full product acceptance remain separate gates. The public launcher accepts only the port option and does not yet construct an OCR engine or start background OCR jobs; installing optional packages alone does not enable that flow.
