@@ -4,12 +4,11 @@ Updated: 2026-11-08
 
 ## Verified
 
-- An isolated optional-runtime-factory candidate now also fixes the default RGB bridge while preserving injected `image_decoder` callbacks. The explicit application allowlist passes **193 local synthetic tests**, including **19 targeted factory/adapter tests** with fake vendor objects and distinct channel bytes. Independent review of the expanded factory/RGB diff is READY. The [scoped manifest](../docs/application/optional-runtime-factory-manifest.md) records provenance and the pending eighth worker test. Worker/launcher integration, real vendor inference and remote verification remain separate; no runtime is enabled by this candidate.
-
-- API verification on 2026-11-08 confirms PRs #41/#43/#44/#46/#47 are merged. This candidate is based on public `main` `0a2fba0731e230f385e305826b66e4ce17df854d`; [run 42519804658](https://github.com/voxer21582/OCR-dev/actions/runs/42519804658) passed 22 taxonomy + 183 application tests (205 total) from its explicit allowlist. The dated pre-merge evidence below remains historical.
-- The integrated document-family catalog adds configurable literal classifications, typed field proposals with source evidence, canonical version/hash snapshots and atomic local JSON catalog persistence. This is a library contribution, not a UI or archive implementation. Its [publication manifest](../docs/application/document-family-catalog-manifest.md) states provenance and exclusions. Separate record-binding PR #49 remains under review and is not assumed part of this candidate's base.
-- On the canonical candidate base, the 12 existing synthetic application modules plus `test_document_family_catalog` pass **183 local tests** (142 existing + 41 catalog). The catalog regressions preserve valid large snapshot and save/reopen roundtrips while rejecting malformed/oversized input. No installed OCR engine is invoked.
-- Reproduction from `application/` with the existing Python environment: `PYTHONPATH=src:tests python -B -m unittest -q test_public_data_guard test_contract_baseline test_document_contract test_document_decoder_contract test_ingestion test_ocr_adapter test_semantic_proposals test_analysis_pipeline test_document_validation test_loopback_csrf test_manual_region_review test_rapidocr_adapter test_document_family_catalog` (use `;` as the path separator on Windows).
+- PRs [#48](https://github.com/voxer21582/OCR-dev/pull/48) and [#49](https://github.com/voxer21582/OCR-dev/pull/49) were squash-merged after explicit owner approval and refreshed successful checks. Public `main` is `68fea56e51606f4efb122c5738dada7180a81aae`. [Run 42522647362](https://github.com/voxer21582/OCR-dev/actions/runs/42522647362) passed **217 synthetic tests**: 22 taxonomy + 195 application. [CodeQL 42522647351](https://github.com/voxer21582/OCR-dev/actions/runs/42522647351) passed. The required check and administrator protections remain enabled; force-push and deletion remain disabled.
+- The integrated catalog and record contract support legacy 0.1.0 records and 0.2.0 records with self-verifying custom-family snapshots. Selected family identifiers, field names and typed values are validated against those definitions. The [catalog manifest](../docs/application/document-family-catalog-manifest.md) and [record manifest](../docs/application/document-family-record-manifest.md) preserve source provenance, review and the local static-only JSON Schema validation limit. Pipeline, UI and archive integration are not implied.
+- Optional-runtime-factory PR [#50](https://github.com/voxer21582/OCR-dev/pull/50) fixes the default RGB bridge while preserving injected `image_decoder` callbacks. Its separately reviewed CI PR [#51](https://github.com/voxer21582/OCR-dev/pull/51) adds seven direct factory tests to the explicit allowlist. On their earlier catalog-only base, [run 42522413273](https://github.com/voxer21582/OCR-dev/actions/runs/42522413273) passed **215 synthetic tests** (22 + 193). That historical result predates the new record-contract base.
+- After bringing the approved `main` changes into the factory candidate and reconciling only this status document, the unchanged factory/RGB source and tests pass **205 local application tests** through the explicit 14-module allowlist. No installed OCR engine is invoked. The [factory manifest](../docs/application/optional-runtime-factory-manifest.md) records the original 19 targeted tests, RED/GREEN regressions, review and pending worker test. A new remote result for this combined candidate must be read separately; 205 is a local application count, not a claim about `main` or full product acceptance.
+- Reproduction from `application/`: `PYTHONPATH=src:tests python -B -m unittest -q test_public_data_guard test_contract_baseline test_document_contract test_document_decoder_contract test_ingestion test_ocr_adapter test_semantic_proposals test_analysis_pipeline test_document_validation test_loopback_csrf test_manual_region_review test_rapidocr_adapter test_document_family_catalog test_rapidocr_runtime_factory` (use `;` as the path separator on Windows).
 
 ### Earlier dated evidence
 
@@ -24,12 +23,12 @@ Updated: 2026-11-08
 
 ## Not verified
 
-- The seven direct factory tests are not yet selected by the published CI; a separate one-module extension is needed. The RGB tests reside in the already selected adapter module. The local 193-test application result is not a remote result for this candidate, and does not include the separate record-binding PR #49 changes.
+- PRs #50/#51 are not merged. The seven direct factory tests require the separate CI extension; the RGB tests are already in the selected adapter module. No worker, launcher or UI integration is included, and no runtime is enabled by this candidate.
 - No Windows installer, production OCR runtime/model, real-document behavior, or release is accepted by this state record.
 - Public migration remains selective; other source files require file-level provenance, privacy, license, and scope review.
 
 ## Next steps
 
-1. Review the optional factory/RGB candidate and its separate CI allowlist proposal; merge remains subject to owner approval. PRs #41/#43/#44/#46/#47 no longer await integration. PR #49 is a separate record-binding contribution.
-2. Continue the source-vs-public inventory and per-file manifest for remaining migration candidates; do not copy unreviewed or concurrent changes.
-3. Continue without modifying the original checkout or resuming R7/R8 work.
+1. Review the refreshed factory/RGB candidate and its separate CI allowlist proposal; their merges remain subject to owner approval. PRs #41/#43/#44/#46/#47/#48/#49 are already integrated.
+2. Continue scoped worker dependencies, including optional page progress, then catalog propagation. Do not copy unreviewed or concurrent changes.
+3. Preserve the original checkout and all R7/R8 stop/no-retry restrictions.

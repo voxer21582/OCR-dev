@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from alfa_document_intelligence.contracts import validate_document_record
+from alfa_document_intelligence.document_family_catalog import load_custom_family_catalog
 
 ROOT = Path(__file__).parents[1]
 SCHEMA_PATH = ROOT / "src" / "alfa_document_intelligence" / "schemas" / "document.schema.json"
@@ -11,6 +12,210 @@ FIXTURE_PATH = Path(__file__).parent / "fixtures" / "synthetic_invoice.json"
 
 
 class DocumentContractTests(unittest.TestCase):
+    def test_selected_custom_family_candidate_also_requires_snapshot(self):
+        for version in ("0.1.0", "0.2.0"):
+            with self.subTest(version=version):
+                record = copy.deepcopy(self.fixture)
+                record["schema_version"] = version
+                record["fields"]["document_family_candidates"] = {
+                    "value": "custom_taxi_receipt", "status": "observed",
+                    "alternatives": [],
+                    "evidence": copy.deepcopy(record["fields"]["issue_date"]["evidence"]),
+                }
+                self.assertTrue(any(
+                    "custom family candidate requires its snapshot" in issue
+                    for issue in validate_document_record(record)
+                ))
+
+    def test_legacy_record_cannot_declare_even_empty_snapshots(self):
+        record = copy.deepcopy(self.fixture)
+        record["document_family_definitions"] = []
+        self.assertTrue(any(
+            "custom families require schema 0.2.0" in issue
+            for issue in validate_document_record(record)
+        ))
+
+    def test_non_string_schema_version_returns_an_issue(self):
+        for version in ([], {}, None, 2):
+            with self.subTest(version=version):
+                record = copy.deepcopy(self.fixture)
+                record["schema_version"] = version
+                self.assertTrue(any(
+                    issue.startswith("schema_version:")
+                    for issue in validate_document_record(record)
+                ))
+
+    def test_schema_accepts_typed_catalog_v2_snapshot_fields(self):
+        definition = self.schema["$defs"]["documentFamilyDefinition"]
+        self.assertEqual(definition["properties"]["catalog_version"]["enum"], ["1", "2"])
+        field_properties = definition["properties"]["family"]["properties"]["fields"]["items"]["properties"]
+        field_type = field_properties["type"]
+        self.assertEqual(field_type["enum"], ["text", "identifier", "date", "amount"])
+        self.assertEqual(field_properties["required"]["type"], "boolean")
+
+    def test_schema_forbids_typed_fields_in_catalog_v1_snapshots(self):
+        definition = self.schema["$defs"]["documentFamilyDefinition"]
+        v1_rule = next(
+            rule for rule in definition["allOf"]
+            if rule["if"]["properties"]["catalog_version"].get("const") == "1"
+        )
+        field_item = v1_rule["then"]["properties"]["family"]["properties"]["fields"]["items"]
+        forbidden = field_item["not"]["anyOf"]
+        self.assertIn({"required": ["type"]}, forbidden)
+        self.assertIn({"required": ["required"]}, forbidden)
+
+    def test_legacy_records_remain_valid_and_custom_family_requires_self_verifying_snapshot(self):
+        self.assertEqual(self.fixture["schema_version"], "0.1.0")
+        self.assertEqual(validate_document_record(self.fixture), [])
+
+        catalog = load_custom_family_catalog(json.dumps({
+            "catalog_version": "1",
+            "families": [{
+                "id": "custom_taxi_receipt", "label": "Ricevuta taxi",
+                "title_cues": ["RICEVUTA TAXI"], "fields": [],
+            }],
+        }, ensure_ascii=False))
+        custom = copy.deepcopy(self.fixture)
+        custom["schema_version"] = "0.2.0"
+        custom["document_family"] = "custom_taxi_receipt"
+        custom["document_family_definitions"] = [catalog.snapshot_for("custom_taxi_receipt")]
+        self.assertEqual(validate_document_record(custom), [])
+
+        custom["document_family_definitions"][0]["family"]["label"] = "Altered"
+        self.assertTrue(any(
+            "family_sha256" in issue for issue in validate_document_record(custom)
+        ))
+
+    def test_custom_family_candidate_requires_snapshot_even_before_human_selection(self):
+        candidate = copy.deepcopy(self.fixture)
+        candidate["schema_version"] = "0.2.0"
+        candidate["fields"]["document_family_candidates"] = {
+            "value": None, "status": "uncertain", "evidence": [],
+            "alternatives": [{
+                "value": "custom_taxi_receipt", "status": "observed",
+                "evidence": [copy.deepcopy(self.fixture["fields"]["issue_date"]["evidence"][0])],
+            }],
+        }
+        self.assertTrue(any(
+            "custom family candidate requires its snapshot" in issue
+            for issue in validate_document_record(candidate)
+        ))
+
+    def test_custom_typed_field_is_valid_with_catalog_v2_snapshot(self):
+        catalog = load_custom_family_catalog(json.dumps({
+            "catalog_version": "2",
+            "families": [{
+                "id": "custom_taxi_receipt", "label": "Ricevuta taxi",
+                "title_cues": ["RICEVUTA TAXI"],
+                "fields": [{"id": "trip_date", "label": "Data corsa", "aliases": ["Data"], "type": "date"}],
+            }],
+        }, ensure_ascii=False))
+        record = copy.deepcopy(self.fixture)
+        record["schema_version"] = "0.2.0"
+        record["document_family_definitions"] = [catalog.snapshot_for("custom_taxi_receipt")]
+        evidence = copy.deepcopy(record["fields"]["issue_date"]["evidence"][0])
+        record["fields"]["custom_taxi_receipt_trip_date"] = {
+            "value": None,
+            "status": "uncertain",
+            "evidence": [evidence],
+            "alternatives": [{
+                "value": "2026-03-02", "status": "observed", "evidence": [evidence],
+                "normalization": {
+                    "rule_id": "date-dmy", "rule_version": "1",
+                    "original_literal": "02/03/2026", "normalized_value": "2026-03-02",
+                },
+            }],
+        }
+
+        self.assertEqual(validate_document_record(record), [])
+
+    def test_custom_typed_values_must_match_snapshot_type(self):
+        catalog = load_custom_family_catalog(json.dumps({
+            "catalog_version": "2",
+            "families": [{
+                "id": "custom_taxi_receipt", "label": "Ricevuta taxi",
+                "title_cues": ["RICEVUTA TAXI"],
+                "fields": [
+                    {"id": "trip_date", "label": "Data corsa", "aliases": ["Data"], "type": "date"},
+                    {"id": "fare", "label": "Tariffa", "aliases": ["Importo"], "type": "amount"},
+                    {"id": "reference", "label": "Riferimento", "aliases": ["Codice"], "type": "identifier"},
+                ],
+            }],
+        }, ensure_ascii=False))
+        record = copy.deepcopy(self.fixture)
+        record["schema_version"] = "0.2.0"
+        record["document_family_definitions"] = [catalog.snapshot_for("custom_taxi_receipt")]
+        evidence = copy.deepcopy(record["fields"]["issue_date"]["evidence"][0])
+        for name, value in (
+            ("custom_taxi_receipt_trip_date", "02/03/2026"),
+            ("custom_taxi_receipt_fare", "12,50"),
+            ("custom_taxi_receipt_reference", {"not": "an identifier"}),
+        ):
+            record["fields"][name] = {
+                "value": value, "status": "observed", "alternatives": [], "evidence": [evidence],
+            }
+
+        issues = validate_document_record(record)
+
+        self.assertTrue(any("custom date value must be a valid ISO date" in issue for issue in issues))
+        self.assertTrue(any("custom amount value must be a canonical decimal string" in issue for issue in issues))
+        self.assertTrue(any("custom identifier value must be text" in issue for issue in issues))
+
+    def test_record_rejects_mixed_catalog_snapshot_versions(self):
+        v1 = load_custom_family_catalog(json.dumps({
+            "catalog_version": "1", "families": [{
+                "id": "custom_taxi_receipt", "label": "Taxi", "title_cues": ["TAXI"], "fields": [],
+            }],
+        }))
+        v2 = load_custom_family_catalog(json.dumps({
+            "catalog_version": "2", "families": [{
+                "id": "custom_hotel_receipt", "label": "Hotel", "title_cues": ["HOTEL"], "fields": [],
+            }],
+        }))
+        record = copy.deepcopy(self.fixture)
+        record["schema_version"] = "0.2.0"
+        record["document_family_definitions"] = [
+            v1.snapshot_for("custom_taxi_receipt"),
+            v2.snapshot_for("custom_hotel_receipt"),
+        ]
+
+        self.assertTrue(any(
+            "snapshots use mixed catalog versions" in issue
+            for issue in validate_document_record(record)
+        ))
+
+    def test_custom_field_name_requires_a_matching_family_snapshot(self):
+        record = copy.deepcopy(self.fixture)
+        record["fields"]["custom_taxi_receipt_pickup_city"] = copy.deepcopy(
+            record["fields"]["issue_date"]
+        )
+
+        issues = validate_document_record(record)
+
+        self.assertTrue(any(
+            "custom field requires a matching family snapshot" in issue for issue in issues
+        ))
+
+    def test_custom_field_name_must_be_declared_by_its_family_snapshot(self):
+        catalog = load_custom_family_catalog(json.dumps({
+            "catalog_version": "1",
+            "families": [{
+                "id": "custom_taxi_receipt", "label": "Ricevuta taxi",
+                "title_cues": ["RICEVUTA TAXI"],
+                "fields": [{"id": "pickup_city", "label": "Città di partenza", "aliases": ["Partenza"]}],
+            }],
+        }, ensure_ascii=False))
+        record = copy.deepcopy(self.fixture)
+        record["schema_version"] = "0.2.0"
+        record["document_family_definitions"] = [catalog.snapshot_for("custom_taxi_receipt")]
+        record["fields"]["custom_taxi_receipt_unlisted"] = copy.deepcopy(record["fields"]["issue_date"])
+
+        issues = validate_document_record(record)
+
+        self.assertTrue(any(
+            "custom field is not declared by its family snapshot" in issue for issue in issues
+        ))
+
     @classmethod
     def setUpClass(cls):
         cls.schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -18,7 +223,7 @@ class DocumentContractTests(unittest.TestCase):
 
     def test_schema_is_draft_2020_12_and_defines_evidence_binding(self):
         self.assertEqual(self.schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
-        self.assertEqual(self.schema["properties"]["schema_version"]["const"], "0.1.0")
+        self.assertEqual(self.schema["properties"]["schema_version"]["enum"], ["0.1.0", "0.2.0"])
         evidence = self.schema["$defs"]["evidence"]
         self.assertIn("source_sha256", evidence["required"])
         self.assertIn("page_number", evidence["required"])
