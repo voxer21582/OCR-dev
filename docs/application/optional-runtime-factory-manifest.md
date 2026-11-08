@@ -1,6 +1,6 @@
 # Optional RapidOCR factory and RGB bridge: publication manifest
 
-Date: 2026-11-08. Base: canonical main `0a2fba0731e230f385e305826b66e4ce17df854d`. Related migration: #42. This reviewed six-file source candidate is not an operational OCR runtime or an approved binary distribution. Publication is limited to these manifest files under the owner's existing source-migration mandate; the coordination handoffs themselves grant no publication authority.
+Date: 2026-11-08. Initial base: canonical main `0a2fba0731e230f385e305826b66e4ce17df854d`; refreshed base after the approved record-contract merge: `68fea56e51606f4efb122c5738dada7180a81aae`. Related migration: #42. This reviewed six-file source candidate is not an operational OCR runtime or an approved binary distribution. Publication is limited to these manifest files under the owner's existing source-migration mandate; the coordination handoffs themselves grant no publication authority.
 
 ## Scope and provenance
 
@@ -28,6 +28,8 @@ Before migration the direct module could not import the missing factory. After a
 Three focused RGB test methods then reproduced four failing subcases before the bridge correction. The corrected scope passes **19 targeted tests** (seven factory + twelve adapter), preserving all nine previous adapter tests. It verifies different RGB channel bytes, dimensions, stride, buffer validity during the synchronous call and later release; it also verifies the unchanged single-object callback path, including tuples and legacy/custom version labels. The minimum version applies only to the default RawMemoryImage path. Vendor and NumPy modules are fake objects in these checks. The complete explicit 14-module local application allowlist passes **193 tests**. Independent read-only review of the expanded factory/RGB candidate returned READY, independently passed the 19 targeted tests and inspected the full allowlist evidence. This agent review is not a formal GitHub approval.
 
 Final RGB source/test hashes (LF): adapter `e0e5a319d5aad553e8dc938d194a6dd2b9dce99b302db7b5056a69c6ddd38e48`; adapter test `8bce0ed383af4c3b679cec4ab382e232367ff7eb1155e53074878312349c65ed`.
+
+The later main refresh keeps all four factory/adapter source and test files unchanged. Only the overlapping status document required reconciliation. The same explicit 14-module local application command then passed **205 tests**, now including the 12 record-contract additions from the approved PR #49. The earlier stacked CI run [42522413273](https://github.com/voxer21582/OCR-dev/actions/runs/42522413273) passed 22 + 193 tests on the catalog-only base; it does not stand in for remote verification of this refreshed candidate. The product and one-module CI changes remain in separate PRs #50 and #51.
 
 ## Dependencies and exclusions
 
