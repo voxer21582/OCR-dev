@@ -1,0 +1,145 @@
+"""Deterministic document-level consistency checks.
+
+These checks report findings only. They do not alter extracted fields or make
+administrative, reimbursement, payment, or accounting decisions.
+"""
+from __future__ import annotations
+
+from datetime import date
+import json
+import re
+from decimal import Decimal, InvalidOperation
+from typing import Any
+
+from .contracts import validate_document_record
+
+_RULES = {
+    "hotel_document": (
+        "check_in_date",
+        "check_out_date",
+        "hotel-stay-date-order",
+    ),
+}
+_TAX_ARITHMETIC_FAMILIES = {"invoice", "fiscal_receipt", "hotel_document"}
+_TAX_ARITHMETIC_FIELDS = ("taxable_base", "vat_amount", "total_amount")
+_CENT_AMOUNT = re.compile(r"^-?(?:0|[1-9][0-9]*)\.[0-9]{2}$")
+
+
+class DocumentValidationError(ValueError):
+    """The record is malformed or not ready for document validation."""
+
+
+def _candidate_evidence(candidate: dict[str, Any]) -> list[dict[str, Any]]:
+    evidence = list(candidate.get("evidence", []))
+    for alternative in candidate.get("alternatives", []):
+        evidence.extend(alternative.get("evidence", []))
+    unique: dict[str, dict[str, Any]] = {}
+    for item in evidence:
+        unique[json.dumps(item, ensure_ascii=False, sort_keys=True)] = item
+    return [unique[key] for key in sorted(unique)]
+
+
+def _date_value(candidate: dict[str, Any]) -> date | None:
+    if candidate.get("status") != "observed":
+        return None
+    value = candidate.get("value")
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.isoformat() == value else None
+
+
+
+def _unique_evidence(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    unique: dict[str, dict[str, Any]] = {}
+    for candidate in candidates:
+        for item in _candidate_evidence(candidate):
+            unique[json.dumps(item, ensure_ascii=False, sort_keys=True)] = item
+    return [unique[key] for key in sorted(unique)]
+
+
+def _observed_decimal(candidate: dict[str, Any]) -> Decimal | None:
+    if candidate.get("status") != "observed":
+        return None
+    value = candidate.get("value")
+    if not isinstance(value, str) or not _CENT_AMOUNT.fullmatch(value):
+        return None
+    try:
+        return Decimal(value)
+    except InvalidOperation:
+        return None
+
+
+def _tax_arithmetic_finding(fields: dict[str, Any]) -> dict[str, Any] | None:
+    if not all(name in fields for name in _TAX_ARITHMETIC_FIELDS):
+        return None
+    candidates = [fields[name] for name in _TAX_ARITHMETIC_FIELDS]
+    values = [_observed_decimal(candidate) for candidate in candidates]
+    evidence = _unique_evidence(candidates)
+    if all(value is not None for value in values) and values[0] + values[1] == values[2]:
+        outcome, severity, message_code = "pass", "info", "taxable_base_vat_sum_matches_total"
+    else:
+        # A difference can reflect discounts, charges, rounding, or uncertain
+        # extraction; it is a review signal, never a fiscal failure verdict.
+        outcome, severity, message_code = (
+            "indeterminate", "warning", "tax_total_arithmetic_requires_review"
+        )
+    return {
+        "rule_id": "taxable-base-vat-total-arithmetic",
+        "rule_version": "1",
+        "dimension": "amount_arithmetic_consistency",
+        "severity": severity,
+        "outcome": outcome,
+        "evidence": evidence,
+        "field_names": list(_TAX_ARITHMETIC_FIELDS),
+        "message_code": message_code,
+    }
+
+def validate_document_consistency(record: dict[str, Any]) -> list[dict[str, Any]]:
+    """Check supported document relationships and return evidence-bound findings.
+
+    Hotel stay dates are ordered when both are observed ISO dates. For invoices,
+    fiscal receipts, and hotel documents, an arithmetic-only check compares
+    explicitly represented taxable base plus VAT amount with total. A mismatch,
+    an uncertain value, or a non-canonical amount is indeterminate and requires
+    review because other charges, discounts, or rounding may explain it. Neither
+    rule establishes tax treatment, fiscal validity, or administrative approval.
+    """
+    contract_issues = validate_document_record(record)
+    if contract_issues:
+        raise DocumentValidationError("record contract failed: " + "; ".join(contract_issues))
+    fields = record["fields"]
+    findings: list[dict[str, Any]] = []
+    rule = _RULES.get(record.get("document_family"))
+    if rule is not None:
+        start_name, end_name, rule_id = rule
+        if start_name in fields and end_name in fields:
+            start, end = fields[start_name], fields[end_name]
+            evidence = _unique_evidence([start, end])
+            start_value, end_value = _date_value(start), _date_value(end)
+            if start_value is None or end_value is None:
+                outcome, severity, message_code = (
+                    "indeterminate", "warning", "hotel_stay_dates_require_review"
+                )
+            elif start_value <= end_value:
+                outcome, severity, message_code = "pass", "info", "hotel_stay_date_order_valid"
+            else:
+                outcome, severity, message_code = "fail", "error", "hotel_checkout_precedes_checkin"
+            findings.append({
+                "rule_id": rule_id,
+                "rule_version": "1",
+                "dimension": "date_consistency",
+                "severity": severity,
+                "outcome": outcome,
+                "evidence": evidence,
+                "field_names": [start_name, end_name],
+                "message_code": message_code,
+            })
+    if record.get("document_family") in _TAX_ARITHMETIC_FAMILIES:
+        finding = _tax_arithmetic_finding(fields)
+        if finding is not None:
+            findings.append(finding)
+    return findings

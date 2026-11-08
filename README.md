@@ -1,6 +1,6 @@
-# OCR2 taxonomy contracts
+# OCR2 Document Intelligence
 
-This repository currently contains a small, synthetic-testable slice of OCR2: versioned taxonomy catalog validation and updates, plus hash-bound taxonomy bindings. It does not contain the full application.
+This public repository is the shared OCR2 workspace. It contains versioned taxonomy contracts at the root and the Document Intelligence application under `application/`. The application directory contains source, synthetic fixtures/tests, and technical documentation. The required root CI check currently runs only taxonomy registry and binding tests; application tests are not yet included in that check.
 
 ## Continuous integration
 
@@ -18,11 +18,11 @@ PYTHONPATH=src:tests python -B -m unittest -v \
   test_taxonomy_binding
 ```
 
-The test modules build synthetic catalogs and use temporary SQLite directories where persistence is needed. They do not require sample documents, OCR output, network access, or an OCR model. The same command selects 19 registry tests and 3 binding tests in this repository snapshot.
+The selected modules build synthetic catalogs and use temporary SQLite directories where persistence is needed. They do not require sample documents, OCR output, network access, or an OCR model. The same command selects 19 registry tests and 3 binding tests; it does not validate the application in `application/`.
 
 ## Data and scope
 
-Do not add company documents, personal data, OCR text, credentials, or derived sensitive values to this public repository or its CI. No OCR engine, model, document ingestion, or external document service runs in this workflow. The workflow has read-only repository permissions and references GitHub Actions by full commit SHA.
+Do not add company documents, personal data, OCR text, credentials, or derived sensitive values to this public repository or its CI. The taxonomy workflow does not run OCR or external document services. Application OCR is disabled by default and is outside this workflow. The workflow has read-only repository permissions and references GitHub Actions by full commit SHA.
 
 This CI result covers only the taxonomy registry and binding test modules. It is not a full application test suite and does not establish OCR accuracy, Windows runtime readiness, real-document safety, pilot usefulness, or release readiness.
 

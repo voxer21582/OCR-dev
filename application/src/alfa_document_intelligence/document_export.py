@@ -1,0 +1,109 @@
+"""Local serialization helpers for validated document intelligence records.
+
+These functions serialize metadata only. They never read or include source-file
+bytes and never write files or transmit exported content.
+"""
+from __future__ import annotations
+
+import csv
+import io
+import json
+from typing import Any
+
+from .contracts import validate_document_record
+
+CSV_EXPORT_VERSION = "ocr2-document-csv-v1"
+CSV_COLUMNS = (
+    "export_format_version",
+    "document_id",
+    "schema_version",
+    "document_family",
+    "source_sha256",
+    "source_filename_json",
+    "field_name",
+    "candidate_json",
+)
+_REQUIRED_RECORD_PROPERTIES = (
+    "schema_version",
+    "document_id",
+    "source",
+    "document_family",
+    "language",
+    "fiscal_document_state",
+    "pages",
+    "processing",
+    "fields",
+    "validation_findings",
+    "review",
+    "administrative_verification",
+)
+
+
+class ExportValidationError(ValueError):
+    """The record does not satisfy the document contract and cannot be exported."""
+
+    def __init__(self, issues: list[str]) -> None:
+        self.issues = tuple(issues)
+        super().__init__("document record is invalid: " + "; ".join(issues))
+
+
+def _validated_record(record: dict[str, Any]) -> dict[str, Any]:
+    issues = validate_document_record(record)
+    if isinstance(record, dict):
+        missing = [key for key in _REQUIRED_RECORD_PROPERTIES if key not in record]
+        if missing:
+            issues.append("record: missing required properties: " + ", ".join(missing))
+    if issues:
+        raise ExportValidationError(issues)
+    return record
+
+
+def _json_text(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+
+
+def export_document_json(record: dict[str, Any]) -> str:
+    """Return a complete, deterministic JSON serialization of one valid record.
+
+    The record remains in its schema-defined shape so it can be validated and
+    consumed by existing contract-aware tools. The caller controls where it is
+    saved; callers must treat the result as sensitive local document data.
+    """
+    return json.dumps(
+        _validated_record(record), ensure_ascii=True, sort_keys=True, indent=2
+    ) + "\n"
+
+
+def export_document_csv(record: dict[str, Any]) -> str:
+    """Return a tabular, non-round-trip projection of a valid record.
+
+    Each row represents one field candidate. Candidate values, alternatives,
+    and evidence are encoded as JSON in a cell, preserving their structure and
+    ensuring a free-text literal is not placed at the start of a CSV cell.
+    The JSON export should be used when a complete record is required.
+    """
+    document = _validated_record(record)
+    fields = document["fields"]
+    field_names = sorted(fields)
+    if not field_names:
+        field_names = [""]
+
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=CSV_COLUMNS, lineterminator="\r\n")
+    writer.writeheader()
+    for field_name in field_names:
+        writer.writerow(
+            {
+                "export_format_version": CSV_EXPORT_VERSION,
+                "document_id": document["document_id"],
+                "schema_version": document["schema_version"],
+                "document_family": document["document_family"],
+                "source_sha256": document["source"]["sha256"],
+                "source_filename_json": _json_text(
+                    document["source"].get("original_filename")
+                ),
+                "field_name": field_name,
+                "candidate_json": _json_text(fields[field_name]) if field_name else "",
+            }
+        )
+    return output.getvalue()

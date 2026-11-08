@@ -1,0 +1,200 @@
+{
+  "schema_version": "0.1.0",
+  "document_id": "synthetic-pos-payment-001",
+  "source": {
+    "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "media_type": "application/pdf",
+    "byte_length": 1024,
+    "original_filename": "synthetic-pos-payment-001.pdf",
+    "received_at": "2026-10-14T10:00:00Z",
+    "storage_ref": "private://synthetic/synthetic-pos-payment-001",
+    "page_count": 1
+  },
+  "document_family": "pos_slip",
+  "language": "it",
+  "fiscal_document_state": {
+    "status": "payment_evidence",
+    "evidence": [
+      {
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "page_number": 1,
+        "region": {
+          "coordinate_space": "normalized_page",
+          "polygon": [
+            [
+              0.1,
+              0.1
+            ],
+            [
+              0.8,
+              0.1
+            ],
+            [
+              0.8,
+              0.2
+            ],
+            [
+              0.1,
+              0.2
+            ]
+          ]
+        },
+        "literal": "PAGAMENTO CARTA - NON DOCUMENTO FISCALE",
+        "producer": {
+          "stage": "human_review",
+          "name": "synthetic-label",
+          "version": "1"
+        }
+      }
+    ]
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width_px": 1000,
+      "height_px": 1400,
+      "orientation": "portrait"
+    }
+  ],
+  "processing": {
+    "ingestion": {
+      "status": "completed"
+    },
+    "ocr": {
+      "status": "not_started"
+    },
+    "semantic_extraction": {
+      "status": "not_started"
+    },
+    "document_validation": {
+      "status": "not_started"
+    },
+    "administrative_verification": {
+      "status": "not_started"
+    }
+  },
+  "fields": {
+    "payment_amount": {
+      "value": "18.00",
+      "status": "observed",
+      "alternatives": [],
+      "evidence": [
+        {
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "page_number": 1,
+          "region": {
+            "coordinate_space": "normalized_page",
+            "polygon": [
+              [
+                0.6,
+                0.8
+              ],
+              [
+                0.9,
+                0.8
+              ],
+              [
+                0.9,
+                0.9
+              ],
+              [
+                0.6,
+                0.9
+              ]
+            ]
+          },
+          "literal": "18.00 EUR",
+          "producer": {
+            "stage": "human_review",
+            "name": "synthetic-label",
+            "version": "1"
+          }
+        }
+      ]
+    },
+    "currency": {
+      "value": "EUR",
+      "status": "observed",
+      "alternatives": [],
+      "evidence": [
+        {
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "page_number": 1,
+          "region": {
+            "coordinate_space": "normalized_page",
+            "polygon": [
+              [
+                0.8,
+                0.8
+              ],
+              [
+                0.9,
+                0.8
+              ],
+              [
+                0.9,
+                0.85
+              ],
+              [
+                0.8,
+                0.85
+              ]
+            ]
+          },
+          "literal": "EUR",
+          "producer": {
+            "stage": "human_review",
+            "name": "synthetic-label",
+            "version": "1"
+          }
+        }
+      ]
+    },
+    "payment_recipient_role": {
+      "value": "merchant",
+      "status": "observed",
+      "alternatives": [],
+      "evidence": [
+        {
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "page_number": 1,
+          "region": {
+            "coordinate_space": "normalized_page",
+            "polygon": [
+              [
+                0.1,
+                0.1
+              ],
+              [
+                0.7,
+                0.1
+              ],
+              [
+                0.7,
+                0.16
+              ],
+              [
+                0.1,
+                0.16
+              ]
+            ]
+          },
+          "literal": "Caffè Alfa",
+          "producer": {
+            "stage": "human_review",
+            "name": "synthetic-label",
+            "version": "1"
+          }
+        }
+      ]
+    }
+  },
+  "validation_findings": [],
+  "review": {
+    "status": "not_started",
+    "events": []
+  },
+  "administrative_verification": {
+    "status": "not_started"
+  }
+}
