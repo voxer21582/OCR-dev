@@ -60,6 +60,10 @@ _BUILTIN_FAMILY_IDS = {
 class DocumentFamilyCatalogError(ValueError):
     """Catalog input is malformed, ambiguous, or outside its fixed limits."""
 
+class CatalogProposalLimitError(DocumentFamilyCatalogError):
+    """Custom proposal review limit was exceeded."""
+
+
 
 def _pairs_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
@@ -673,7 +677,7 @@ def build_custom_family_proposals(
             family = title_lookup.get(folded)
             if family is not None:
                 if proposal_count >= MAX_PROPOSALS:
-                    raise DocumentFamilyCatalogError("custom proposals exceed the review-safe limit")
+                    raise CatalogProposalLimitError("custom proposals exceed the review-safe limit")
                 family_proposals.append((family.id, _evidence(page, token)))
                 proposal_count += 1
             for family in catalog.families:
@@ -685,7 +689,7 @@ def build_custom_family_proposals(
                     typed = _typed_values(field["type"], value)
                     new_proposal_count = len(typed) if typed else 1
                     if proposal_count + new_proposal_count > MAX_PROPOSALS:
-                        raise DocumentFamilyCatalogError("custom proposals exceed the review-safe limit")
+                        raise CatalogProposalLimitError("custom proposals exceed the review-safe limit")
                     item_evidence = _evidence(page, token)
                     if typed:
                         field_proposals.setdefault(name, []).extend(
@@ -711,7 +715,7 @@ def build_custom_family_proposals(
             if field["required"] and field_name not in field_proposals:
                 missing_required.append(field_name)
     if proposal_count + len(missing_required) > MAX_PROPOSALS:
-        raise DocumentFamilyCatalogError("custom-field proposals exceed the review-safe limit")
+        raise CatalogProposalLimitError("custom-field proposals exceed the review-safe limit")
     result.update({
         name: {"value": None, "status": "absent", "evidence": [], "alternatives": []}
         for name in missing_required

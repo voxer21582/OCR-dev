@@ -5,7 +5,7 @@ from copy import deepcopy
 import hashlib
 from typing import Any, Callable, Iterable
 
-from .analysis_pipeline import AnalysisPipelineError, analyze_ocr_results
+from .analysis_pipeline import AnalysisPipelineError, AnalysisProposalLimitError, analyze_ocr_results
 from .document_family_catalog import DocumentFamilyCatalog
 from .document_decoder import DecodeLimits, DecodedPage, DocumentDecodeError, iter_decoded_pages
 from .ocr_adapter import OCRContractError, OCREngineAdapter, OCRPageResult, run_ocr
@@ -113,6 +113,11 @@ def process_document_record(
     }
     try:
         return analyze_ocr_results(prepared, decoded_results, custom_family_catalog=custom_family_catalog).document
+    except AnalysisProposalLimitError as exc:
+        prepared["processing"]["semantic_extraction"] = {
+            "status": "failed", "error_code": exc.code,
+        }
+        return prepared
     except AnalysisPipelineError:
         prepared["processing"]["semantic_extraction"] = {
             "status": "failed",
