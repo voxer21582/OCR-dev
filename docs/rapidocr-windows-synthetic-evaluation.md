@@ -1,10 +1,10 @@
 # One-run RapidOCR Windows synthetic evaluation
 
-Status: scoped implementation for an owner-authorized, single GitHub-hosted Windows run. This is an evaluation harness, not an OCR2 runtime choice or release.
+Status: the single authorized attempt has completed but failed at Python setup before installing packages or models. This follow-up proposes a patch-version correction only; no second run is authorized. This is an evaluation harness, not an OCR2 runtime choice or release.
 
 ## Scope and observable result
 
-- One push to branch `codex/rapidocr-windows-smoke-20261107` triggers one `windows-2025` job. The evaluation workflow has no pull-request, schedule, or manual-dispatch trigger. Do not reuse or update that branch after the authorized run.
+- The workflow listens only for a push to branch `codex/rapidocr-windows-smoke-20261107`; it has no pull-request, schedule, or manual-dispatch trigger. The original authorized push already ran and failed before dependency installation; do not push to or update that branch without a fresh owner authorization.
 - It generates exactly seven authored synthetic pages in a runner temporary directory using Pillow's embedded, sized default font. It never reads a user file, repository sample document, document archive, or real OCR.
 - It evaluates the RapidOCR 3.10.0 PP-OCRv6 small detector/recognizer through ONNX Runtime CPU. The wheel also contains its legacy text-line orientation classifier; that third model is hash-verified but explicitly disabled and never invoked. The runner verifies every bundled ONNX model SHA-256 before inference.
 - It reports only aggregate CER/WER counters, total synthetic bytes, a combined synthetic-input digest, model hashes, package versions, and elapsed time. It does not print OCR text, emit per-case results, upload artifacts, or persist images or raw recognition output. The job summary contains the same aggregate JSON; GitHub retains ordinary workflow logs and summaries.
@@ -43,13 +43,14 @@ This is a bounded metadata/license-notice review for the one evaluation, not a l
 
 ## Reproduction and gate
 
-The workflow has a CPython 3.13 minor selector with its resolved patch recorded in aggregate output, exact explicit test-module list, pinned Actions, hash-required package installs, package-consistency check, and aggregate-only smoke command. The generator and metrics contract tests can run locally with the Python standard library; the optional Pillow image-rendering test is skipped where Pillow is absent. Native inference is intentionally not run locally.
+The follow-up workflow pins CPython 3.13.17, which appears in the current official `windows-2025` cached-tools manifest; that image manifest is mutable, so the pin must be rechecked before any newly authorized run. The exact explicit test-module list, pinned Actions, hash-required package installs, package-consistency check, and aggregate-only smoke command remain unchanged. The original run resolved the floating `3.13` selector to 3.13.18, then failed because that version was unavailable in the runner manifest; it did not install packages or models and ran no OCR. The generator and metrics contract tests can run locally with the Python standard library; the optional Pillow image-rendering test is skipped where Pillow is absent. Native inference is intentionally not run locally.
 
 No retry is authorized after a hash/provenance mismatch, unexpected network/model acquisition, non-synthetic input, raw text emission, or uncertain cleanup. A successful run is one feasibility observation only. It neither selects RapidOCR for product use nor closes any OCR2 acceptance gate.
 
 ## Primary sources reviewed
 
 - [GitHub standard hosted runner pricing](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job)
+- [Windows Server 2025 runner image software manifest](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)
 - [RapidOCR 3.10.0 installation guide](https://rapidai.github.io/RapidOCRDocs/main/install_usage/rapidocr/install/)
 - [RapidOCR 3.10.0 model registry](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/python/rapidocr/default_models.yaml)
 - [RapidOCR model license and attribution notice at commit `4a3070f`](https://github.com/RapidAI/RapidOCR/blob/4a3070f304467e6d426e78a82afea5cb1181f305/python/MODEL_LICENSES.md)

@@ -42,9 +42,9 @@ class RapidOCRWorkflowContractTests(unittest.TestCase):
     def test_humanfriendly_windows_dependency_is_hash_locked(self):
         self.assertIn('pyreadline3==3.5.6 --hash=sha256:8449b734232e42a5dcd74048e39b60db2839a4c38cf3ae2bf7707d58b5389c0d', RUNTIME_LOCK)
 
-    def test_python_minor_selector_uses_available_cpython_313_patch(self):
-        self.assertIn('python-version: "3.13"', WORKFLOW)
-        self.assertNotIn('python-version: "3.13.18"', WORKFLOW)
+    def test_python_patch_pin_is_available_on_windows_2025(self):
+        self.assertRegex(WORKFLOW, r'(?m)^\s*python-version:\s*"3\.13\.17"\s*$')
+        self.assertNotRegex(WORKFLOW, r'(?m)^\s*python-version:\s*"3\.13"\s*$')
 
     def test_runtime_lock_contains_the_reviewed_onnx_rapidocr_pair(self):
         self.assertIn("rapidocr==3.10.0 --hash=sha256:2fc34e26cd0f48514804a94f8832283039c7334076bff60768b1fed9ad068050", RUNTIME_LOCK)
