@@ -28,6 +28,8 @@ The 13-module synthetic application allowlist passes 195 tests locally, includin
 
 The existing public workflow already selects `test_document_contract` and, following PR #47, `test_document_family_catalog`; the import extension reaches only the catalog and OCR contract dataclasses, not an OCR engine. No workflow changes are included. Base `main` passed 22 taxonomy and 183 application tests in [run 42519804658](https://github.com/voxer21582/OCR-dev/actions/runs/42519804658). Local success is not a claim of a GitHub run for this new branch or product acceptance.
 
+Remote evidence subsequently verified: PR #49 at `c08c6f6981755937289829261ac6077b38283f23` passed its [PR run](https://github.com/voxer21582/OCR-dev/actions/runs/42520056083) and [push run](https://github.com/voxer21582/OCR-dev/actions/runs/42520048656). The PR log confirms 22 taxonomy + 195 application tests, total **217**. CodeQL Python and Actions also passed. These results apply to this candidate; they do not assert a merge or operational acceptance. Later documentation-only commits preserve the three reviewed source/test hashes below.
+
 Independent read-only review returned **READY**: 69 targeted contract/catalog tests and 35 additional synthetic probes passed, including valid v1/v2 snapshots, non-mutation, malformed shapes, altered hashes, duplicates and alternative amounts. The reviewer inspected the 195-test run evidence and the final publication scope. This is an agent review, not a formal GitHub approval. JSON Schema validation with a schema engine was not executed locally because `jsonschema` is absent in that environment; schema checks here are static/structural. No dependency was installed.
 
 Final reviewed source SHA-256 (LF-normalized content):

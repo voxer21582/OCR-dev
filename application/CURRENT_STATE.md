@@ -4,7 +4,7 @@ Updated: 2026-11-08
 
 ## Verified
 
-- A separate record-binding candidate based on the newly integrated catalog supports legacy 0.1.0 records and 0.2.0 records with self-verifying custom-family snapshots. Custom selections, field names and typed values are checked against those definitions. The existing 13-module local synthetic allowlist passes **195 tests**, including 28 document-contract and 41 catalog tests. Independent review is READY, with 69 targeted tests and 35 synthetic probes also passed; remote verification is pending. The [scoped manifest](../docs/application/document-family-record-manifest.md) records hashes and the static-only JSON Schema validation limit. Pipeline/UI/archive integration is outside this contribution.
+- Record-binding PR [#49](https://github.com/voxer21582/OCR-dev/pull/49), based on the newly integrated catalog, supports legacy 0.1.0 records and 0.2.0 records with self-verifying custom-family snapshots. Custom selections, field names and typed values are checked against those definitions. The existing 13-module local synthetic allowlist passes **195 tests**, including 28 document-contract and 41 catalog tests. At reviewed source commit `c08c6f6981755937289829261ac6077b38283f23`, [PR run 42520056083](https://github.com/voxer21582/OCR-dev/actions/runs/42520056083) and [push run 42520048656](https://github.com/voxer21582/OCR-dev/actions/runs/42520048656) passed the required check; the PR log confirms **22 + 195 = 217 synthetic tests**, and CodeQL Python/Actions passed. Independent review is READY, with 69 targeted tests and 35 synthetic probes also passed. The [scoped manifest](../docs/application/document-family-record-manifest.md) records hashes and the static-only JSON Schema validation limit. Pipeline/UI/archive integration is outside this contribution; PR #49 remains unmerged.
 
 - PR #47 was squash-merged into #46, then #46 into `main`, after explicit owner approval and refreshed successful synthetic/CodeQL checks. New `main` is `0a2fba0731e230f385e305826b66e4ce17df854d`. [Run 42519804658](https://github.com/voxer21582/OCR-dev/actions/runs/42519804658) passed **205 tests**: 22 taxonomy + 183 application. The required check and administrator protections remain enabled; force-push/deletion remain disabled. This integrates the catalog library and its CI selection, not its UI/pipeline or this new record-binding candidate.
 
@@ -26,7 +26,7 @@ Updated: 2026-11-08
 
 ## Not verified
 
-- The record-binding candidate's 195-test application result is local until its own remote run is verified. The catalog's 41 tests are now in `main` CI through PR #47; that does not validate a production OCR engine.
+- The record-binding candidate's 217-test remote result belongs to PR #49 until owner-approved integration. The catalog's 41 tests are already in `main` CI through PR #47; neither result validates a production OCR engine.
 - No Windows installer, production OCR runtime/model, real-document behavior, or release is accepted by this state record.
 - Public migration remains selective; other source files require file-level provenance, privacy, license, and scope review.
 
