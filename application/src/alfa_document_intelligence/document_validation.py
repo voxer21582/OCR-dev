@@ -98,6 +98,55 @@ def _tax_arithmetic_finding(fields: dict[str, Any]) -> dict[str, Any] | None:
         "message_code": message_code,
     }
 
+def _required_custom_field_findings(record: dict[str, Any]) -> list[dict[str, Any]]:
+    fields = record["fields"]
+    family_candidate = fields.get("document_family_candidates")
+    if not isinstance(family_candidate, dict):
+        return []
+    active_family_ids = {
+        alternative.get("value")
+        for alternative in family_candidate.get("alternatives", [])
+        if isinstance(alternative, dict)
+        and alternative.get("status") == "observed"
+        and isinstance(alternative.get("value"), str)
+        and alternative["value"].startswith("custom_")
+    }
+    if not active_family_ids:
+        return []
+
+    findings: list[dict[str, Any]] = []
+    seen_fields: set[str] = set()
+    for snapshot in record.get("document_family_definitions", []):
+        family = snapshot.get("family", {})
+        family_id = family.get("id")
+        if family_id not in active_family_ids:
+            continue
+        for definition in family.get("fields", []):
+            if definition.get("required") is not True:
+                continue
+            field_name = f"{family_id}_{definition['id']}"
+            if field_name in seen_fields:
+                continue
+            seen_fields.add(field_name)
+            candidate = fields.get(field_name)
+            if isinstance(candidate, dict) and candidate.get("status") == "observed":
+                continue
+            missing = not isinstance(candidate, dict) or candidate.get("status") == "absent"
+            findings.append({
+                "rule_id": "required-custom-field",
+                "rule_version": "1",
+                "dimension": "document_consistency",
+                "severity": "warning",
+                "outcome": "indeterminate",
+                "evidence": [] if missing else _candidate_evidence(candidate),
+                "field_names": [field_name],
+                "message_code": (
+                    "required_custom_field_missing"
+                    if missing else "required_custom_field_requires_review"
+                ),
+            })
+    return findings
+
 def validate_document_consistency(record: dict[str, Any]) -> list[dict[str, Any]]:
     """Check supported document relationships and return evidence-bound findings.
 
@@ -112,7 +161,7 @@ def validate_document_consistency(record: dict[str, Any]) -> list[dict[str, Any]
     if contract_issues:
         raise DocumentValidationError("record contract failed: " + "; ".join(contract_issues))
     fields = record["fields"]
-    findings: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = _required_custom_field_findings(record)
     rule = _RULES.get(record.get("document_family"))
     if rule is not None:
         start_name, end_name, rule_id = rule

@@ -12,6 +12,7 @@ import re
 from typing import Iterable
 
 from .ocr_adapter import OCRPageResult, OCRToken
+from .document_family_catalog import DocumentFamilyCatalog, build_custom_family_proposals
 
 _SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
 _ISO_DATE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
@@ -239,7 +240,7 @@ def _candidate(proposals: list[_Proposal]) -> dict[str, object] | None:
     }
 
 
-def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: str | None = None) -> dict[str, dict[str, object]]:
+def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: str | None = None, custom_family_catalog: DocumentFamilyCatalog | None = None) -> dict[str, dict[str, object]]:
     """Return review-required date, amount, and explicit-currency proposals.
 
     Amount/date semantics are deliberately unresolved. The function never
@@ -435,4 +436,21 @@ def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: st
         "vat_registration_number": _candidate(vat_registration_numbers),
         "document_family_candidates": _candidate(family_proposals),
     }
-    return {name: value for name, value in proposals.items() if value is not None}
+    result = {name: value for name, value in proposals.items() if value is not None}
+    if custom_family_catalog is not None:
+        try:
+            custom = build_custom_family_proposals(ordered_pages, custom_family_catalog)
+        except ValueError as exc:
+            raise SemanticProposalError("custom document-family catalog proposal failed") from exc
+        for name, candidate in custom.items():
+            if name in result:
+                if name != "document_family_candidates":
+                    raise SemanticProposalError("custom field identifier collides with a built-in field")
+                combined = result[name]
+                if len(combined["alternatives"]) + len(candidate["alternatives"]) > MAX_PROPOSALS_PER_FIELD:
+                    raise SemanticProposalError("proposal limit exceeded")
+                combined["alternatives"].extend(candidate["alternatives"])
+                combined["evidence"].extend(candidate["evidence"])
+            else:
+                result[name] = candidate
+    return result

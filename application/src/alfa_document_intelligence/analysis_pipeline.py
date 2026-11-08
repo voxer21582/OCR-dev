@@ -10,6 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from .document_family_catalog import DocumentFamilyCatalog, catalog_from_snapshots
 from .contracts import validate_document_record
 from .document_validation import DocumentValidationError, validate_document_consistency
 from .ocr_adapter import OCRPageResult
@@ -27,7 +28,8 @@ class AnalysisResult:
 
 
 def analyze_ocr_results(
-    document: dict[str, Any], pages: Iterable[OCRPageResult]
+    document: dict[str, Any], pages: Iterable[OCRPageResult], *,
+    custom_family_catalog: DocumentFamilyCatalog | None = None,
 ) -> AnalysisResult:
     """Create an enriched copy without changing existing field candidates.
 
@@ -67,11 +69,52 @@ def analyze_ocr_results(
         raise AnalysisPipelineError("OCR results must cover every inventoried page exactly once")
 
     try:
-        proposals = propose_common_fields(materialized_pages, document_family=document["document_family"])
+        active_catalog = custom_family_catalog
+        if active_catalog is None and document.get("document_family_definitions"):
+            active_catalog = catalog_from_snapshots(document["document_family_definitions"])
+        elif active_catalog is not None:
+            existing_definitions = {
+                item["family"]["id"]: item
+                for item in document.get("document_family_definitions", [])
+                if isinstance(item, dict) and isinstance(item.get("family"), dict)
+                and isinstance(item["family"].get("id"), str)
+            }
+            for family in active_catalog.families:
+                previous = existing_definitions.get(family.id)
+                if previous is not None and (previous.get("family_sha256"), previous.get("catalog_version")) != (active_catalog.snapshot_for(family.id)["family_sha256"], active_catalog.version):
+                    raise AnalysisPipelineError(
+                        "custom document-family identifier was reused for a changed definition"
+                    )
+        proposals = propose_common_fields(
+            materialized_pages,
+            document_family=document["document_family"],
+            custom_family_catalog=active_catalog,
+        )
     except SemanticProposalError as exc:
         raise AnalysisPipelineError(f"OCR proposal validation failed: {exc}") from exc
 
     result_document = deepcopy(document)
+    if active_catalog is not None:
+        custom_ids = {
+            item.get("value")
+            for item in proposals.get("document_family_candidates", {}).get("alternatives", [])
+            if isinstance(item, dict) and isinstance(item.get("value"), str)
+            and item["value"].startswith("custom_")
+        }
+        custom_ids.update(
+            family.id for family in active_catalog.families
+            if any(f"{family.id}_{field['id']}" in proposals for field in family.fields)
+        )
+        if custom_ids:
+            result_document["schema_version"] = "0.2.0"
+            snapshots = {
+                item["family"]["id"]: item
+                for item in result_document.get("document_family_definitions", [])
+                if isinstance(item, dict) and isinstance(item.get("family"), dict)
+            }
+            for family_id in sorted(custom_ids):
+                snapshots.setdefault(family_id, active_catalog.snapshot_for(family_id))
+            result_document["document_family_definitions"] = list(snapshots.values())
     unapplied: dict[str, dict[str, object]] = {}
     for field_name, candidate in proposals.items():
         if field_name in result_document["fields"]:
