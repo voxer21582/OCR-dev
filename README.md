@@ -1,12 +1,14 @@
 # OCR2 Document Intelligence
 
-This public repository is the shared OCR2 workspace. It contains versioned taxonomy contracts at the root and the Document Intelligence application under `application/`. The application directory contains source, synthetic fixtures/tests, and technical documentation. The required root CI check currently runs only taxonomy registry and binding tests; application tests are not yet included in that check.
+This public repository is the shared OCR2 workspace. It contains versioned taxonomy contracts at the root and the selectively migrated Document Intelligence application under `application/`. The required CI check runs the taxonomy tests and an explicit list of synthetic application tests. This repository does not yet contain all locally developed application features.
 
 ## Continuous integration
 
-The GitHub Actions workflow [OCR2 synthetic taxonomy](.github/workflows/ocr2-synthetic-taxonomy.yml) runs on pushes, pull requests, and manual dispatch. It uses Ubuntu 24.04 with CPython 3.13, installs the hash-locked JSON Schema dependency closure from `requirements/ci-taxonomy-cp313-ubuntu-24_04.lock`, and runs all 22 tests in the taxonomy registry and binding modules. The `main` branch requires a pull request and a successful **Taxonomy registry and binding** check before merge.
+The GitHub Actions workflow [OCR2 synthetic taxonomy](.github/workflows/ocr2-synthetic-taxonomy.yml) runs on pushes, pull requests, and manual dispatch. It uses the standard Ubuntu 24.04 runner with CPython 3.13.18 and the hash-locked JSON Schema dependency closure from `requirements/ci-taxonomy-cp313-ubuntu-24_04.lock`. The `main` branch requires a pull request and a successful **Taxonomy registry and binding** check before merge.
 
-To reproduce the workflow on Ubuntu 24.04 x86-64 with Python 3.13, install the locked dependencies and run the same two modules:
+Verified on 2026-11-08 at `main` commit `5d07041366bd3875099a3667b5de0fa57a12a2d4`: [Actions run 42471102240](https://github.com/voxer21582/OCR-dev/actions/runs/42471102240) passed **164 synthetic tests**: 22 taxonomy tests and 142 application tests from the 12 explicitly listed modules. The workflow uses no automatic test discovery. The application coverage includes ingestion and evidence contracts, semantic proposals and validation, loopback request protection, manual source-region review, and the RapidOCR adapter contract with an injected synthetic engine.
+
+To reproduce the taxonomy portion on Ubuntu 24.04 x86-64 with Python 3.13, install the locked dependencies and run these two modules:
 
 ```sh
 python -m pip install --disable-pip-version-check --no-input \
@@ -18,13 +20,25 @@ PYTHONPATH=src:tests python -B -m unittest -v \
   test_taxonomy_binding
 ```
 
-The selected modules build synthetic catalogs and use temporary SQLite directories where persistence is needed. They do not require sample documents, OCR output, network access, or an OCR model. The same command selects 19 registry tests and 3 binding tests; it does not validate the application in `application/`.
+This first command selects 19 registry tests and 3 binding tests. To reproduce the application portion, run from `application/` in an existing approved Python environment:
+
+```sh
+PYTHONPATH=src:tests python -B -m unittest -v \
+  test_public_data_guard test_contract_baseline test_document_contract \
+  test_document_decoder_contract test_ingestion test_ocr_adapter \
+  test_semantic_proposals test_analysis_pipeline test_document_validation \
+  test_loopback_csrf test_manual_region_review test_rapidocr_adapter
+```
+
+On Windows PowerShell, set `$env:PYTHONPATH='src;tests'` first and invoke the same `python -B -m unittest` module list. These tests use synthetic inputs and isolated temporary files where required. They do not invoke an installed OCR engine, download models or transmit documents.
+
+The configurable document-family catalog and its separate CI extension are under review in [PR #46](https://github.com/voxer21582/OCR-dev/pull/46) and [PR #47](https://github.com/voxer21582/OCR-dev/pull/47). Their [verified PR run](https://github.com/voxer21582/OCR-dev/actions/runs/42517495781) passed 205 synthetic tests (22 taxonomy + 183 application). That additional coverage belongs to the PR branch until integration; it is not part of the `main` result above.
 
 ## Data and scope
 
-Do not add company documents, personal data, OCR text, credentials, or derived sensitive values to this public repository or its CI. The taxonomy workflow does not run OCR or external document services. Application OCR is disabled by default and is outside this workflow. The workflow has read-only repository permissions and references GitHub Actions by full commit SHA.
+Do not add company documents, personal data, OCR text, credentials, or derived sensitive values to this public repository or its CI. The workflow does not run native OCR or external document services. The public launcher leaves OCR disabled; configuring a real runtime and its background processing remains separate application work. The workflow has read-only repository permissions and references GitHub Actions by full commit SHA.
 
-This CI result covers only the taxonomy registry and binding test modules. It is not a full application test suite and does not establish OCR accuracy, Windows runtime readiness, real-document safety, pilot usefulness, or release readiness.
+This CI result covers only the named synthetic contract modules. It is not a full application test suite and does not establish OCR accuracy, Windows runtime readiness, real-document safety, pilot usefulness, or release readiness. For implementation evidence and limitations, see [application current state](application/CURRENT_STATE.md); remaining migration work is tracked in [issue #42](https://github.com/voxer21582/OCR-dev/issues/42).
 
 Project tracking: [OCR2 — Gestione e controllo](https://github.com/users/voxer21582/projects/1).
 
