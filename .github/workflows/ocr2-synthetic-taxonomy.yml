@@ -63,6 +63,8 @@ jobs:
           test_semantic_proposals
           test_analysis_pipeline
           test_document_validation
+          test_csv_identifier_safety.CsvIdentifierSafetyTests
+          test_reviewed_csv_projection.ReviewedCsvProjectionTests
           test_loopback_csrf
           test_manual_region_review
           test_rapidocr_adapter
