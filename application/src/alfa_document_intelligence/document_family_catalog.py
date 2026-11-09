@@ -421,13 +421,21 @@ def _uncertain_candidate(proposals: list[tuple[str, dict[str, Any]]]) -> dict[st
     }
 
 
-def _field_value(token_text: str, aliases: tuple[str, ...]) -> str | None:
-    text = token_text.strip()
-    for separator in (":", "="):
-        prefix, found, value = text.partition(separator)
-        if found and " ".join(prefix.split()).casefold() in {alias.casefold() for alias in aliases}:
-            value = value.strip()
+def _field_value(parts: tuple[tuple[str, str, str], ...], aliases: frozenset[str]) -> str | None:
+    for prefix, _, value in parts:
+        if prefix in aliases:
             return value if value else None
+    return None
+
+
+def _delimited_field_value(parts: tuple[tuple[str, str, str], ...], aliases: frozenset[str]) -> str | None:
+    """Match a single trailing delimiter without changing legacy matching."""
+    for prefix, separator, value in parts:
+        if (not prefix or ":" in prefix or "=" in prefix
+                or not value or value[0] in ":="):
+            continue
+        if prefix + separator in aliases or prefix + " " + separator in aliases:
+            return value
     return None
 
 
@@ -671,6 +679,10 @@ def build_custom_family_proposals(
         for family in catalog.families
         for cue in family.title_cues
     }
+    field_specs = tuple(
+        (family, field, frozenset(alias.casefold() for alias in field["aliases"]))
+        for family in catalog.families for field in family.fields
+    )
     for page in materialized:
         for token in page.tokens:
             folded = " ".join(token.text.split()).casefold()
@@ -680,27 +692,51 @@ def build_custom_family_proposals(
                     raise CatalogProposalLimitError("custom proposals exceed the review-safe limit")
                 family_proposals.append((family.id, _evidence(page, token)))
                 proposal_count += 1
-            for family in catalog.families:
-                for field in family.fields:
-                    value = _field_value(token.text, field["aliases"])
-                    if value is None:
-                        continue
-                    name = f"{family.id}_{field['id']}"
-                    typed = _typed_values(field["type"], value)
-                    new_proposal_count = len(typed) if typed else 1
-                    if proposal_count + new_proposal_count > MAX_PROPOSALS:
-                        raise CatalogProposalLimitError("custom proposals exceed the review-safe limit")
-                    item_evidence = _evidence(page, token)
-                    if typed:
-                        field_proposals.setdefault(name, []).extend(
-                            (normalized, item_evidence, rule_id, original, "observed")
-                            for normalized, rule_id, original in typed
-                        )
-                    else:
-                        field_proposals.setdefault(name, []).append(
-                            (None, item_evidence, "", value, "unreadable")
-                        )
-                    proposal_count += new_proposal_count
+            text = token.text.strip()
+            parts = []
+            for separator in (":", "="):
+                prefix, found, value = text.partition(separator)
+                if found:
+                    parts.append((" ".join(prefix.split()).casefold(), separator, value.strip()))
+            parts = tuple(parts)
+            if not parts:
+                continue
+            matches = []
+            has_new = False
+            ambiguous = False
+            for family, field, aliases in field_specs:
+                value = _field_value(parts, aliases)
+                is_new = False
+                if value is None:
+                    value = _delimited_field_value(parts, aliases)
+                    is_new = value is not None
+                if value is not None:
+                    matches.append((family, field, value))
+                    has_new = has_new or is_new
+                    if has_new and len(matches) > 1:
+                        ambiguous = True
+                        break
+            # A newly recognized alias must not cause a token to be assigned
+            # to different fields, including via a pre-existing legacy match.
+            if ambiguous:
+                continue
+            for family, field, value in matches:
+                name = f"{family.id}_{field['id']}"
+                typed = _typed_values(field["type"], value)
+                new_proposal_count = len(typed) if typed else 1
+                if proposal_count + new_proposal_count > MAX_PROPOSALS:
+                    raise CatalogProposalLimitError("custom proposals exceed the review-safe limit")
+                item_evidence = _evidence(page, token)
+                if typed:
+                    field_proposals.setdefault(name, []).extend(
+                        (normalized, item_evidence, rule_id, original, "observed")
+                        for normalized, rule_id, original in typed
+                    )
+                else:
+                    field_proposals.setdefault(name, []).append(
+                        (None, item_evidence, "", value, "unreadable")
+                    )
+                proposal_count += new_proposal_count
     result: dict[str, dict[str, Any]] = {}
     if family_proposals:
         result["document_family_candidates"] = _uncertain_candidate(family_proposals)
