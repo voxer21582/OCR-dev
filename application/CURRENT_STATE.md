@@ -2,6 +2,14 @@
 
 Updated: 2026-11-09
 
+## R6 background archive restore candidate (2026-11-09)
+
+An isolated candidate adds SQLite snapshot backup/restore primitives and a loopback-only background restore job. Restore checks the destination directory's free space against the backup size, stages beside the requested new destination, validates SQLite integrity/schema and every encrypted record/source, refuses overwrite, and publishes atomically only after validation. Cancellation is available through the copy/validation phases and is serialized against the final publish step. The UI exposes only an opaque job ID and aggregate SQLite page progress before success; failures use a fixed message, and the destination path appears only after successful publication. The restored file remains separate from the currently open archive.
+
+Local synthetic checks passed: `python -B -m unittest test_local_document_archive_ui test_archive_restore -v` (15 tests) and the `LocalDocumentStoreTests` class with only `test_windows_dpapi_protects_and_reopens_synthetic_archive` excluded (31 tests). The excluded Windows DPAPI test was invoked once during a broad module run and failed with Windows API error 2 in this runtime; no retry was made. The final implementation received an independent READY review. No real archive, user document, OCR, R7/R8 test, dependency install, Windows configuration change, browser interaction, GitHub Actions run, or publication was performed.
+
+Evidence and exact scope: `docs/agent-work/r6-background-archive-restore/implementation-evidence.md`. Do not treat this local candidate as merged, browser-accepted, or a validated operational recovery procedure. The CI workflow is separately owned; adding these explicit selectors requires its owner/review path.
+
 ## R6 custom-family review integration candidate (2026-11-09)
 
 The isolated canonical candidate binds manual custom-family selections to the validated immutable definition already stored in the record. It extends the review-event schema with an optional family snapshot, embeds that snapshot in the hash-chained event, and exposes a custom family in the local UI only when both the snapshot is valid and the family is an observed OCR alternative with matching evidence. Built-in family handling remains unchanged. The record's extracted family and fiscal classification remain separate.

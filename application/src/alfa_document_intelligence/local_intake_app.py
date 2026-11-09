@@ -17,7 +17,7 @@ import secrets
 import time
 from typing import Any, Callable
 from urllib.parse import parse_qs, quote
-from wsgiref.simple_server import make_server
+from wsgiref.simple_server import WSGIServer, make_server
 
 from .chatgpt_handoff import ChatGPTHandoffError, build_chatgpt_handoff_prompt
 from .contracts import validate_document_record
@@ -29,6 +29,7 @@ from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
 from .local_document_store import LocalDocumentStore, StoreConcurrentUpdate, StoreError
+from .archive_restore import ArchiveRestoreManager, RestoreStartError, RestoreStatus
 from .manual_region_review import build_human_region_evidence, encode_rgb8_png
 
 
@@ -454,9 +455,63 @@ def _archive_list_page(store: LocalDocumentStore, query: str = "") -> str:
         '<p>Ricerca limitata ai primi 100 risultati. I dati restano su questo dispositivo.</p>'
         '<form method="get" action="/archive"><label>Cerca <input name="q" maxlength="200" value="'
         + escape(query, quote=True) + '"></label><button type="submit">Cerca</button></form>'
+        + '<p><a href="/archive/restore">Ripristina archivio da backup</a></p>'
         + empty + f'<ul>{"".join(rows)}</ul>'
         + '<form method="post" action="/archive/return"><button type="submit">Torna alla sessione corrente</button></form>'
         + '</main></html>'
+    )
+
+
+def _archive_restore_form_page() -> str:
+    return (
+        '<!doctype html><html lang="it"><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>Ripristino archivio</title><main><h1>Ripristina archivio</h1>'
+        '<p>Il backup viene verificato prima di creare un nuovo archivio. '
+        'Il file di destinazione non viene sovrascritto. Il ripristino avviene in background '
+        'e può essere annullato prima della pubblicazione.</p>'
+        '<form method="post" action="/archive/restore">'
+        '<label>File di backup locale <input name="source" maxlength="2048" placeholder="/percorso/backup.sqlite3" required></label>'
+        '<label>Nuovo file archivio <input name="destination" maxlength="2048" required></label>'
+        '<button type="submit">Avvia ripristino</button></form>'
+        '<p><a href="/archive">Torna all’archivio</a></p></main></html>'
+    )
+
+
+def _archive_restore_status_page(status: RestoreStatus) -> str:
+    phase_labels = {
+        "queued": "In coda", "copying": "Copia in corso", "validating": "Verifica in corso",
+        "publishing": "Pubblicazione in corso", "cancelling": "Annullamento in corso",
+        "succeeded": "Ripristino completato", "failed": "Ripristino non riuscito",
+        "cancelled": "Ripristino annullato",
+    }
+    active = status.phase in {"queued", "copying", "validating", "publishing", "cancelling"}
+    refresh = '<meta http-equiv="refresh" content="2">' if active else ""
+    progress = (
+        f'<p>Pagine SQLite copiate: {status.total_pages - status.remaining_pages} / {status.total_pages}</p>'
+        if status.total_pages else "<p>Avanzamento: preparazione e verifica dell’archivio.</p>"
+    )
+    message = ""
+    if status.phase == "failed":
+        message = "<p>Impossibile completare il ripristino. Verifica il backup e lo spazio disponibile.</p>"
+    elif status.phase == "cancelled":
+        message = "<p>Il ripristino è stato annullato; l’archivio di destinazione non è stato pubblicato.</p>"
+    elif status.phase == "succeeded" and status.destination:
+        message = (
+            f'<p>Nuovo archivio creato: <code>{escape(status.destination)}</code>. '
+            'Resta separato dall’archivio attualmente aperto.</p>'
+        )
+    cancel = (
+        f'<form method="post" action="/archive/restore/{quote(status.job_id, safe="")}/cancel">'
+        '<button type="submit">Annulla ripristino</button></form>' if active else ""
+    )
+    return (
+        '<!doctype html><html lang="it"><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        + refresh + '<title>Ripristino archivio</title><main><h1>Ripristino archivio</h1>'
+        + f'<p>Stato: {escape(phase_labels.get(status.phase, "Non disponibile"))}</p>'
+        + progress + message + cancel
+        + '<p><a href="/archive">Torna all’archivio</a></p></main></html>'
     )
 
 
@@ -1066,12 +1121,16 @@ def create_expense_report_app(
     clock: Callable[[], float] = time.monotonic,
     document_processor: Callable[[dict[str, Any], bytes], dict[str, Any]] | None = None,
     archive_store: LocalDocumentStore | None = None,
+    archive_restore_manager: ArchiveRestoreManager | None = None,
 ) -> Callable:
     """Create a loopback WSGI app with an idle-expiring session and optional explicit archive."""
     if not isinstance(idle_timeout_seconds, int) or isinstance(idle_timeout_seconds, bool) or idle_timeout_seconds <= 0:
         raise ValueError("idle_timeout_seconds must be a positive integer")
     state: _VolatileSession | None = None
     csrf_token = secrets.token_urlsafe(32)
+    restore_manager = archive_restore_manager
+    if restore_manager is None and archive_store is not None:
+        restore_manager = ArchiveRestoreManager(archive_store)
 
     def app(environ: dict[str, Any], start_response: Callable) -> list[bytes]:
         nonlocal state
@@ -1085,6 +1144,49 @@ def create_expense_report_app(
             state = None
         method = environ.get("REQUEST_METHOD", "")
         path = environ.get("PATH_INFO", "")
+        if archive_store is not None and restore_manager is not None:
+            if method == "GET" and path == "/archive/restore":
+                return _page(environ, start_response, "200 OK", _archive_restore_form_page())
+            if method == "POST" and path == "/archive/restore":
+                if not _same_origin_loopback_post(environ):
+                    return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                try:
+                    values = _multipart_form_values(environ)
+                    source_values = values.get("source", [])
+                    destination_values = values.get("destination", [])
+                    if (
+                        len(source_values) != 1 or len(destination_values) != 1
+                        or not source_values[0].strip() or not destination_values[0].strip()
+                        or len(source_values[0]) > 2048 or len(destination_values[0]) > 2048
+                    ):
+                        raise IntakeRequestError("Percorsi non validi")
+                    job_id = restore_manager.start(source_values[0].strip(), destination_values[0].strip())
+                    status = restore_manager.snapshot(job_id)
+                    if status is None:
+                        return _page(environ, start_response, "500 Internal Server Error", "<p>Ripristino non disponibile</p>")
+                    page = _archive_restore_status_page(status)
+                    page += f'<p><a href="/archive/restore/{quote(job_id, safe="")}">Aggiorna stato</a></p>'
+                    return _page(environ, start_response, "202 Accepted", page)
+                except IntakeRequestError:
+                    return _page(environ, start_response, "400 Bad Request", "<p>Indica un backup e un nuovo percorso di destinazione validi.</p>")
+                except RestoreStartError:
+                    return _page(environ, start_response, "409 Conflict", "<p>Un ripristino è già attivo o non può essere avviato.</p>")
+            match = re.fullmatch(r"/archive/restore/([A-Za-z0-9_-]{16,64})(?:/(cancel))?", path)
+            if match:
+                job_id, cancel_action = match.groups()
+                if method == "POST" and cancel_action == "cancel":
+                    if not _same_origin_loopback_post(environ):
+                        return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                    if not restore_manager.cancel(job_id):
+                        return _page(environ, start_response, "409 Conflict", "<p>Il ripristino non è più annullabile.</p>")
+                    status = restore_manager.snapshot(job_id)
+                    return _page(environ, start_response, "200 OK", _archive_restore_status_page(status))
+                if method == "GET" and cancel_action is None:
+                    status = restore_manager.snapshot(job_id)
+                    if status is None:
+                        return _page(environ, start_response, "404 Not Found", "Risorsa non trovata")
+                    return _page(environ, start_response, "200 OK", _archive_restore_status_page(status))
+                return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
         if archive_store is not None and method == "GET" and path == "/archive":
             raw_query = environ.get("QUERY_STRING", "")
             try:
@@ -1554,6 +1656,7 @@ def create_expense_report_app(
             return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito", "text/plain; charset=utf-8")
         return _page(environ, start_response, "404 Not Found", "Risorsa non trovata", "text/plain; charset=utf-8")
 
+    app.close = getattr(restore_manager, "close", lambda: None)
     return app
 
 
@@ -1618,4 +1721,11 @@ def serve_expense_report_local(
         document_processor=document_processor,
         archive_store=archive_store,
     )
-    return make_server("127.0.0.1", port, app)
+    class _ClosingWSGIServer(WSGIServer):
+        def server_close(self):
+            try:
+                app.close()
+            finally:
+                super().server_close()
+
+    return make_server("127.0.0.1", port, app, server_class=_ClosingWSGIServer)
