@@ -65,6 +65,9 @@ jobs:
           test_document_validation
           test_loopback_csrf
           test_manual_region_review
+          test_manual_missing_field.ManualMissingFieldTests
+          test_manual_custom_field.ManualCustomFieldTests
+          test_manual_custom_form_error.ManualCustomFormErrorTests
           test_rapidocr_adapter
           test_document_family_catalog
           test_rapidocr_runtime_factory
