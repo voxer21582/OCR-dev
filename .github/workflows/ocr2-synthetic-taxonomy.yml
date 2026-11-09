@@ -67,6 +67,7 @@ jobs:
           test_manual_region_review
           test_rapidocr_adapter
           test_document_family_catalog
+          test_catalog_alias_delimiters.CatalogAliasDelimiterTests
           test_rapidocr_runtime_factory
           test_document_processing.DocumentProcessingProgressTests
           test_document_processing.OverflowProcessingTests
