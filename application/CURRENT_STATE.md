@@ -2,6 +2,10 @@
 
 Updated: 2026-11-09
 
+## Volatile session generation — candidate
+
+The candidate binds session-specific links and actions to the current generation when no archive store is configured. It rejects stale session requests on the supplied serial server; archive-enabled and concurrent WSGI configurations are outside this scope. The [manifest](../docs/application/volatile-session-generation-manifest.md) records synthetic tests and limitations. Browser behavior, native decoding, archive operation and product acceptance remain unverified. R7/R8 remain blocked.
+
 ## Accepted manual handoff correction (2026-11-09)
 
 The accepted implementation retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.
