@@ -1,5 +1,6 @@
 import io
 import json
+import re
 from urllib.parse import urlencode
 import zipfile
 
@@ -26,6 +27,22 @@ def _multipart(filename, data, boundary="test-boundary"):
         "Content-Type: application/zip\r\n\r\n"
     ).encode() + data + f"\r\n--{boundary}--\r\n".encode()
     return body, f"multipart/form-data; boundary={boundary}"
+
+
+def _review_head(page):
+    match = re.search(rb'name="expected_review_head" value="([a-f0-9]*)"', page)
+    assert match, "review page must bind forms to the current review ledger"
+    return match.group(1).decode("ascii")
+
+
+def _review_payload(page, values):
+    return urlencode({**values, "expected_review_head": _review_head(page)}).encode()
+
+
+def _assert_review_forms_bound(page):
+    forms = re.findall(rb'<form\b(?=[^>]*\bdata-review-timer\b)[^>]*>(.*?)</form>', page, re.IGNORECASE | re.DOTALL)
+    assert forms, "review page must contain at least one review form"
+    assert all(re.search(rb'name="expected_review_head" value="[a-f0-9]*"', form) for form in forms)
 
 
 def _request(app, method="GET", path="/", body=b"", content_type=""):
@@ -110,29 +127,50 @@ def test_reviewer_can_select_only_an_evidence_bound_document_family():
     assert b"Seleziona famiglia" in review
     assert b"pos_slip" in review
     assert b"La famiglia non determina da sola lo stato fiscale" in review
+    initial_head = _review_head(review)
+    _assert_review_forms_bound(review)
+    missing_head = urlencode({"document_family": "pos_slip", "review_seconds": "1"}).encode()
+    status, _, conflict = _request(app, "POST", "/reviews/doc-002/document-family", missing_head, "application/x-www-form-urlencoded")
+    assert status == "409 Conflict"
+    assert b"altra scheda" in conflict
 
-    invalid = urlencode({"document_family": "fiscal_document", "review_seconds": "0"}).encode()
+    invalid = _review_payload(review, {"document_family": "fiscal_document", "review_seconds": "0"})
     status, _, error = _request(app, "POST", "/reviews/doc-002/document-family", invalid, "application/x-www-form-urlencoded")
     assert status == "400 Bad Request"
     assert b"Famiglia documento non supportata" in error
 
-    selected = urlencode({"document_family": "pos_slip", "review_seconds": "1"}).encode()
+    selected = _review_payload(review, {"document_family": "pos_slip", "review_seconds": "1"})
     status, _, reviewed = _request(app, "POST", "/reviews/doc-002/document-family", selected, "application/x-www-form-urlencoded")
     assert status == "200 OK"
     assert b"Famiglia attualmente revisionata: pos_slip" in reviewed
     assert b"<h2>document_family_candidates</h2>" in reviewed
     assert b"Stato fiscale" in reviewed
-    invalid_fiscal = urlencode({"fiscal_status": "fiscal_document", "evidence_index": "0", "review_seconds": "1"}).encode()
+    current_head = _review_head(reviewed)
+    stale = urlencode({"document_family": "pos_slip", "review_seconds": "1", "expected_review_head": initial_head}).encode()
+    status, _, conflict = _request(app, "POST", "/reviews/doc-002/document-family", stale, "application/x-www-form-urlencoded")
+    assert status == "409 Conflict"
+    assert b"altra scheda" in conflict
+    status, _, current = _request(app, path="/reviews/doc-002")
+    assert status == "200 OK"
+    assert _review_head(current) == current_head
+    assert b"Famiglia attualmente revisionata: pos_slip" in current
+
+    invalid_fiscal = _review_payload(current, {"fiscal_status": "fiscal_document", "evidence_index": "0", "review_seconds": "1"})
     status, _, error = _request(app, "POST", "/reviews/doc-002/fiscal-state", invalid_fiscal, "application/x-www-form-urlencoded")
     assert status == "400 Bad Request"
     assert b"ricevuta POS" in error
 
-    invalid_evidence = urlencode({"fiscal_status": "payment_evidence", "evidence_index": "99", "review_seconds": "1"}).encode()
+    invalid_evidence = _review_payload(current, {"fiscal_status": "payment_evidence", "evidence_index": "99", "review_seconds": "1"})
     status, _, error = _request(app, "POST", "/reviews/doc-002/fiscal-state", invalid_evidence, "application/x-www-form-urlencoded")
     assert status == "400 Bad Request"
     assert b"Evidenza non disponibile" in error
 
-    payment = urlencode({"fiscal_status": "payment_evidence", "evidence_index": "0", "review_seconds": "2"}).encode()
+    decreasing = _review_payload(current, {"fiscal_status": "payment_evidence", "evidence_index": "0", "review_seconds": "0"})
+    status, _, error = _request(app, "POST", "/reviews/doc-002/fiscal-state", decreasing, "application/x-www-form-urlencoded")
+    assert status == "400 Bad Request"
+    assert b"durata non pu" in error
+
+    payment = _review_payload(current, {"fiscal_status": "payment_evidence", "evidence_index": "0", "review_seconds": "2"})
     status, _, fiscal_reviewed = _request(app, "POST", "/reviews/doc-002/fiscal-state", payment, "application/x-www-form-urlencoded")
     assert status == "200 OK"
     assert b"Stato attuale: payment_evidence" in fiscal_reviewed
@@ -185,8 +223,9 @@ def test_reviewer_can_select_a_custom_family_with_its_validated_snapshot():
     status, _, review = _request(app, path="/reviews/doc-002")
     assert status == "200 OK"
     assert b'<option value="custom_taxi_receipt">Ricevuta taxi</option>' in review
+    _assert_review_forms_bound(review)
 
-    unsupported = urlencode({"document_family": "custom_wrong_family", "review_seconds": "1"}).encode()
+    unsupported = _review_payload(review, {"document_family": "custom_wrong_family", "review_seconds": "1"})
     status, _, error = _request(
         app, "POST", "/reviews/doc-002/document-family", unsupported,
         "application/x-www-form-urlencoded",
@@ -194,7 +233,7 @@ def test_reviewer_can_select_a_custom_family_with_its_validated_snapshot():
     assert status == "400 Bad Request"
     assert b"snapshot valido" in error
 
-    selected = urlencode({"document_family": "custom_taxi_receipt", "review_seconds": "1"}).encode()
+    selected = _review_payload(review, {"document_family": "custom_taxi_receipt", "review_seconds": "1"})
     status, _, reviewed = _request(
         app, "POST", "/reviews/doc-002/document-family", selected,
         "application/x-www-form-urlencoded",
@@ -392,10 +431,11 @@ def test_review_timer_counts_active_tab_time_and_exports_only_opaque_completed_r
     assert b'__CSP_NONCE__' not in page
     assert b'document.addEventListener("visibilitychange"' in page
     assert b'wasVisible=!document.hidden' in page
+    _assert_review_forms_bound(page)
 
     status, _, done = _request(
         app, "POST", "/reviews/doc-001/complete",
-        urlencode({"review_seconds": "12"}).encode(),
+        _review_payload(page, {"review_seconds": "12"}),
         "application/x-www-form-urlencoded",
     )
     assert status == "200 OK"
@@ -419,28 +459,31 @@ def test_review_timer_rejects_invalid_or_decreasing_duration_and_clears_volatile
         app, "POST", "/assign-note", urlencode({"note_document_id": "doc-001"}).encode(),
         "application/x-www-form-urlencoded",
     )
-    _request(app, path="/reviews/doc-001")
+    status, _, page = _request(app, path="/reviews/doc-001")
+    assert status == "200 OK"
+    _assert_review_forms_bound(page)
 
     for duration in ("-1", "86401", "1.5"):
         status, _, _ = _request(
             app, "POST", "/reviews/doc-001/complete",
-            urlencode({"review_seconds": duration}).encode(),
+            _review_payload(page, {"review_seconds": duration}),
             "application/x-www-form-urlencoded",
         )
         assert status == "400 Bad Request"
 
     status, _, _ = _request(
         app, "POST", "/reviews/doc-001/complete",
-        urlencode({"review_seconds": "12"}).encode(),
+        _review_payload(page, {"review_seconds": "12"}),
         "application/x-www-form-urlencoded",
     )
     assert status == "200 OK"
-    status, _, _ = _request(
+    status, _, conflict = _request(
         app, "POST", "/reviews/doc-001/complete",
-        urlencode({"review_seconds": "11"}).encode(),
+        _review_payload(page, {"review_seconds": "11"}),
         "application/x-www-form-urlencoded",
     )
-    assert status == "400 Bad Request"
+    assert status == "409 Conflict"
+    assert b"altra scheda" in conflict
 
     status, _, _ = _request(app, "POST", "/clear", b"clear=1", "application/x-www-form-urlencoded")
     assert status == "200 OK"
