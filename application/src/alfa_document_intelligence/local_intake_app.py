@@ -715,15 +715,27 @@ def _render_editable_record(
         alternatives_html = ""
         if isinstance(alternatives, list) and alternatives:
             alternative_rows = []
-            for alternative in alternatives:
+            for alternative_index, alternative in enumerate(alternatives):
                 if not isinstance(alternative, dict):
                     continue
                 alternative_status = alternative.get("status", "unknown")
+                selection = ""
+                if (
+                    alternative_status == "observed"
+                    and isinstance(alternative.get("evidence"), list) and alternative["evidence"]
+                    and name not in {"document_family_candidates", "fiscal_document_state"}
+                ):
+                    selection = (
+                        f'<form method="post" data-review-timer '
+                        f'action="/reviews/{quote(document_id, safe="")}/fields/{quote(name, safe="")}/alternatives/{alternative_index}">'
+                        f'<input type="hidden" name="review_seconds" data-review-seconds value="{elapsed_seconds}">'
+                        '<button type="submit">Seleziona alternativa</button></form>'
+                    )
                 alternative_rows.append(
                     "<li>"
                     f"{escape(str(alternative.get('value', '—')))} "
                     f"({escape(status_labels.get(alternative_status, str(alternative_status)))})"
-                    f"{_render_candidate_evidence(alternative.get('evidence'))}</li>"
+                    f"{_render_candidate_evidence(alternative.get('evidence'))}{selection}</li>"
                 )
             if alternative_rows:
                 alternatives_html = "<h4>Alternative proposte</h4><ul>" + "".join(alternative_rows) + "</ul>"
@@ -936,6 +948,45 @@ def _apply_field_correction(
         reason_code="human_corrected",
         candidate=candidate,
     )
+
+
+def _apply_alternative_selection(
+    record: dict[str, Any], *, field_name: str, alternative_index: int, timestamp: str,
+) -> dict[str, Any]:
+    """Append a human choice of an observed, source-bound OCR alternative."""
+    if field_name in {"document_family_candidates", "fiscal_document_state"}:
+        raise IntakeRequestError("Questo campo non supporta la selezione di alternative OCR")
+    field = record.get("fields", {}).get(field_name)
+    alternatives = field.get("alternatives") if isinstance(field, dict) else None
+    if not isinstance(alternatives, list) or not 0 <= alternative_index < len(alternatives):
+        raise IntakeRequestError("Alternativa OCR non trovata")
+    alternative = alternatives[alternative_index]
+    if (
+        not isinstance(alternative, dict) or alternative.get("status") != "observed"
+        or not isinstance(alternative.get("evidence"), list) or not alternative["evidence"]
+    ):
+        raise IntakeRequestError("È possibile selezionare solo un’alternativa osservata con evidenze")
+    selected = {
+        "value": deepcopy(alternative.get("value")),
+        "status": "observed",
+        "alternatives": [],
+        "evidence": deepcopy(alternative["evidence"]),
+    }
+    for optional_key in ("confidence", "normalization"):
+        if optional_key in alternative:
+            selected[optional_key] = deepcopy(alternative[optional_key])
+    try:
+        return append_review_event(
+            record,
+            actor_id="local-session",
+            action="alternative_selected",
+            field_name=field_name,
+            reason_code="selected_observed_alternative",
+            candidate=selected,
+            timestamp=timestamp,
+        )
+    except ValueError as exc:
+        raise IntakeRequestError("L’alternativa selezionata non soddisfa il contratto di revisione") from exc
 
 
 def _apply_document_family_selection(
@@ -1453,6 +1504,45 @@ def create_expense_report_app(
                 elapsed_seconds=state.review_seconds.get(document_id, 0),
                 archive_save_enabled=archive_store is not None,
             ))
+        if method == "POST" and path.startswith("/reviews/") and "/fields/" in path and "/alternatives/" in path:
+            if state is None or state.intake is None:
+                return _page(environ, start_response, "409 Conflict", "<p>La sessione di revisione non è disponibile.</p>")
+            match = re.fullmatch(
+                r"/reviews/([^/]+)/fields/([a-z][a-z0-9_]{1,63})/alternatives/([0-9]{1,6})", path
+            )
+            if match is None:
+                return _page(environ, start_response, "400 Bad Request", "<p>Alternativa OCR non valida.</p>")
+            document_id, field_name, alternative_index_raw = match.groups()
+            try:
+                record = state.intake.documents.get(document_id)
+                if not isinstance(record, dict):
+                    raise IntakeRequestError("Documento non trovato")
+                if not _review_revision_matches(environ, record):
+                    return _review_revision_conflict(environ, start_response)
+                seconds = _read_review_seconds(environ, required=False)
+                if seconds < state.review_seconds.get(document_id, 0):
+                    raise IntakeRequestError("La durata non può diminuire durante la revisione")
+                updated = _apply_alternative_selection(
+                    record,
+                    field_name=field_name,
+                    alternative_index=int(alternative_index_raw),
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+                state.intake.documents[document_id] = updated
+                state.review_seconds[document_id] = seconds
+                state.last_activity = now
+            except (IntakeRequestError, ValueError) as exc:
+                return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            return _page(
+                environ, start_response, "200 OK",
+                _render_editable_record(
+                    state.intake.documents[document_id],
+                    document_id=document_id,
+                    has_source=document_id in state.intake.source_bytes,
+                    elapsed_seconds=state.review_seconds.get(document_id, 0),
+                    archive_save_enabled=archive_store is not None,
+                ),
+            )
         if method == "POST" and path.startswith("/reviews/") and "/fields/" in path:
             if state is None or state.intake is None:
                 return _page(environ, start_response, "409 Conflict", "<p>La sessione di revisione non è disponibile.</p>")

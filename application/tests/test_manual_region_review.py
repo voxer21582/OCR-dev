@@ -28,6 +28,88 @@ from alfa_document_intelligence.review_ledger import append_review_event, review
 
 
 class ManualRegionEvidenceTests(unittest.TestCase):
+    def test_browser_can_select_an_observed_ocr_alternative_without_rewriting_extraction(self):
+        def processor(record, _source):
+            record["pages"] = [{"page_number": 1}]
+            source_hash = record["source"]["sha256"]
+            primary = {
+                "source_sha256": source_hash, "page_number": 1,
+                "token_ids": ["synthetic-total-primary"], "literal": "15.00",
+                "producer": {"stage": "ocr", "name": "synthetic", "version": "1"},
+            }
+            alternative = {
+                "source_sha256": source_hash, "page_number": 1,
+                "token_ids": ["synthetic-total-alternative"], "literal": "15.50",
+                "producer": {"stage": "ocr", "name": "synthetic", "version": "1"},
+            }
+            record["fields"]["total_amount"] = {
+                "value": "15.00", "status": "uncertain", "evidence": [primary],
+                "alternatives": [
+                    {"value": "15.00", "status": "uncertain", "evidence": [primary]},
+                    {"value": "15.50", "status": "observed", "evidence": [alternative]},
+                ],
+            }
+            return record
+
+        app = create_expense_report_app(document_processor=processor)
+
+        def invoke(method, path, values=None, content_type="application/x-www-form-urlencoded"):
+            body = urlencode(values or {}).encode("ascii") if values is not None else b""
+            response = {}
+            environ = {
+                "REQUEST_METHOD": method, "PATH_INFO": path, "HTTP_HOST": "127.0.0.1:8080",
+                "HTTP_ORIGIN": "http://127.0.0.1:8080", "CONTENT_LENGTH": str(len(body)) if body else "",
+                "CONTENT_TYPE": content_type, "wsgi.input": io.BytesIO(body),
+            }
+            payload = b"".join(app(environ, lambda status, headers: response.update(status=status, headers=dict(headers))))
+            return response, payload
+
+        boundary = "synthetic-alternative-selection"
+        source = b"%PDF-1.7\nsynthetic source\n"
+        upload = (
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"receipt.pdf\"\r\n"
+            "Content-Type: application/pdf\r\n\r\n"
+        ).encode("ascii") + source + f"\r\n--{boundary}--\r\n".encode("ascii")
+        response = {}
+        environ = {
+            "REQUEST_METHOD": "POST", "PATH_INFO": "/upload", "HTTP_HOST": "127.0.0.1:8080",
+            "HTTP_ORIGIN": "http://127.0.0.1:8080", "CONTENT_TYPE": f"multipart/form-data; boundary={boundary}",
+            "CONTENT_LENGTH": str(len(upload)), "wsgi.input": io.BytesIO(upload),
+        }
+        b"".join(app(environ, lambda status, headers: response.update(status=status, headers=dict(headers))))
+        self.assertTrue(response["status"].startswith("200"))
+        response, _ = invoke("POST", "/assign-note", {"note_document_id": "doc-001"})
+        self.assertTrue(response["status"].startswith("200"))
+        response, page = invoke("GET", "/reviews/doc-001")
+        self.assertTrue(response["status"].startswith("200"))
+        csrf = re.search(rb'name="_ocr2_csrf" value="([A-Za-z0-9_-]+)"', page).group(1).decode("ascii")
+        head = re.search(rb'name="expected_review_head" value="([a-f0-9]*)"', page).group(1).decode("ascii")
+        self.assertIn(b"Seleziona alternativa", page)
+        response, selected = invoke("POST", "/reviews/doc-001/fields/total_amount/alternatives/1", {
+            "_ocr2_csrf": csrf, "expected_review_head": head, "review_seconds": "0",
+        })
+        self.assertTrue(response["status"].startswith("200"))
+        self.assertIn(b"Alternativa selezionata: 15.50", selected)
+        self.assertIn(b"Proposta automatica iniziale</h3><p>Valore: 15.00", selected)
+        self.assertIn(b"Valore dopo revisione umana</h3><p>15.50 (osservato)", selected)
+        self.assertIn(b"testo rilevato <q>15.50</q>", selected)
+        response, stale = invoke("POST", "/reviews/doc-001/fields/total_amount/alternatives/0", {
+            "_ocr2_csrf": csrf, "expected_review_head": head, "review_seconds": "0",
+        })
+        self.assertTrue(response["status"].startswith("409"))
+        self.assertIn(b"La revisione \xc3\xa8 cambiata", stale)
+        response, current_page = invoke("GET", "/reviews/doc-001")
+        csrf = re.search(rb'name="_ocr2_csrf" value="([A-Za-z0-9_-]+)"', current_page).group(1).decode("ascii")
+        head = re.search(rb'name="expected_review_head" value="([a-f0-9]*)"', current_page).group(1).decode("ascii")
+        response, rejected = invoke("POST", "/reviews/doc-001/fields/total_amount/alternatives/0", {
+            "_ocr2_csrf": csrf, "expected_review_head": head, "review_seconds": "0",
+        })
+        self.assertTrue(response["status"].startswith("400"))
+        self.assertIn(b"alternativa osservata con evidenze", rejected)
+        response, unchanged = invoke("GET", "/reviews/doc-001")
+        self.assertTrue(response["status"].startswith("200"))
+        self.assertEqual(unchanged.count(b"Alternativa selezionata: 15.50"), 1)
+
     def test_browser_can_append_source_bound_human_correction_with_opaque_origin_token(self):
         def processor(record, _source):
             record["pages"] = [{"page_number": 1}]

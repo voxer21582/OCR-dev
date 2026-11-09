@@ -2,6 +2,12 @@
 
 Updated: 2026-11-09
 
+## R6 observed-alternative selection candidate (2026-11-09)
+
+The local R6 review page now offers an explicit action for alternatives already marked `observed` and carrying source evidence. The POST route is loopback/CSRF protected, binds to the current review-ledger head, resolves an alternative by its index in the stored extraction, validates its source/page evidence through the append-only review ledger, and leaves the extracted OCR proposal unchanged. Uncertain alternatives remain non-selectable; family and fiscal-state decisions continue through their dedicated flows.
+
+Synthetic local verification on this branch: `PYTHONPATH=application\\src; python -m unittest application.tests.test_manual_region_review` passed 12 tests and `python -m unittest application.tests.test_review_ledger` passed 19 tests; `python -m compileall -q application/src application/tests` and `git diff --check` passed. The integration regression was first observed failing because no selection action was rendered, then passed after implementation. Independent review returned READY. No real document, OCR runtime, browser walkthrough, pytest suite, R7/R8 test or archive persistence was exercised. This remains a local candidate until the PR update and remote required checks complete; it is not product acceptance or permission to merge.
+
 ## R6 custom-family review integration candidate (2026-11-09)
 
 The isolated canonical candidate binds manual custom-family selections to the validated immutable definition already stored in the record. It extends the review-event schema with an optional family snapshot, embeds that snapshot in the hash-chained event, and exposes a custom family in the local UI only when both the snapshot is valid and the family is an observed OCR alternative with matching evidence. Built-in family handling remains unchanged. The record's extracted family and fiscal classification remain separate.
