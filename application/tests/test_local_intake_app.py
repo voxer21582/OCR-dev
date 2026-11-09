@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import re
@@ -175,6 +176,70 @@ def test_reviewer_can_select_only_an_evidence_bound_document_family():
     assert status == "200 OK"
     assert b"Stato attuale: payment_evidence" in fiscal_reviewed
     assert b"Famiglia attualmente revisionata: pos_slip" in fiscal_reviewed
+
+
+def test_review_view_separates_ocr_proposal_from_human_correction_and_marks_results_stale():
+    def processor(record, _source_bytes):
+        if record.get("document_family") == "expense_report":
+            return record
+        record["pages"] = [{"page_number": 1, "width_px": 1000, "height_px": 1400}]
+        record["processing"]["ocr"]["status"] = "completed"
+        evidence = {
+            "source_sha256": record["source"]["sha256"],
+            "page_number": 1,
+            "token_ids": ["synthetic-merchant"],
+            "literal": "HOTEL ALFA",
+            "producer": {"stage": "ocr", "name": "synthetic", "version": "1"},
+        }
+        alternative_evidence = {
+            "source_sha256": record["source"]["sha256"],
+            "page_number": 1,
+            "region": {
+                "coordinate_space": "normalized_page",
+                "polygon": [[0.1, 0.2], [0.4, 0.2], [0.4, 0.3], [0.1, 0.3]],
+            },
+            "producer": {"stage": "ocr", "name": "synthetic", "version": "1"},
+        }
+        record["fields"]["merchant_name"] = {
+            "value": "HOTEL ALFA", "status": "uncertain",
+            "alternatives": [
+                {"value": "HOTEL ALFA", "status": "uncertain", "evidence": [evidence]},
+                {"value": "HOTEL BETA", "status": "uncertain", "evidence": [alternative_evidence]},
+            ],
+            "evidence": [evidence],
+        }
+        return record
+
+    app = create_expense_report_app(document_processor=processor)
+    body, content_type = _multipart("trasferta.zip", _zip_bytes())
+    _request(app, "POST", "/upload", body, content_type)
+    assign = urlencode({"note_document_id": "doc-001"}).encode()
+    _request(app, "POST", "/assign-note", assign, "application/x-www-form-urlencoded")
+
+    status, _, page = _request(app, path="/reviews/doc-002")
+    assert status == "200 OK"
+    assert b"Proposta automatica iniziale" in page
+    assert b"incerto" in page
+    assert b"Alternative proposte" in page
+    assert b"HOTEL BETA" in page
+    assert hashlib.sha256(RECEIPT).hexdigest().encode() in page
+    assert b"normalized_page" in page
+    assert b"Risultati automatici non aggiornati" not in page
+
+    correction = _review_payload(page, {"value": "HOTEL GAMMA", "review_seconds": "1"})
+    status, _, reviewed = _request(
+        app, "POST", "/reviews/doc-002/fields/merchant_name", correction,
+        "application/x-www-form-urlencoded",
+    )
+    assert status == "200 OK"
+    assert b"Proposta automatica iniziale" in reviewed
+    assert b"HOTEL ALFA" in reviewed
+    assert b"HOTEL GAMMA" in reviewed
+    assert b"Correzione umana" in reviewed
+    assert hashlib.sha256(RECEIPT).hexdigest().encode() in reviewed
+    assert b"human_corrected" in reviewed
+    assert b"risultati automatici" in reviewed.lower()
+    assert b"non aggiornati" in reviewed.lower()
 
 
 def test_reviewer_can_select_a_custom_family_with_its_validated_snapshot():
