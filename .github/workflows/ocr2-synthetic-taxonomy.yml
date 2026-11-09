@@ -65,6 +65,7 @@ jobs:
           test_document_validation
           test_loopback_csrf
           test_manual_region_review
+          test_review_neutral_label.ReviewNeutralLabelTests
           test_rapidocr_adapter
           test_document_family_catalog
           test_rapidocr_runtime_factory
