@@ -88,6 +88,15 @@ def _jpeg(header: bytes, max_header_bytes: int) -> ImageInfo:
 
 
 def _tiff(header: bytes, max_pages: int) -> tuple[ImageInfo, tuple[tuple[int, int], ...]]:
+    def read(offset: int, length: int) -> bytes:
+        if offset < 0 or length < 0 or offset > len(header) or length > len(header) - offset:
+            raise ImageHeaderError("TIFF metadata exceeds configured header limit")
+        return header[offset:offset + length]
+    return _tiff_read(read, max_pages)
+
+
+def _tiff_read(read, max_pages: int) -> tuple[ImageInfo, tuple[tuple[int, int], ...]]:
+    header = read(0, 8)
     if len(header) < 8:
         raise ImageHeaderError("truncated TIFF header")
     if header[:2] == b"II":
@@ -107,38 +116,61 @@ def _tiff(header: bytes, max_pages: int) -> tuple[ImageInfo, tuple[tuple[int, in
         seen.add(offset)
         if len(pages) >= max_pages:
             raise ImageHeaderError("TIFF page count exceeds configured limit")
-        if offset + 2 > len(header):
-            raise ImageHeaderError("TIFF metadata exceeds configured header limit")
-        count = int.from_bytes(header[offset:offset + 2], endian)
-        end = offset + 2 + count * 12 + 4
-        if end > len(header):
-            raise ImageHeaderError("TIFF metadata exceeds configured header limit")
+        count = int.from_bytes(read(offset, 2), endian)
+        table = read(offset + 2, count * 12 + 4)
         width = height = None
         for index in range(count):
-            entry = offset + 2 + index * 12
-            tag = int.from_bytes(header[entry:entry + 2], endian)
-            field_type = int.from_bytes(header[entry + 2:entry + 4], endian)
-            value_count = int.from_bytes(header[entry + 4:entry + 8], endian)
+            entry = index * 12
+            tag = int.from_bytes(table[entry:entry + 2], endian)
+            field_type = int.from_bytes(table[entry + 2:entry + 4], endian)
+            value_count = int.from_bytes(table[entry + 4:entry + 8], endian)
             if tag not in {256, 257}:
                 continue
             if value_count != 1 or field_type not in {3, 4}:
                 raise ImageHeaderError("unsupported TIFF dimension encoding")
-            raw = header[entry + 8:entry + 12]
+            raw = table[entry + 8:entry + 12]
             if field_type == 4:
                 value = int.from_bytes(raw, endian)
             else:
                 value = int.from_bytes(raw[:2], endian)
             if tag == 256:
+                if width is not None:
+                    raise ImageHeaderError("duplicate TIFF width")
                 width = value
             else:
+                if height is not None:
+                    raise ImageHeaderError("duplicate TIFF height")
                 height = value
         if width is None or height is None:
             raise ImageHeaderError("TIFF page dimensions are missing")
         pages.append((width, height))
-        offset = int.from_bytes(header[end - 4:end], endian)
+        offset = int.from_bytes(table[-4:], endian)
     if not pages:
         raise ImageHeaderError("TIFF contains no pages")
     return ImageInfo(pages[0][0], pages[0][1], len(pages)), tuple(pages)
+
+
+
+def inspect_tiff_snapshot(stream, size: int, *, max_header_bytes: int, max_dimension: int,
+                          max_pixels: int, max_tiff_pages: int) -> ImageInfo:
+    """Inspect Classic TIFF from a bounded snapshot, charging every metadata read."""
+    remaining = max_header_bytes
+    def read(offset: int, length: int) -> bytes:
+        nonlocal remaining
+        if offset < 0 or length < 0 or offset > size or length > size - offset:
+            raise ImageHeaderError("TIFF metadata exceeds configured header limit")
+        if length > remaining:
+            raise ImageHeaderError("TIFF metadata exceeds configured header limit")
+        remaining -= length
+        stream.seek(offset)
+        data = stream.read(length)
+        if len(data) != length:
+            raise ImageHeaderError("truncated TIFF metadata")
+        return data
+    info, pages = _tiff_read(read, max_tiff_pages)
+    for width, height in pages:
+        _check_dimensions(width, height, max_dimension, max_pixels)
+    return info
 
 
 def _webp(header: bytes) -> ImageInfo:

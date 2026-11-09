@@ -10,6 +10,8 @@ The allowlist and a `flagged` event do not constitute approval. A blocked review
 
 ## Verified
 
+- This isolated TIFF-inventory candidate follows Classic TIFF directories beyond the initial prefix within a cumulative per-document metadata-read budget. It preserves upload/archive bounds and rejects duplicate dimension tags. The explicit synthetic regression run passed 43 tests after security-review additions; the [TIFF manifest](../docs/application/tiff-sparse-metadata-manifest.md) records memory changes, evidence and limits. No native TIFF decoder, browser or real document was used, and raster decoding is not verified.
+
 - Accepted PRs #63/#64 correct context-dependent tax arithmetic using exact integer cents. Canonical amount strings longer than 128 characters intentionally produce the existing warning/indeterminate finding; the limit applies to the calculation, not the full input or evidence. Ten selected synthetic tests passed locally, with RED and the reproduction command recorded in the [exact arithmetic manifest](../docs/application/exact-tax-arithmetic-manifest.md). The refreshed PR run [42537191088](https://github.com/voxer21582/OCR-dev/actions/runs/42537191088) passed 276 synthetic tests before owner-approved integration. Evidence and input remain preserved; no fiscal or payment approval is implied.
 
 - This separate candidate displays a fixed warning when semantic extraction failed. Known overflow codes receive a generic limit explanation; unknown codes are not reflected. Five selected synthetic tests passed locally. The [warning manifest](../docs/application/semantic-failure-warning-manifest.md) records scope and limitations: no browser, CSS visibility or accessibility verification is claimed.
