@@ -52,6 +52,7 @@ jobs:
         run: >-
           python -B -m unittest -v
           test_public_data_guard
+          test_benchmark_group_coverage
           test_contract_baseline
           test_document_contract
           test_document_decoder_contract
