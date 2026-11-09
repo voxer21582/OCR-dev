@@ -659,7 +659,7 @@ def _render_editable_record(
                 correction += "<p>La selezione di una nuova regione non è disponibile: la pagina originale non è presente nella sessione corrente.</p>"
         rows.append(
             f"<section><h2>{escape(name)}</h2>"
-            f"<p>Valore verificato: {escape(str(value)) if value is not None else '—'} "
+            f"<p>Valore corrente: {escape(str(value)) if value is not None else '—'} "
             f"({escape(str(candidate.get('status', 'unknown')))}).</p>"
             f"<ul>{''.join(snippets)}</ul>{correction}</section>"
         )
