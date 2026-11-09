@@ -51,6 +51,7 @@ class _VolatileSession:
     archive_baselines: dict[str, str] = field(default_factory=dict)
     archive_loaded_document_id: str | None = None
     archive_only: bool = False
+    previewed_pages: dict[tuple[str, str, int], None] = field(default_factory=dict)
 
 
 _ARCHIVE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -562,6 +563,21 @@ def _render_fiscal_state_review(
         f'<input type="hidden" name="review_seconds" data-review-seconds value="{elapsed_seconds}">'
         '<button type="submit">Registra classificazione fiscale revisionata</button></form></section>'
     )
+_MANUAL_MISSING_FIELDS = {
+    "merchant_name": "Esercente", "supplier_name": "Fornitore",
+    "bill_to_name": "Intestatario", "sold_to_name": "Acquirente",
+    "document_number": "Numero documento", "vat_registration_number": "Partita IVA",
+    "issue_date": "Data documento", "check_in_date": "Data di arrivo",
+    "check_out_date": "Data di partenza", "trip_start_date": "Inizio trasferta",
+    "trip_end_date": "Fine trasferta", "traveler_name": "Viaggiatore",
+    "trip_destination": "Destinazione trasferta", "trip_purpose": "Motivo trasferta",
+    "total_amount": "Importo totale", "payment_amount": "Importo pagato",
+    "tip_amount": "Mancia", "payment_method": "Metodo di pagamento",
+    "payment_reference": "Riferimento pagamento", "currency": "Valuta",
+    "vat_amount": "Importo IVA", "taxable_base": "Imponibile", "vat_rate": "Aliquota IVA",
+}
+
+
 def _render_region_correction_form(
     *, document_id: str, field_name: str, page_numbers: list[int], elapsed_seconds: int,
 ) -> str:
@@ -604,10 +620,10 @@ _REGION_REVIEW_SCRIPT = (
     'const svg=form.querySelector("[data-region-overlay]"),img=form.querySelector("[data-region-image]"),'
     'rect=form.querySelector("[data-region-selection]"),page=form.querySelector("[data-region-page]"),'
     'status=form.querySelector("[data-region-status]"),fields=["x0","y0","x1","y1"].map(k=>form.querySelector(`[name=region_${k}]`));let start=null;'
-    'const clear=()=>{rect.setAttribute("width","0");rect.setAttribute("height","0");start=null};'
+    'const clear=()=>{rect.setAttribute("width","0");rect.setAttribute("height","0");fields.forEach(field=>field.value="");start=null};'
     'page.addEventListener("change",()=>{img.src=`${img.dataset.previewBase}/${page.value}.png`;clear()});'
     'const point=e=>{const r=svg.getBoundingClientRect();return [Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))]};'
-    'svg.addEventListener("pointerdown",e=>{if(e.button!==0)return;start=point(e);svg.setPointerCapture(e.pointerId);rect.setAttribute("x",start[0]);rect.setAttribute("y",start[1]);rect.setAttribute("width","0");rect.setAttribute("height","0")});'
+    'svg.addEventListener("pointerdown",e=>{if(e.button!==0)return;clear();start=point(e);svg.setPointerCapture(e.pointerId);rect.setAttribute("x",start[0]);rect.setAttribute("y",start[1]);rect.setAttribute("width","0");rect.setAttribute("height","0")});'
     'svg.addEventListener("pointermove",e=>{if(!start)return;const p=point(e),x0=Math.min(start[0],p[0]),y0=Math.min(start[1],p[1]),x1=Math.max(start[0],p[0]),y1=Math.max(start[1],p[1]);rect.setAttribute("x",x0);rect.setAttribute("y",y0);rect.setAttribute("width",x1-x0);rect.setAttribute("height",y1-y0)});'
     'svg.addEventListener("pointerup",e=>{if(!start)return;const p=point(e),x0=Math.min(start[0],p[0]),y0=Math.min(start[1],p[1]),x1=Math.max(start[0],p[0]),y1=Math.max(start[1],p[1]);if(x1>x0&&y1>y0){[x0,y0,x1,y1].forEach((v,i)=>fields[i].value=v.toFixed(6));status.textContent=`Regione selezionata nella pagina ${page.value}. Verifica il testo e registra la correzione.`}else{clear();status.textContent="Selezione troppo piccola: trascina una regione più ampia."}start=null});'
     '});})();'
@@ -663,6 +679,15 @@ def _render_editable_record(
             f"({escape(str(candidate.get('status', 'unknown')))}).</p>"
             f"<ul>{''.join(snippets)}</ul>{correction}</section>"
         )
+    missing_fields = [(name, label) for name, label in _MANUAL_MISSING_FIELDS.items() if name not in fields]
+    missing_forms = ""
+    if has_source and page_numbers and missing_fields and overlay["review_status"] != "completed":
+        missing_forms = '<section><h2>Aggiungi un campo non rilevato</h2><p>Trascrivi solo dopo aver verificato la pagina originale.</p>' + "".join(
+            f'<details><summary>{escape(label)}</summary>' + _render_region_correction_form(
+                document_id=document_id, field_name=name, page_numbers=page_numbers,
+                elapsed_seconds=elapsed_seconds,
+            ) + '</details>' for name, label in missing_fields
+        ) + '</section>'
     family_review = _render_document_family_review(
         record, overlay, document_id=document_id, elapsed_seconds=elapsed_seconds
     )
@@ -685,17 +710,17 @@ def _render_editable_record(
         '<button type="submit">Salva modifiche in archivio</button></form>'
         if archive_save_enabled else ""
     )
-    has_region_editor = has_source and bool(page_numbers) and any(
+    has_region_editor = has_source and bool(page_numbers) and (bool(missing_forms) or any(
         candidate.get("status") == "absent" and name not in {"document_family_candidates", "fiscal_document_state"}
         for name, candidate in fields.items()
-    )
+    ))
     return (
         "<!doctype html><html lang=\"it\"><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
         "<title>Revisione documento</title><main><p><a href=\"/\">Torna al fascicolo</a></p>"
         f"<h1>Revisione {escape(document_id)}</h1>"
         f"<p>Stato revisione: {escape(str(overlay['review_status']))}. Le correzioni si aggiungono al registro; i dati OCR non vengono sovrascritti.</p>"
-        f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{completion}{archive_save}"
+        f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{missing_forms}{completion}{archive_save}"
         + (_REGION_REVIEW_STYLE if has_region_editor else "")
         + '<script nonce="__CSP_NONCE__">'
         + (_REGION_REVIEW_SCRIPT if has_region_editor else "")
@@ -744,6 +769,12 @@ def _apply_field_correction(
     if not isinstance(value, str) or not value.strip() or len(value) > 512:
         raise IntakeRequestError("Il valore corretto deve contenere da 1 a 512 caratteri")
     original = record.get("fields", {}).get(field_name)
+    if (original is None or (isinstance(original, dict) and original.get("status") == "absent")) and region_page_number is None and region_coordinates is None:
+        reviewed = reviewed_overlay(record)["reviewed_fields"].get(field_name)
+        if isinstance(reviewed, dict) and reviewed.get("status") == "observed" and reviewed.get("evidence"):
+            original = reviewed
+    if original is None and field_name in _MANUAL_MISSING_FIELDS:
+        original = {"status": "absent", "evidence": []}
     if not isinstance(original, dict):
         raise IntakeRequestError("Il campo non dispone di evidenze sorgente da revisionare")
     original_evidence = original.get("evidence")
@@ -1186,6 +1217,11 @@ def create_expense_report_app(
                 page_png = _source_page_png(record, source_bytes, int(raw_page))
             except (DocumentDecodeError, ValueError, OverflowError):
                 return _page(environ, start_response, "422 Unprocessable Content", "Pagina non disponibile per la revisione")
+            preview_key = (document_id, record["source"]["sha256"], int(raw_page))
+            state.previewed_pages.pop(preview_key, None)
+            state.previewed_pages[preview_key] = None
+            if len(state.previewed_pages) > 128:
+                state.previewed_pages.pop(next(iter(state.previewed_pages)))
             state.last_activity = now
             headers = [
                 ("Content-Type", "image/png"),
@@ -1357,6 +1393,10 @@ def create_expense_report_app(
                         or source.get("sha256") != hashlib.sha256(source_bytes).hexdigest()
                     ):
                         raise IntakeRequestError("Il documento originale non è disponibile o non corrisponde al record")
+                    if (
+                        document_id, source.get("sha256"), region_page_number
+                    ) not in state.previewed_pages:
+                        raise IntakeRequestError("Apri l'anteprima della pagina originale prima di aggiungere il campo")
                 if seconds < state.review_seconds.get(document_id, 0):
                     raise IntakeRequestError("La durata non può diminuire durante la revisione")
                 updated = _apply_field_correction(
