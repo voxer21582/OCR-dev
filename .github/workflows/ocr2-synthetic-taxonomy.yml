@@ -51,6 +51,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/application/src:${{ github.workspace }}/application/tests
         run: >-
           python -B -m unittest -v
+          test_benchmark_evidence_coverage.EvidenceLocalizationCoverageTests
           test_public_data_guard
           test_contract_baseline
           test_document_contract
