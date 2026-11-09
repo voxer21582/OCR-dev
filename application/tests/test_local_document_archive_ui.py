@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 
 from alfa_document_intelligence.local_document_store import LocalDocumentStore
 from alfa_document_intelligence.local_intake_app import create_expense_report_app
+from alfa_document_intelligence.archive_restore import RestoreStatus
 
 
 class _SyntheticProtector:
@@ -30,6 +31,29 @@ class _SyntheticProtector:
         if not hmac.compare_digest(tag, expected):
             raise ValueError("tampered test ciphertext")
         return bytes(value ^ 0xA5 for value in ciphertext)
+
+
+class _FakeRestoreManager:
+    job_id = "synthetic-restore-job-0123456789"
+
+    def __init__(self):
+        self.status = RestoreStatus(self.job_id, "queued", 0, 0)
+        self.started = []
+        self.cancelled = []
+
+    def start(self, source, destination):
+        self.started.append((source, destination))
+        return self.job_id
+
+    def snapshot(self, job_id):
+        return self.status if job_id == self.job_id else None
+
+    def cancel(self, job_id):
+        self.cancelled.append(job_id)
+        if job_id != self.job_id:
+            return False
+        self.status = RestoreStatus(job_id, "cancelling", 4, 8)
+        return True
 
 
 def _multipart_pdf(filename: str, payload: bytes, boundary: str = "archive-test"):
@@ -109,6 +133,64 @@ class LocalDocumentArchiveUiTests(unittest.TestCase):
         reopened = self.store.get(matches[0].document_id)
         self.assertEqual(reopened.source_bytes, self.source)
         self.assertEqual(reopened.record["source"]["sha256"], hashlib.sha256(self.source).hexdigest())
+
+    def test_archive_restore_form_starts_a_private_async_job_and_hides_paths_until_success(self):
+        manager = _FakeRestoreManager()
+        app = create_expense_report_app(
+            archive_store=self.store, archive_restore_manager=manager
+        )
+        status, _, archive = _request(app, path="/archive")
+        self.assertEqual(status, "200 OK")
+        self.assertIn(b"/archive/restore", archive)
+
+        status, _, form = _request(app, path="/archive/restore")
+        self.assertEqual(status, "200 OK")
+        self.assertIn(b"backup.sqlite3", form)
+
+        source = str(Path(self.temp.name) / "private-backup.sqlite3")
+        destination = str(Path(self.temp.name) / "private-restored.sqlite3")
+        status, _, started = _request(
+            app, "POST", "/archive/restore",
+            urlencode({"source": source, "destination": destination}).encode("ascii"),
+            "application/x-www-form-urlencoded",
+        )
+        self.assertEqual(status, "202 Accepted")
+        self.assertEqual(manager.started, [(source, destination)])
+        self.assertNotIn(source.encode(), started)
+        self.assertNotIn(destination.encode(), started)
+        self.assertIn(manager.job_id.encode(), started)
+
+        status, _, progress = _request(app, path=f"/archive/restore/{manager.job_id}")
+        self.assertEqual(status, "200 OK")
+        self.assertIn(b"In coda", progress)
+        self.assertNotIn(source.encode(), progress)
+        self.assertNotIn(destination.encode(), progress)
+
+        manager.status = RestoreStatus(manager.job_id, "succeeded", 0, 8, destination)
+        status, _, complete = _request(app, path=f"/archive/restore/{manager.job_id}")
+        self.assertEqual(status, "200 OK")
+        self.assertIn(destination.encode(), complete)
+
+    def test_archive_restore_cancel_requires_same_origin_and_keeps_paths_private(self):
+        manager = _FakeRestoreManager()
+        app = create_expense_report_app(
+            archive_store=self.store, archive_restore_manager=manager
+        )
+        status, _, _ = _request(
+            app, "POST", f"/archive/restore/{manager.job_id}/cancel",
+            b"", "application/x-www-form-urlencoded", origin="http://evil.example",
+        )
+        self.assertEqual(status, "403 Forbidden")
+        self.assertEqual(manager.cancelled, [])
+
+        status, _, cancelled = _request(
+            app, "POST", f"/archive/restore/{manager.job_id}/cancel",
+            b"", "application/x-www-form-urlencoded",
+        )
+        self.assertEqual(status, "200 OK")
+        self.assertEqual(manager.cancelled, [manager.job_id])
+        self.assertIn(b"Annullamento in corso", cancelled)
+        self.assertNotIn(b"private", cancelled)
 
     def test_archive_list_open_and_json_csv_exports_keep_evidence(self):
         self._start_expense_report_session()

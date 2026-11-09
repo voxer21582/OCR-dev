@@ -13,10 +13,12 @@ import ntpath
 import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
 import secrets
+import tempfile
 import uuid
-from typing import Iterator, Protocol
+from typing import Callable, Iterator, Protocol
 
 from .contracts import validate_document_record
 
@@ -85,6 +87,10 @@ def _validate_local_archive_path(
 
 class StoreError(RuntimeError):
     """Base exception for local document-store failures."""
+
+
+class StoreOperationCancelled(StoreError):
+    """A cancellable local archive operation stopped before publication."""
 
 
 class StoreRejected(StoreError):
@@ -204,6 +210,7 @@ class LocalDocumentStore:
         *,
         protector: PayloadProtector | None = None,
         max_document_bytes: int = DEFAULT_MAX_DOCUMENT_BYTES,
+        _cancel_requested: Callable[[], bool] | None = None,
     ) -> None:
         if (
             not isinstance(max_document_bytes, int)
@@ -224,7 +231,293 @@ class LocalDocumentStore:
         self._index_key = b""
         self._known_index_entries: dict[str, str] = {}
         self._initialize()
-        self._verify_index_integrity()
+        self._verify_index_integrity(cancel_requested=_cancel_requested)
+
+    @staticmethod
+    def _new_local_file_path(path: str | Path) -> Path:
+        if not isinstance(path, (str, Path)) or not str(path):
+            raise StoreRejected("archive file path is required")
+        absolute_path = Path(path).expanduser().absolute()
+        _validate_local_archive_path(str(absolute_path))
+        if not absolute_path.parent.is_dir():
+            raise StoreRejected("archive file parent directory must already exist")
+        if os.path.lexists(absolute_path):
+            raise StoreRejected("archive file already exists")
+        return absolute_path
+
+    @staticmethod
+    def _copy_sqlite_snapshot(
+        source_path: Path,
+        temporary_path: Path,
+        *,
+        progress_callback: Callable[[int, int], None] | None = None,
+        cancel_requested: Callable[[], bool] | None = None,
+    ) -> None:
+        source = target = None
+        try:
+            if cancel_requested is not None and cancel_requested():
+                raise StoreOperationCancelled("archive operation cancelled")
+            source = sqlite3.connect(source_path.as_uri() + "?mode=ro", uri=True, timeout=10)
+            target = sqlite3.connect(temporary_path, timeout=10)
+            target.execute("PRAGMA synchronous = FULL")
+
+            def report_progress(_status: int, remaining_pages: int, total_pages: int) -> None:
+                if progress_callback is not None:
+                    progress_callback(remaining_pages, total_pages)
+                if cancel_requested is not None and cancel_requested():
+                    # Abort the SQLite backup at a page boundary. The
+                    # resulting database error is translated below.
+                    target.interrupt()
+
+            source.backup(
+                target,
+                pages=128,
+                progress=report_progress if progress_callback is not None or cancel_requested is not None else None,
+                sleep=0.01,
+            )
+            if cancel_requested is not None and cancel_requested():
+                raise StoreOperationCancelled("archive operation cancelled")
+            target.commit()
+            if cancel_requested is not None and cancel_requested():
+                raise StoreOperationCancelled("archive operation cancelled")
+        except StoreOperationCancelled:
+            raise
+        except sqlite3.Error as exc:
+            if cancel_requested is not None and cancel_requested():
+                raise StoreOperationCancelled("archive operation cancelled") from exc
+            raise StoreIntegrityError("could not create a consistent local archive snapshot") from exc
+        finally:
+            if target is not None:
+                target.close()
+            if source is not None:
+                source.close()
+
+    @classmethod
+    def _validate_snapshot(
+        cls,
+        path: Path,
+        *,
+        protector: PayloadProtector,
+        max_document_bytes: int,
+        cancel_requested: Callable[[], bool] | None = None,
+    ) -> LocalDocumentStore:
+        try:
+            connection = sqlite3.connect(path)
+            try:
+                if cancel_requested is not None and cancel_requested():
+                    raise StoreOperationCancelled("archive operation cancelled")
+                if cancel_requested is not None:
+                    connection.set_progress_handler(lambda: int(cancel_requested()), 1000)
+                integrity = [row[0] for row in connection.execute("PRAGMA integrity_check")]
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+            finally:
+                connection.close()
+            if integrity != ["ok"]:
+                raise StoreIntegrityError("archive snapshot failed SQLite integrity validation")
+            if version != _SCHEMA_VERSION:
+                raise StoreSchemaError("archive snapshot schema version is unsupported")
+            candidate = cls(
+                path,
+                protector=protector,
+                max_document_bytes=max_document_bytes,
+                _cancel_requested=cancel_requested,
+            )
+            with candidate._connect() as connection:
+                for _, record, _ in candidate._iter_records(connection):
+                    if cancel_requested is not None and cancel_requested():
+                        raise StoreOperationCancelled("archive operation cancelled")
+                    row = candidate._row_for_document_id(connection, record["document_id"])
+                    if row is None:
+                        raise StoreIntegrityError("archive snapshot record disappeared during validation")
+                    source = record["source"]
+                    candidate._decode_source(
+                        row[3],
+                        expected_hash=source["sha256"].lower(),
+                        expected_length=source["byte_length"],
+                    )
+            return candidate
+        except StoreError:
+            raise
+        except sqlite3.Error as exc:
+            if cancel_requested is not None and cancel_requested():
+                raise StoreOperationCancelled("archive operation cancelled") from exc
+            raise StoreIntegrityError("archive snapshot could not be validated") from exc
+
+    @staticmethod
+    def _publish_snapshot(
+        temporary_path: Path,
+        destination: Path,
+        *,
+        publication_callback: Callable[[Callable[[], None]], bool] | None = None,
+    ) -> None:
+        published = False
+
+        with temporary_path.open("rb+") as snapshot:
+            os.fsync(snapshot.fileno())
+
+        def atomic_publish() -> None:
+            nonlocal published
+            if os.name == "nt":
+                os.rename(temporary_path, destination)
+            else:
+                os.link(temporary_path, destination)
+                try:
+                    temporary_path.unlink()
+                except OSError:
+                    pass
+            published = True
+
+        try:
+            if publication_callback is None:
+                atomic_publish()
+                return
+            try:
+                allowed = publication_callback(atomic_publish)
+            except Exception:
+                if not published:
+                    raise
+                return
+            if not published and not allowed:
+                raise StoreOperationCancelled("archive operation cancelled before publication")
+            if not published:
+                raise StoreError("publication callback returned success without publishing")
+        except StoreOperationCancelled:
+            raise
+        except FileExistsError as exc:
+            raise StoreRejected("archive file already exists") from exc
+        except OSError as exc:
+            raise StoreError("filesystem cannot atomically publish the archive snapshot") from exc
+
+    def backup_to(self, destination: str | Path) -> Path:
+        """Create a validated encrypted snapshot at a new local path; never overwrite."""
+        destination_path = self._new_local_file_path(destination)
+        temporary_path = None
+        published = False
+        try:
+            descriptor, name = tempfile.mkstemp(
+                prefix=f".{destination_path.name}.", suffix=".tmp", dir=destination_path.parent
+            )
+            os.close(descriptor)
+            temporary_path = Path(name)
+            self._copy_sqlite_snapshot(self.path, temporary_path)
+            self._validate_snapshot(
+                temporary_path,
+                protector=self._protector,
+                max_document_bytes=self._max_document_bytes,
+            )
+            self._publish_snapshot(temporary_path, destination_path)
+            published = True
+            return destination_path
+        finally:
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError:
+                    if not published:
+                        raise
+
+    def restore_backup_to(
+        self,
+        source: str | Path,
+        destination: str | Path,
+        *,
+        progress_callback: Callable[[int, int], None] | None = None,
+        phase_callback: Callable[[str], None] | None = None,
+        cancel_requested: Callable[[], bool] | None = None,
+        publication_callback: Callable[[Callable[[], None]], bool] | None = None,
+    ) -> LocalDocumentStore:
+        """Restore using this store's protector into a new path without changing this store."""
+        return type(self).restore_backup(
+            source,
+            destination,
+            protector=self._protector,
+            max_document_bytes=self._max_document_bytes,
+            progress_callback=progress_callback,
+            phase_callback=phase_callback,
+            cancel_requested=cancel_requested,
+            publication_callback=publication_callback,
+        )
+
+    @classmethod
+    def restore_backup(
+        cls,
+        source: str | Path,
+        destination: str | Path,
+        *,
+        protector: PayloadProtector | None = None,
+        max_document_bytes: int = DEFAULT_MAX_DOCUMENT_BYTES,
+        progress_callback: Callable[[int, int], None] | None = None,
+        phase_callback: Callable[[str], None] | None = None,
+        cancel_requested: Callable[[], bool] | None = None,
+        publication_callback: Callable[[Callable[[], None]], bool] | None = None,
+    ) -> LocalDocumentStore:
+        """Restore a verified backup to a new local archive path without overwriting."""
+        source_path = Path(source).expanduser().absolute() if isinstance(source, (str, Path)) else None
+        if source_path is None or not source_path.is_file() or source_path.is_symlink():
+            raise StoreRejected("archive backup must be an existing regular local file")
+        _validate_local_archive_path(str(source_path))
+        destination_path = cls._new_local_file_path(destination)
+        if os.path.normcase(str(source_path)) == os.path.normcase(str(destination_path)):
+            raise StoreRejected("restore source and destination must be different files")
+        try:
+            required_bytes = source_path.stat().st_size
+            available_bytes = shutil.disk_usage(destination_path.parent).free
+        except OSError as exc:
+            raise StoreRejected("could not check destination free space") from exc
+        if available_bytes < required_bytes:
+            raise StoreRejected("insufficient free space for archive restore")
+        selected_protector = protector or (WindowsDpapiProtector() if os.name == "nt" else None)
+        if selected_protector is None:
+            raise StoreProtectionError("Windows DPAPI is required; tests may inject a synthetic protector")
+        if cancel_requested is not None and cancel_requested():
+            raise StoreOperationCancelled("archive operation cancelled")
+        temporary_path = None
+        published = False
+        try:
+            descriptor, name = tempfile.mkstemp(
+                prefix=f".{destination_path.name}.", suffix=".tmp", dir=destination_path.parent
+            )
+            os.close(descriptor)
+            temporary_path = Path(name)
+            if phase_callback is not None:
+                phase_callback("copying")
+            cls._copy_sqlite_snapshot(
+                source_path,
+                temporary_path,
+                progress_callback=progress_callback,
+                cancel_requested=cancel_requested,
+            )
+            if cancel_requested is not None and cancel_requested():
+                raise StoreOperationCancelled("archive operation cancelled")
+            if phase_callback is not None:
+                phase_callback("validating")
+            candidate = cls._validate_snapshot(
+                temporary_path,
+                protector=selected_protector,
+                max_document_bytes=max_document_bytes,
+                cancel_requested=cancel_requested,
+            )
+            if cancel_requested is not None and cancel_requested():
+                raise StoreOperationCancelled("archive operation cancelled")
+            if phase_callback is not None:
+                phase_callback("publishing")
+            if cancel_requested is not None and cancel_requested():
+                raise StoreOperationCancelled("archive operation cancelled")
+            cls._publish_snapshot(
+                temporary_path,
+                destination_path,
+                publication_callback=publication_callback,
+            )
+            published = True
+            candidate.path = destination_path
+            return candidate
+        finally:
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError:
+                    if not published:
+                        raise
 
     @contextmanager
     def _connect(self):
@@ -456,11 +749,13 @@ class LocalDocumentStore:
                 raise StoreIntegrityError("document ID index failed integrity validation")
             yield entry_id, record, saved_at
 
-    def _verify_index_integrity(self) -> None:
+    def _verify_index_integrity(self, *, cancel_requested: Callable[[], bool] | None = None) -> None:
         """Check every encrypted record's opaque ID index before serving this store instance."""
         try:
             with self._connect() as connection:
                 for entry_id, record, _ in self._iter_records(connection):
+                    if cancel_requested is not None and cancel_requested():
+                        raise StoreOperationCancelled("archive operation cancelled")
                     self._known_index_entries[self._document_id_index(record["document_id"])] = entry_id
         except StoreError:
             raise

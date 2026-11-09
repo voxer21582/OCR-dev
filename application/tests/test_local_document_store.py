@@ -7,6 +7,8 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from alfa_document_intelligence.local_document_store import (
     LocalDocumentStore,
@@ -17,6 +19,7 @@ from alfa_document_intelligence.local_document_store import (
     StoreSchemaError,
     StoreSourceConflict,
     StoreConcurrentUpdate,
+    StoreOperationCancelled,
 )
 
 ROOT = Path(__file__).parents[1]
@@ -82,6 +85,87 @@ class LocalDocumentStoreTests(unittest.TestCase):
         self.assertEqual(reopened.source_bytes, self.source)
         self.assertEqual(reopened.record["source"]["sha256"], hashlib.sha256(self.source).hexdigest())
         self.assertEqual(reopened.record["source"]["storage_ref"], "local-archive://synthetic-invoice-001")
+
+    def test_backup_and_restore_preserve_validated_encrypted_record_and_source(self):
+        self.store.save(self.record, self.source)
+        backup_path = Path(self.temp.name) / "backup.sqlite3"
+        restored_path = Path(self.temp.name) / "restored.sqlite3"
+
+        self.assertEqual(self.store.backup_to(backup_path), backup_path)
+        restored = self.store.restore_backup_to(backup_path, restored_path)
+
+        item = restored.get("synthetic-invoice-001")
+        self.assertEqual(item.source_bytes, self.source)
+        self.assertEqual(item.record["source"]["storage_ref"], "local-archive://synthetic-invoice-001")
+        self.assertEqual(restored.path, restored_path)
+        self.assertEqual(self.store.get("synthetic-invoice-001").source_bytes, self.source)
+        self.assertNotIn(self.source, backup_path.read_bytes())
+
+    def test_restore_rejects_existing_destination_without_replacing_it(self):
+        self.store.save(self.record, self.source)
+        destination = Path(self.temp.name) / "existing.sqlite3"
+        destination.write_bytes(b"existing synthetic destination")
+
+        with self.assertRaises(StoreRejected):
+            self.store.restore_backup_to(self.database, destination)
+
+        self.assertEqual(destination.read_bytes(), b"existing synthetic destination")
+
+    def test_restore_checks_free_space_before_creating_staging_file(self):
+        self.store.save(self.record, self.source)
+        destination = Path(self.temp.name) / "no-space.sqlite3"
+        with patch(
+            "alfa_document_intelligence.local_document_store.shutil.disk_usage",
+            return_value=SimpleNamespace(free=0),
+        ), self.assertRaises(StoreRejected):
+            self.store.restore_backup_to(self.database, destination)
+
+        self.assertFalse(destination.exists())
+        self.assertEqual(list(Path(self.temp.name).glob(".no-space.sqlite3.*.tmp")), [])
+
+    def test_restore_cancellation_before_copy_leaves_no_destination_or_staging_file(self):
+        self.store.save(self.record, self.source)
+        destination = Path(self.temp.name) / "cancelled.sqlite3"
+
+        with self.assertRaises(StoreOperationCancelled):
+            self.store.restore_backup_to(
+                self.database, destination, cancel_requested=lambda: True
+            )
+
+        self.assertFalse(destination.exists())
+        self.assertEqual(
+            sorted(path.name for path in Path(self.temp.name).glob(".cancelled.sqlite3.*.tmp")),
+            [],
+        )
+
+    def test_restore_cancellation_during_sqlite_copy_removes_staging_file(self):
+        self.store.save(self.record, self.source)
+        connection = sqlite3.connect(self.database)
+        with connection:
+            connection.execute("CREATE TABLE synthetic_bulk (payload BLOB NOT NULL)")
+            connection.executemany(
+                "INSERT INTO synthetic_bulk(payload) VALUES (?)",
+                [(bytes([value]) * (512 * 1024),) for value in range(1, 5)],
+            )
+        connection.close()
+        destination = Path(self.temp.name) / "copy-cancelled.sqlite3"
+        checks = 0
+
+        def cancel_during_copy():
+            nonlocal checks
+            checks += 1
+            return checks > 2
+
+        with self.assertRaises(StoreOperationCancelled):
+            self.store.restore_backup_to(
+                self.database, destination, cancel_requested=cancel_during_copy
+            )
+
+        self.assertFalse(destination.exists())
+        self.assertEqual(
+            sorted(path.name for path in Path(self.temp.name).glob(".copy-cancelled.sqlite3.*.tmp")),
+            [],
+        )
 
     def test_source_hash_mismatch_is_rejected_before_storage(self):
         with self.assertRaises(StoreRejected):
