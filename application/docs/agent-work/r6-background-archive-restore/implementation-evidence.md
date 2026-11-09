@@ -3,7 +3,7 @@
 Date: 2026-11-09
 Branch: `codex/r6-background-archive-restore`
 Base: `aed04ac` (`feat: show fiscal review evidence history`)
-Status: local candidate; independent review READY; GitHub Actions, browser acceptance, and merge are pending.
+Status: PR [#99](https://github.com/voxer21582/OCR-dev/pull/99) is open as a draft, stacked on #98; independent review READY; browser acceptance and merge are pending.
 
 ## Scope
 
@@ -44,9 +44,13 @@ raise SystemExit(not result.wasSuccessful())
 
 Result: 31 tests passed. Added coverage checks a synthetic encrypted backup round-trip, exact source-byte preservation, no overwrite, insufficient-space rejection before staging, cancellation before and during SQLite copy with staging cleanup, and status/API behavior. A broad invocation also ran the omitted DPAPI case once; it failed with Windows API error 2 in this runtime. It was not retried. This result does not establish DPAPI runtime acceptance.
 
+## GitHub Actions
+
+The two required-check runs on PR #99 pass. PR run [42636639097](https://github.com/voxer21582/OCR-dev/actions/runs/42636639097) ran 22 taxonomy tests and 280 application tests from the existing explicit allowlist. The restore selectors are not in that allowlist; the green required check therefore does not verify the new restore implementation. Workflow ownership remains with the concurrent PRs #36/#88, and a handoff requesting review of only the explicit new selectors has been sent to “Punti bloccati.”
+
 ## Not established
 
-- No GitHub Actions workflow was modified or run for this candidate. The explicit test selectors need review through the separately owned workflow path.
+- No GitHub Actions workflow was modified. The existing Actions workflow ran, but its explicit selector list excludes this candidate’s tests; adding them needs review through the separately owned workflow path.
 - No browser-level interaction or Windows user acceptance has been performed.
 - The restore writes a new archive file and leaves it separate; automatic switching of the running application to the restored archive is not implemented.
 - The visible workflow accepts local source and destination paths. It does not provide a backup-download button; `LocalDocumentStore.backup_to` is available to an integrating local caller.
