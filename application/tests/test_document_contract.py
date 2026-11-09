@@ -244,6 +244,12 @@ class DocumentContractTests(unittest.TestCase):
             {
                 "action": {"enum": ["field_corrected", "alternative_selected"]},
                 "field_name": {"const": "document_family"},
+                "candidate": {
+                    "properties": {
+                        "status": {"const": "observed"},
+                        "value": {"type": "string", "pattern": "^custom_[a-z][a-z0-9_]{1,24}$"},
+                    },
+                },
             },
         )
 
