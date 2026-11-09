@@ -572,13 +572,18 @@ def _render_fiscal_state_review(
         "payment_evidence": "Prova di pagamento",
         "not_fiscal": "Non fiscale",
         "uncertain": "Incerto",
+        "unknown": "Non determinato",
     }
+    option_labels = dict(labels)
     if overlay.get("reviewed_document_family") == "pos_slip":
-        labels.pop("fiscal_document")
+        option_labels.pop("fiscal_document")
+    # Unknown is a display state, not a decision the reviewer can submit.
+    option_labels.pop("unknown")
     options = []
-    if current_status not in labels:
+    current_status_label = labels.get(current_status, str(current_status))
+    if current_status not in option_labels:
         options.append('<option value="" selected disabled>Seleziona stato fiscale</option>')
-    for value, label in labels.items():
+    for value, label in option_labels.items():
         selected = " selected" if current_status == value else ""
         options.append(f'<option value="{value}"{selected}>{label}</option>')
     current_evidence = current.get("evidence", [])
@@ -593,9 +598,39 @@ def _render_fiscal_state_review(
         evidence_options.append(f'<option value="{index}"{selected}>{escape(label)}</option>')
     if selected_index is None:
         evidence_options.insert(0, '<option value="" selected disabled>Seleziona evidenza</option>')
+    extracted = overlay["extracted_fiscal_document_state"]
+    extracted_status = extracted.get("status", "unknown")
+    extracted_label = labels.get(extracted_status, str(extracted_status))
+    fiscal_events = [
+        event for event in record.get("review", {}).get("events", [])
+        if isinstance(event, dict) and event.get("action") == "fiscal_state_corrected"
+    ]
+    history_rows = []
+    for event in fiscal_events:
+        event_state = event.get("fiscal_state", {})
+        event_status = event_state.get("status", "unknown") if isinstance(event_state, dict) else "unknown"
+        event_evidence = event_state.get("evidence") if isinstance(event_state, dict) else None
+        history_rows.append(
+            "<li>Decisione umana: "
+            f"{escape(labels.get(event_status, str(event_status)))}; "
+            f"motivo {escape(str(event.get('reason_code', 'non specificato')))}; "
+            f"{escape(str(event.get('timestamp', 'data non disponibile')))}."
+            f"{_render_candidate_evidence(event_evidence)}</li>"
+        )
+    history_html = (
+        "<h3>Storia delle classificazioni fiscali</h3><ul>" + "".join(history_rows) + "</ul>"
+        if history_rows else ""
+    )
+    current_heading = "Stato dopo revisione umana" if fiscal_events else "Stato corrente"
     return (
         "<section><h2>Stato fiscale</h2>"
-        f'<p>Stato attuale: {escape(str(current_status))}. Rivedilo separatamente dalla famiglia del documento e confronta la fonte originale.</p>'
+        "<h3>Proposta automatica iniziale</h3>"
+        f"<p>Stato: {escape(extracted_label)}.</p>"
+        f"{_render_candidate_evidence(extracted.get('evidence')) if isinstance(extracted, dict) else ''}"
+        f"<h3>{current_heading}</h3>"
+        f'<p>Stato attuale: {escape(current_status_label)}. Rivedilo separatamente dalla famiglia del documento e confronta la fonte originale.</p>'
+        f"{_render_candidate_evidence(current.get('evidence')) if isinstance(current, dict) else ''}"
+        f"{history_html}"
         f'<form method="post" data-review-timer action="/reviews/{quote(document_id, safe="")}/fiscal-state">'
         f'<label>Classificazione <select name="fiscal_status" required>{"".join(options)}</select></label>'
         f'<label>Evidenza originale <select name="evidence_index" required>{"".join(evidence_options)}</select></label>'
