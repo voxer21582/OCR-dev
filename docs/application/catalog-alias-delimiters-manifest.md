@@ -1,5 +1,10 @@
 # Custom catalog aliases ending in delimiters
 
+This fix was identified by a synthetic reproduction in the current OCR2
+workspace against public main `7486989d556503fa07c66ccce52bc13a5be4effd`.
+It builds on the catalog behavior already present there; no requirement or
+implementation is taken from the previous OCR project.
+
 Catalogs can already contain aliases such as `Data:` or `Data =`, but the
 legacy field matcher compares only the prefix before the delimiter. This
 candidate adds a fallback for a single matching trailing `:` or `=`, including
