@@ -2,6 +2,14 @@
 
 Updated: 2026-11-09
 
+## R6 custom-family review integration candidate (2026-11-09)
+
+The isolated canonical candidate binds manual custom-family selections to the validated immutable definition already stored in the record. It extends the review-event schema with an optional family snapshot, embeds that snapshot in the hash-chained event, and exposes a custom family in the local UI only when both the snapshot is valid and the family is an observed OCR alternative with matching evidence. Built-in family handling remains unchanged. The record's extracted family and fiscal classification remain separate.
+
+Local synthetic checks: `PYTHONPATH=application\\src;application\\tests python -B -m unittest -q test_document_contract test_review_ledger` passed 48 tests; a direct invocation of the custom-family UI regression also passed. The two new regressions were first observed failing for the missing schema property and the UI's built-in-only allowlist. The document schema parsed as JSON and `git diff --check` passed. `pytest` is absent in this interpreter and was not installed.
+
+This is a migration candidate, not R6 acceptance: public CI has not yet run the new test module; independent review, archive reopen/migration behavior, browser-level verification, and owner-approved merge remain pending. No real documents, OCR activation, R7/R8, Windows-native tests, or release are included.
+
 ## Accepted manual handoff correction (2026-11-09)
 
 The accepted implementation retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.

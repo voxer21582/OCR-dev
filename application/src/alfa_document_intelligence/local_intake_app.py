@@ -21,6 +21,7 @@ from wsgiref.simple_server import make_server
 
 from .chatgpt_handoff import ChatGPTHandoffError, build_chatgpt_handoff_prompt
 from .contracts import validate_document_record
+from .document_family_catalog import validate_family_snapshot
 from .expense_reports import ExpenseReportIntakeSession, create_expense_report_intake_session
 from .ingestion import IngestionLimits, MaterializedBatch, UploadRejected, materialize_stream_batch
 from .review_ledger import append_review_event, reviewed_overlay
@@ -36,6 +37,10 @@ _MAX_UPLOAD_FILES = 20
 _MAX_URLENCODED_FIELDS = 16
 _SESSION_IDLE_SECONDS = 30 * 60
 _ACCEPT = ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.webp,.zip"
+_BUILTIN_DOCUMENT_FAMILIES = frozenset({
+    "invoice", "fiscal_receipt", "parking_receipt", "hotel_document",
+    "pos_slip", "other", "unknown",
+})
 
 
 @dataclass
@@ -54,6 +59,15 @@ class _VolatileSession:
 
 
 _ARCHIVE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+
+def _valid_custom_family_snapshot(record: dict[str, Any], family: str) -> dict[str, Any] | None:
+    snapshots = record.get("document_family_definitions")
+    if not isinstance(snapshots, list) or not snapshots:
+        return None
+    if any(not isinstance(snapshot, dict) or validate_family_snapshot(snapshot) for snapshot in snapshots):
+        return None
+    return next((snapshot for snapshot in snapshots if snapshot["family"].get("id") == family), None)
 
 
 def _record_fingerprint(record: dict[str, Any]) -> str:
@@ -466,7 +480,12 @@ def _render_document_family_review(
         family = alternative.get("value")
         if not isinstance(family, str):
             continue
-        label = family.replace("_", " ")
+        custom_snapshot = None
+        if family not in _BUILTIN_DOCUMENT_FAMILIES:
+            custom_snapshot = _valid_custom_family_snapshot(record, family)
+            if custom_snapshot is None:
+                continue
+        label = custom_snapshot["family"]["label"] if custom_snapshot else family.replace("_", " ")
         selected_attr = " selected" if family == selected else ""
         choices.append(
             f'<option value="{escape(family)}"{selected_attr}>{escape(label)}</option>'
@@ -814,11 +833,10 @@ def _apply_document_family_selection(
 ) -> dict[str, Any]:
     if record.get("document_family") == "expense_report":
         raise IntakeRequestError("La famiglia della nota spese non può essere cambiata da questa revisione")
-    if not isinstance(family, str) or family not in {
-        "invoice", "fiscal_receipt", "parking_receipt", "hotel_document",
-        "pos_slip", "other", "unknown",
-    }:
+    if not isinstance(family, str):
         raise IntakeRequestError("Famiglia documento non supportata")
+    if family not in _BUILTIN_DOCUMENT_FAMILIES and _valid_custom_family_snapshot(record, family) is None:
+        raise IntakeRequestError("Famiglia documento non supportata da uno snapshot valido")
     proposal = record.get("fields", {}).get("document_family_candidates")
     alternatives = proposal.get("alternatives") if isinstance(proposal, dict) else None
     selected = next((

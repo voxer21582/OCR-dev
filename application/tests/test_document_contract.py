@@ -229,6 +229,24 @@ class DocumentContractTests(unittest.TestCase):
         self.assertIn("page_number", evidence["required"])
         self.assertIn("producer", evidence["required"])
 
+    def test_review_event_schema_accepts_snapshot_bound_custom_family_selection(self):
+        event = self.schema["$defs"]["reviewEvent"]
+        self.assertEqual(
+            event["properties"]["document_family_snapshot"],
+            {"$ref": "#/$defs/documentFamilyDefinition"},
+        )
+        constraint = next(
+            rule for rule in event["allOf"]
+            if rule.get("if", {}).get("required") == ["document_family_snapshot"]
+        )
+        self.assertEqual(
+            constraint["then"]["properties"],
+            {
+                "action": {"enum": ["field_corrected", "alternative_selected"]},
+                "field_name": {"const": "document_family"},
+            },
+        )
+
     def test_synthetic_invoice_satisfies_cross_record_invariants(self):
         self.assertEqual(validate_document_record(self.fixture), [])
 
