@@ -2,6 +2,10 @@
 
 Updated: 2026-11-09
 
+## Review label — candidate
+
+The local review page labels displayed candidate values as current rather than verified; this does not change candidate status or imply human confirmation. The [manifest](../docs/application/review-neutral-label-manifest.md) records 26 local synthetic tests and the limits; browser rendering and product acceptance remain unverified. Other pending PRs touch the same module and require reconciliation. R7/R8 remain blocked.
+
 ## Accepted manual handoff correction (2026-11-09)
 
 The accepted implementation retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.
