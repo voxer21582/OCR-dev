@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from .contracts import validate_document_record
+from .review_ledger import reviewed_overlay
 
 CSV_EXPORT_VERSION = "ocr2-document-csv-v1"
 _CSV_DOCUMENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
@@ -113,4 +114,45 @@ def export_document_csv(record: dict[str, Any]) -> str:
                 "candidate_json": _json_text(fields[field_name]) if field_name else "",
             }
         )
+    return output.getvalue()
+
+
+def export_reviewed_document_csv(record: dict[str, Any]) -> str:
+    """Project extracted and effective reviewed candidates without claiming approval.
+
+    The review ledger is verified. JSON remains the complete audit representation.
+    """
+    document = _validated_record(record)
+    overlay = reviewed_overlay(document)
+    document_id = document["document_id"]
+    if not isinstance(document_id, str) or not _CSV_DOCUMENT_ID.fullmatch(document_id):
+        raise ExportValidationError(["document_id: invalid CSV identifier"])
+    extracted = overlay["extracted_fields"]
+    reviewed = overlay["reviewed_fields"]
+    names = set(extracted) | set(reviewed)
+    if any(not isinstance(name, str) or not _CSV_FIELD_NAME.fullmatch(name) for name in names):
+        raise ExportValidationError(["fields: invalid CSV field identifier"])
+    columns = (
+        "export_format_version", "document_id", "source_sha256", "review_status",
+        "extracted_document_family", "reviewed_document_family",
+        "extracted_fiscal_json", "reviewed_fiscal_json", "field_name",
+        "extracted_candidate_json", "reviewed_candidate_json",
+    )
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=columns, lineterminator="\r\n")
+    writer.writeheader()
+    for name in sorted(names) or [""]:
+        writer.writerow({
+            "export_format_version": "ocr2-reviewed-csv-v1",
+            "document_id": document_id,
+            "source_sha256": document["source"]["sha256"],
+            "review_status": overlay["review_status"],
+            "extracted_document_family": overlay["extracted_document_family"],
+            "reviewed_document_family": overlay["reviewed_document_family"],
+            "extracted_fiscal_json": _json_text(overlay["extracted_fiscal_document_state"]),
+            "reviewed_fiscal_json": _json_text(overlay["reviewed_fiscal_document_state"]),
+            "field_name": name,
+            "extracted_candidate_json": _json_text(extracted.get(name)),
+            "reviewed_candidate_json": _json_text(reviewed.get(name)),
+        })
     return output.getvalue()

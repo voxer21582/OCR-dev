@@ -32,9 +32,13 @@ such as `=...` remains inside a JSON string value rather than at the start of
 the cell as a spreadsheet formula. Consumers should parse the JSON columns
 instead of treating them as display-ready plain text.
 
+## Reviewed CSV projection candidate
+
+`export_reviewed_document_csv(record)` is a separate `ocr2-reviewed-csv-v1` projection. It verifies the review ledger and includes extracted and effective candidate JSON side by side, review status, source hash, and extracted/effective family and fiscal-state information. Missing counterparts are JSON `null`; unchanged effective values are not thereby human-confirmed. The JSON record remains the complete audit representation. This function does not change CSV v1 and is not connected to a UI in this candidate. Spreadsheet import may reinterpret text and must be configured carefully.
+
 ## Privacy and validation
 
-Both functions check the repository's cross-record invariants and the presence
+All three functions check the repository's cross-record invariants and the presence
 of the top-level required properties, raising `ExportValidationError` when
 those checks fail. They do not independently execute the JSON Schema validator;
 callers remain responsible for structural schema validation before exporting.

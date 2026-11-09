@@ -1,0 +1,7 @@
+# Reviewed CSV projection — scoped evidence
+
+Date: 2026-11-09. Base `ea26dd6` from the pending CSV identifier safety PR #76, itself based on public main `7486989d556503fa07c66ccce52bc13a5be4effd`. New OCR2 work; no old OCR project code or data copied.
+
+The new `export_reviewed_document_csv` generates a separately versioned projection after checking the review ledger. It reports source identity and review status, original and effective family/fiscal state, and original and effective candidate JSON for each field. Effective means the latest ledger overlay; it does not mean all values were confirmed by a human or administratively approved. JSON `null` represents a missing counterpart. Evidence and alternatives remain in candidate JSON. Identifiers are checked before CSV serialization. Existing CSV v1 and JSON outputs remain unchanged.
+
+From `application/`, with the existing Windows Python environment and `$env:PYTHONPATH='src;tests'`, `python -B -m unittest test_reviewed_csv_projection test_csv_identifier_safety test_document_export test_review_ledger.ReviewLedgerTests` passed 32 synthetic tests. Initial targeted run failed because the function did not exist. Independent static review READY, including expanded states and synthetic custom snapshot coverage. No browser, archive, R7/R8 operation, native decoder, real data or spreadsheet application was tested. This is a local serializer, not an app export workflow or product acceptance. CSV import can reinterpret text; the complete JSON record remains the audit source.
