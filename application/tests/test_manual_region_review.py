@@ -25,7 +25,7 @@ from alfa_document_intelligence.manual_region_review import (
     normalized_rectangle,
 )
 from alfa_document_intelligence.ocr_adapter import RasterPage
-from alfa_document_intelligence.review_ledger import reviewed_overlay
+from alfa_document_intelligence.review_ledger import append_review_event, reviewed_overlay
 
 
 class ManualRegionEvidenceTests(unittest.TestCase):
@@ -52,6 +52,30 @@ class ManualRegionEvidenceTests(unittest.TestCase):
             record["pages"] = [{"page_number": 1}]
             record["fields"]["merchant_name"] = {
                 "value": None, "status": "absent", "evidence": [], "alternatives": [],
+            }
+            source_hash = record["source"]["sha256"]
+            total_evidence = {
+                "source_sha256": source_hash,
+                "page_number": 1,
+                "token_ids": ["synthetic-total-primary"],
+                "literal": "15.00",
+                "producer": {"stage": "ocr", "name": "synthetic", "version": "1"},
+            }
+            alternative_region = {
+                "source_sha256": source_hash,
+                "page_number": 1,
+                "region": {
+                    "coordinate_space": "normalized_page",
+                    "polygon": [[0.1, 0.2], [0.4, 0.2], [0.4, 0.3], [0.1, 0.3]],
+                },
+                "producer": {"stage": "ocr", "name": "synthetic", "version": "1"},
+            }
+            record["fields"]["total_amount"] = {
+                "value": "15.00", "status": "uncertain", "evidence": [total_evidence],
+                "alternatives": [
+                    {"value": "15.00", "status": "uncertain", "evidence": [total_evidence]},
+                    {"value": "15.50", "status": "uncertain", "evidence": [alternative_region]},
+                ],
             }
             return record
 
@@ -83,6 +107,11 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         response, page = invoke("GET", "/reviews/doc-001")
         self.assertTrue(response["status"].startswith("200"))
         self.assertIn(b"data-region-image", page)
+        self.assertIn(b"Proposta automatica iniziale", page)
+        self.assertIn(b"Alternative proposte", page)
+        self.assertIn(b"15.50", page)
+        self.assertIn(hashlib.sha256(source).hexdigest().encode("ascii"), page)
+        self.assertIn(b"Pagina 1", page)
         token_match = re.search(rb'name="_ocr2_csrf" value="([A-Za-z0-9_-]+)"', page)
         self.assertIsNotNone(token_match)
         revision_match = re.search(rb'name="expected_review_head" value="([a-f0-9]*)"', page)
@@ -99,7 +128,12 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         )
         self.assertTrue(response["status"].startswith("200"))
         self.assertIn(b"Hotel Sintetico", result)
-        self.assertIn(b"regione selezionata e verificata da una persona", result)
+        self.assertIn(b"normalized_page", result)
+        self.assertIn(hashlib.sha256(source).hexdigest().encode("ascii"), result)
+        self.assertIn(b"0.7", result)
+        self.assertIn(b"Valore dopo revisione umana", result)
+        self.assertIn(b"Risultati automatici non aggiornati", result)
+        self.assertIn(b"human_corrected", result)
 
     def test_preview_route_serves_only_hash_bound_synthetic_png(self):
         def processor(record, _source):
@@ -320,6 +354,30 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         csp = response["headers"]["Content-Security-Policy"]
         self.assertIn("img-src 'self'", csp)
         self.assertNotIn("unsafe-inline", csp)
+
+    def test_review_history_distinguishes_manual_correction_from_alternative_selection(self):
+        record = json.loads((Path(__file__).parent / "fixtures" / "synthetic_invoice.json").read_text(encoding="utf-8"))
+        record = append_review_event(record, actor_id="synthetic-reviewer", action="queued", timestamp="2026-11-09T10:00:00Z")
+        record = append_review_event(record, actor_id="synthetic-reviewer", action="opened", timestamp="2026-11-09T10:01:00Z")
+        corrected = json.loads(json.dumps(record["fields"]["total_amount"]))
+        corrected["value"] = "125.00"
+        corrected["normalization"]["normalized_value"] = "125.00"
+        record = append_review_event(
+            record, actor_id="synthetic-reviewer", action="field_corrected",
+            timestamp="2026-11-09T10:02:00Z", field_name="total_amount",
+            reason_code="visual_correction", candidate=corrected,
+        )
+        selected = json.loads(json.dumps(record["fields"]["total_amount"]))
+        record = append_review_event(
+            record, actor_id="synthetic-reviewer", action="alternative_selected",
+            timestamp="2026-11-09T10:03:00Z", field_name="total_amount",
+            reason_code="selected_proposal", candidate=selected,
+        )
+
+        page = _render_editable_record(record, document_id="synthetic-1", has_source=False)
+
+        self.assertIn("Correzione umana: 125.00", page)
+        self.assertIn("Alternativa selezionata: 123.45", page)
 
 
 if __name__ == "__main__":

@@ -660,12 +660,40 @@ _REGION_REVIEW_SCRIPT = (
 )
 
 
+def _render_candidate_evidence(evidence: Any) -> str:
+    if not isinstance(evidence, list) or not evidence:
+        return "<p>Nessuna evidenza specifica collegata.</p>"
+    rows = []
+    for item in evidence:
+        if not isinstance(item, dict):
+            continue
+        page = escape(str(item.get("page_number", "?")))
+        source_hash = escape(str(item.get("source_sha256", "non disponibile")))
+        detail = f"Pagina {page}; SHA-256 sorgente {source_hash}"
+        literal = item.get("literal")
+        region = item.get("region")
+        if isinstance(literal, str) and literal:
+            detail += f"; testo rilevato <q>{escape(literal)}</q>"
+        elif isinstance(region, dict):
+            detail += "; regione " + escape(json.dumps(region, ensure_ascii=True, sort_keys=True))
+        rows.append(f"<li>{detail}</li>")
+    if not rows:
+        return "<p>Nessuna evidenza specifica collegata.</p>"
+    return "<h4>Evidenza collegata</h4><ul>" + "".join(rows) + "</ul>"
+
+
 def _render_editable_record(
     record: dict[str, Any], *, document_id: str, has_source: bool, elapsed_seconds: int = 0,
     archive_save_enabled: bool = False,
 ) -> str:
     overlay = reviewed_overlay(record)
     fields = overlay["reviewed_fields"]
+    review_events = record.get("review", {}).get("events", [])
+    edit_actions = {"field_corrected", "alternative_selected", "fiscal_state_corrected"}
+    derived_results_stale = any(
+        isinstance(event, dict) and event.get("action") in edit_actions
+        for event in review_events
+    )
     page_numbers = sorted({
         item.get("page_number") for item in record.get("pages", [])
         if isinstance(item, dict) and isinstance(item.get("page_number"), int)
@@ -673,17 +701,60 @@ def _render_editable_record(
     })
     rows = []
     for name, candidate in sorted(fields.items()):
+        extracted = record.get("fields", {}).get(name, {})
+        field_events = [
+            event for event in review_events
+            if isinstance(event, dict) and event.get("field_name") == name
+            and event.get("action") in {"field_corrected", "alternative_selected"}
+        ]
+        extracted_value = extracted.get("value") if isinstance(extracted, dict) else None
+        extracted_status = extracted.get("status", "unknown") if isinstance(extracted, dict) else "unknown"
+        status_labels = {
+            "observed": "osservato", "uncertain": "incerto", "unreadable": "illeggibile",
+            "absent": "assente", "not_applicable": "non applicabile", "rejected": "scartato",
+        }
+        extracted_status_label = status_labels.get(extracted_status, str(extracted_status))
+        extracted_evidence_html = _render_candidate_evidence(
+            extracted.get("evidence") if isinstance(extracted, dict) else None
+        )
+        alternatives = extracted.get("alternatives", []) if isinstance(extracted, dict) else []
+        alternatives_html = ""
+        if isinstance(alternatives, list) and alternatives:
+            alternative_rows = []
+            for alternative in alternatives:
+                if not isinstance(alternative, dict):
+                    continue
+                alternative_status = alternative.get("status", "unknown")
+                alternative_rows.append(
+                    "<li>"
+                    f"{escape(str(alternative.get('value', '—')))} "
+                    f"({escape(status_labels.get(alternative_status, str(alternative_status)))})"
+                    f"{_render_candidate_evidence(alternative.get('evidence'))}</li>"
+                )
+            if alternative_rows:
+                alternatives_html = "<h4>Alternative proposte</h4><ul>" + "".join(alternative_rows) + "</ul>"
+        history_html = ""
+        if field_events:
+            history_rows = []
+            for event in field_events:
+                event_candidate = event.get("candidate", {})
+                event_value = event_candidate.get("value") if isinstance(event_candidate, dict) else None
+                action_label = (
+                    "Alternativa selezionata"
+                    if event.get("action") == "alternative_selected"
+                    else "Correzione umana"
+                )
+                history_rows.append(
+                    f"<li>{action_label}: "
+                    f"{escape(str(event_value)) if event_value is not None else '—'}; "
+                    f"motivo {escape(str(event.get('reason_code', 'non specificato')))}; "
+                    f"{escape(str(event.get('timestamp', 'data non disponibile')))}.</li>"
+                )
+            history_html = "<h4>Storico delle decisioni sul campo</h4><ul>" + "".join(history_rows) + "</ul>"
         value = candidate.get("value")
+        reviewed_status = candidate.get("status", "unknown")
+        reviewed_status_label = status_labels.get(reviewed_status, str(reviewed_status))
         evidence = candidate.get("evidence", [])
-        snippets = []
-        for item in evidence:
-            literal = item.get("literal", "")
-            page = item.get("page_number", "?")
-            detail = f"<q>{escape(str(literal))}</q>" if literal else (
-                "regione selezionata e verificata da una persona"
-                if isinstance(item.get("region"), dict) else "riferimento sorgente senza testo OCR"
-            )
-            snippets.append(f"<li>Pagina {escape(str(page))}: {detail}</li>")
         correction = ""
         if evidence and name != "document_family_candidates":
             correction = (
@@ -705,9 +776,14 @@ def _render_editable_record(
                 correction += "<p>La selezione di una nuova regione non è disponibile: la pagina originale non è presente nella sessione corrente.</p>"
         rows.append(
             f"<section><h2>{escape(name)}</h2>"
-            f"<p>Valore verificato: {escape(str(value)) if value is not None else '—'} "
-            f"({escape(str(candidate.get('status', 'unknown')))}).</p>"
-            f"<ul>{''.join(snippets)}</ul>{correction}</section>"
+            f"<h3>Proposta automatica iniziale</h3><p>Valore: "
+            f"{escape(str(extracted_value)) if extracted_value is not None else '—'} "
+            f"({escape(extracted_status_label)}).</p>{extracted_evidence_html}{alternatives_html}"
+            f"<h3>{'Valore dopo revisione umana' if field_events else 'Valore corrente'}</h3>"
+            f"<p>{escape(str(value)) if value is not None else '—'} "
+            f"({escape(str(reviewed_status_label))}).</p>"
+            f"{_render_candidate_evidence(candidate.get('evidence')) if field_events else ''}"
+            f"{history_html}{correction}</section>"
         )
     family_review = _render_document_family_review(
         record, overlay, document_id=document_id, elapsed_seconds=elapsed_seconds
@@ -720,6 +796,12 @@ def _render_editable_record(
         if has_source else "<p>Originale non disponibile nella sessione corrente.</p>"
     )
     empty = "<p>Non sono ancora disponibili campi estratti da correggere.</p>" if not rows else ""
+    stale_warning = (
+        "<aside role=\"status\"><h2>Risultati automatici non aggiornati</h2>"
+        "<p>Una decisione umana ha modificato i dati revisionati. Le proposte e i controlli automatici "
+        "restano riferiti ai dati d’origine e non sono stati ricalcolati.</p></aside>"
+        if derived_results_stale else ""
+    )
     completion = (
         f'<form method="post" data-review-timer action="/reviews/{quote(document_id, safe="")}/complete">'
         f'<input type="hidden" name="review_seconds" data-review-seconds value="{elapsed_seconds}">'
@@ -741,7 +823,7 @@ def _render_editable_record(
         "<title>Revisione documento</title><main><p><a href=\"/\">Torna al fascicolo</a></p>"
         f"<h1>Revisione {escape(document_id)}</h1>"
         f"<p>Stato revisione: {escape(str(overlay['review_status']))}. Le correzioni si aggiungono al registro; i dati OCR non vengono sovrascritti.</p>"
-        f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{completion}{archive_save}"
+        f"{source_link}{stale_warning}{family_review}{fiscal_review}{empty}{''.join(rows)}{completion}{archive_save}"
         + (_REGION_REVIEW_STYLE if has_region_editor else "")
         + '<script nonce="__CSP_NONCE__">'
         + (_REGION_REVIEW_SCRIPT if has_region_editor else "")
