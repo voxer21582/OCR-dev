@@ -86,13 +86,15 @@ def _validate_candidate(record: dict[str, Any], field_name: str, candidate: Any)
     source = record.get("source")
     pages = record.get("pages")
     probe = {
-        "schema_version": "0.1.0",
+        "schema_version": record.get("schema_version"),
         "source": source,
         "fiscal_document_state": record.get("fiscal_document_state"),
         "pages": pages,
         "processing": {name: {"status": "not_started"} for name in _STAGE_NAMES},
         "fields": {field_name: candidate},
     }
+    if "document_family_definitions" in record:
+        probe["document_family_definitions"] = deepcopy(record["document_family_definitions"])
     issues = validate_document_record(probe)
     if issues:
         raise ReviewRejected("review candidate violates source-evidence contract: " + "; ".join(issues))

@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, quote
 from wsgiref.simple_server import make_server
 
 from .chatgpt_handoff import ChatGPTHandoffError, build_chatgpt_handoff_prompt
-from .contracts import validate_document_record
+from .contracts import _validate_custom_value, validate_document_record
 from .expense_reports import ExpenseReportIntakeSession, create_expense_report_intake_session
 from .ingestion import IngestionLimits, MaterializedBatch, UploadRejected, materialize_stream_batch
 from .review_ledger import append_review_event, reviewed_overlay
@@ -578,12 +578,30 @@ _MANUAL_MISSING_FIELDS = {
 }
 
 
+def _manual_missing_fields(record: dict[str, Any]) -> dict[str, str]:
+    """Return built-in names plus custom names bound to valid embedded snapshots."""
+    result = dict(_MANUAL_MISSING_FIELDS)
+    if record.get("schema_version") != "0.2.0" or validate_document_record(record):
+        return result
+    for snapshot in record.get("document_family_definitions", []):
+        family = snapshot["family"]
+        for custom_field in family.get("fields", []):
+            hint = {"date": " (formato AAAA-MM-GG)", "amount": " (formato 1234.50)"}.get(custom_field.get("type"), "")
+            result[f"{family['id']}_{custom_field['id']}"] = f"{family['label']} — {custom_field['label']}{hint}"
+    return result
+
+
 def _render_region_correction_form(
     *, document_id: str, field_name: str, page_numbers: list[int], elapsed_seconds: int,
+    initial: dict[str, str] | None = None,
 ) -> str:
     safe_id = quote(document_id, safe="")
     safe_field = quote(field_name, safe="")
-    options = "".join(f'<option value="{number}">{number}</option>' for number in page_numbers)
+    initial = initial or {}
+    selected_page = initial.get("region_page", str(page_numbers[0]))
+    options = "".join(f'<option value="{number}"{" selected" if str(number) == selected_page else ""}>{number}</option>' for number in page_numbers)
+    def initial_value(name: str) -> str:
+        return escape(initial.get(name, ""), quote=True)
     return (
         f'<form method="post" data-review-timer data-region-review action="/reviews/{safe_id}/fields/{safe_field}">'
         "<h3>Correzione manuale con riferimento alla pagina</h3>"
@@ -591,16 +609,16 @@ def _render_region_correction_form(
         "Il valore sarà registrato come revisione umana, non come testo OCR.</p>"
         f'<label>Pagina sorgente <select name="region_page" data-region-page>{options}</select></label>'
         f'<div class="region-viewer"><img data-region-image alt="Pagina del documento; trascina per delimitare il valore da correggere" '
-        f'data-preview-base="/reviews/{safe_id}/pages" src="/reviews/{safe_id}/pages/{page_numbers[0]}.png" loading="lazy">'
+        f'data-preview-base="/reviews/{safe_id}/pages" src="/reviews/{safe_id}/pages/{escape(selected_page, quote=True)}.png" loading="lazy">'
         '<svg data-region-overlay viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">'
         '<rect data-region-selection x="0" y="0" width="0" height="0"></rect></svg></div>'
         '<p data-region-status aria-live="polite">Trascina sulla pagina oppure inserisci le coordinate normalizzate.</p>'
         '<fieldset><legend>Coordinate normalizzate da 0 a 1</legend>'
-        '<label>X iniziale <input type="number" name="region_x0" min="0" max="1" step="any" required></label>'
-        '<label>Y iniziale <input type="number" name="region_y0" min="0" max="1" step="any" required></label>'
-        '<label>X finale <input type="number" name="region_x1" min="0" max="1" step="any" required></label>'
-        '<label>Y finale <input type="number" name="region_y1" min="0" max="1" step="any" required></label></fieldset>'
-        '<label>Valore letto e verificato sulla pagina <input name="value" maxlength="512" required></label>'
+        f'<label>X iniziale <input type="number" name="region_x0" value="{initial_value("region_x0")}" min="0" max="1" step="any" required></label>'
+        f'<label>Y iniziale <input type="number" name="region_y0" value="{initial_value("region_y0")}" min="0" max="1" step="any" required></label>'
+        f'<label>X finale <input type="number" name="region_x1" value="{initial_value("region_x1")}" min="0" max="1" step="any" required></label>'
+        f'<label>Y finale <input type="number" name="region_y1" value="{initial_value("region_y1")}" min="0" max="1" step="any" required></label></fieldset>'
+        f'<label>Valore letto e verificato sulla pagina <input name="value" value="{initial_value("value")}" maxlength="512" required></label>'
         f'<input type="hidden" name="review_seconds" data-review-seconds value="{elapsed_seconds}">'
         '<button type="submit">Registra correzione umana</button></form>'
     )
@@ -621,12 +639,20 @@ _REGION_REVIEW_SCRIPT = (
     'rect=form.querySelector("[data-region-selection]"),page=form.querySelector("[data-region-page]"),'
     'status=form.querySelector("[data-region-status]"),fields=["x0","y0","x1","y1"].map(k=>form.querySelector(`[name=region_${k}]`));let start=null;'
     'const clear=()=>{rect.setAttribute("width","0");rect.setAttribute("height","0");fields.forEach(field=>field.value="");start=null};'
+    'const restoreSelection=()=>{if(fields.some(f=>f.value===""))return;const [x0,y0,x1,y1]=fields.map(f=>Number(f.value));if([x0,y0,x1,y1].every(Number.isFinite)&&x0>=0&&y0>=0&&x1<=1&&y1<=1&&x1>x0&&y1>y0){rect.setAttribute("x",x0);rect.setAttribute("y",y0);rect.setAttribute("width",x1-x0);rect.setAttribute("height",y1-y0)}};restoreSelection();'
     'page.addEventListener("change",()=>{img.src=`${img.dataset.previewBase}/${page.value}.png`;clear()});'
     'const point=e=>{const r=svg.getBoundingClientRect();return [Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))]};'
     'svg.addEventListener("pointerdown",e=>{if(e.button!==0)return;clear();start=point(e);svg.setPointerCapture(e.pointerId);rect.setAttribute("x",start[0]);rect.setAttribute("y",start[1]);rect.setAttribute("width","0");rect.setAttribute("height","0")});'
     'svg.addEventListener("pointermove",e=>{if(!start)return;const p=point(e),x0=Math.min(start[0],p[0]),y0=Math.min(start[1],p[1]),x1=Math.max(start[0],p[0]),y1=Math.max(start[1],p[1]);rect.setAttribute("x",x0);rect.setAttribute("y",y0);rect.setAttribute("width",x1-x0);rect.setAttribute("height",y1-y0)});'
     'svg.addEventListener("pointerup",e=>{if(!start)return;const p=point(e),x0=Math.min(start[0],p[0]),y0=Math.min(start[1],p[1]),x1=Math.max(start[0],p[0]),y1=Math.max(start[1],p[1]);if(x1>x0&&y1>y0){[x0,y0,x1,y1].forEach((v,i)=>fields[i].value=v.toFixed(6));status.textContent=`Regione selezionata nella pagina ${page.value}. Verifica il testo e registra la correzione.`}else{clear();status.textContent="Selezione troppo piccola: trascina una regione più ampia."}start=null});'
     '});})();'
+)
+
+_REVIEW_TIMER_SCRIPT = (
+    '(()=>{let active=0,last=performance.now(),wasVisible=!document.hidden;const tick=()=>{const now=performance.now();if(wasVisible)active+=now-last;last=now;wasVisible=!document.hidden};'
+    'document.addEventListener("visibilitychange",tick);setInterval(tick,1000);'
+    'document.querySelectorAll("[data-review-timer]").forEach(form=>form.addEventListener("submit",()=>{tick();'
+    'const input=form.querySelector("[data-review-seconds]");if(input)input.value=String(Math.floor(Number(input.value||0)+active/1000))}));})();'
 )
 
 
@@ -679,7 +705,7 @@ def _render_editable_record(
             f"({escape(str(candidate.get('status', 'unknown')))}).</p>"
             f"<ul>{''.join(snippets)}</ul>{correction}</section>"
         )
-    missing_fields = [(name, label) for name, label in _MANUAL_MISSING_FIELDS.items() if name not in fields]
+    missing_fields = [(name, label) for name, label in _manual_missing_fields(record).items() if name not in fields]
     missing_forms = ""
     if has_source and page_numbers and missing_fields and overlay["review_status"] != "completed":
         missing_forms = '<section><h2>Aggiungi un campo non rilevato</h2><p>Trascrivi solo dopo aver verificato la pagina originale.</p>' + "".join(
@@ -724,11 +750,7 @@ def _render_editable_record(
         + (_REGION_REVIEW_STYLE if has_region_editor else "")
         + '<script nonce="__CSP_NONCE__">'
         + (_REGION_REVIEW_SCRIPT if has_region_editor else "")
-        + '(()=>{let active=0,last=performance.now(),wasVisible=!document.hidden;const tick=()=>{const now=performance.now();if(wasVisible)active+=now-last;last=now;wasVisible=!document.hidden};'
-        'document.addEventListener("visibilitychange",tick);setInterval(tick,1000);'
-        'document.querySelectorAll("[data-review-timer]").forEach(form=>form.addEventListener("submit",()=>{tick();'
-        'const input=form.querySelector("[data-review-seconds]");if(input)input.value=String(Math.floor(Number(input.value||0)+active/1000))}));})();'
-        '</script></main></html>'
+        + _REVIEW_TIMER_SCRIPT + '</script></main></html>'
     )
 
 
@@ -773,7 +795,7 @@ def _apply_field_correction(
         reviewed = reviewed_overlay(record)["reviewed_fields"].get(field_name)
         if isinstance(reviewed, dict) and reviewed.get("status") == "observed" and reviewed.get("evidence"):
             original = reviewed
-    if original is None and field_name in _MANUAL_MISSING_FIELDS:
+    if original is None and field_name in _manual_missing_fields(record):
         original = {"status": "absent", "evidence": []}
     if not isinstance(original, dict):
         raise IntakeRequestError("Il campo non dispone di evidenze sorgente da revisionare")
@@ -1399,6 +1421,25 @@ def create_expense_report_app(
                         raise IntakeRequestError("Apri l'anteprima della pagina originale prima di aggiungere il campo")
                 if seconds < state.review_seconds.get(document_id, 0):
                     raise IntakeRequestError("La durata non può diminuire durante la revisione")
+                custom_type = None
+                if field_name.startswith("custom_") and field_name in _manual_missing_fields(record):
+                    for snapshot in record.get("document_family_definitions", []):
+                        family = snapshot["family"]
+                        for custom_field in family.get("fields", []):
+                            if field_name == f"{family['id']}_{custom_field['id']}":
+                                custom_type = custom_field.get("type", "text")
+                type_issues: list[str] = []
+                if custom_type in {"date", "amount"}:
+                    _validate_custom_value(value.strip(), custom_type, "value", type_issues)
+                if type_issues and region_page_number is not None and region_coordinates is not None and len(value) <= 512:
+                    pages = sorted({item["page_number"] for item in record.get("pages", []) if isinstance(item, dict) and isinstance(item.get("page_number"), int) and not isinstance(item.get("page_number"), bool) and item["page_number"] > 0})
+                    if region_page_number not in pages:
+                        raise IntakeRequestError("La pagina selezionata non appartiene al documento")
+                    build_human_region_evidence(source.get("sha256"), region_page_number, *region_coordinates)
+                    initial = {"value": value, "region_page": str(region_page_number), **dict(zip(coordinate_names, coordinate_values))}
+                    hint = "AAAA-MM-GG" if custom_type == "date" else "1234.50"
+                    form = _render_region_correction_form(document_id=document_id, field_name=field_name, page_numbers=pages, elapsed_seconds=seconds, initial=initial)
+                    return _page(environ, start_response, "400 Bad Request", f"<p>Formato non valido. Usa {hint}.</p>{form}" + _REGION_REVIEW_STYLE + '<script nonce="__CSP_NONCE__">' + _REGION_REVIEW_SCRIPT + _REVIEW_TIMER_SCRIPT + '</script>')
                 updated = _apply_field_correction(
                     record,
                     field_name=field_name,
