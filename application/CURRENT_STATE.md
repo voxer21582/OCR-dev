@@ -2,6 +2,14 @@
 
 Updated: 2026-11-09
 
+## R6 stale-review submission guard candidate (2026-11-09)
+
+PR [#95](https://github.com/voxer21582/OCR-dev/pull/95), stacked on PR #94, now validates both the submitted review-ledger head and the verified current head as lowercase 64-character SHA-256 strings before constant-time comparison. This rejects malformed, missing, empty, and URL-decoded non-ASCII tokens as conflicts; the previous Unicode case raised `TypeError`, while a missing token could match an empty ledger.
+
+The synthetic regression covers a missing token alongside another form field, an empty token, and a Unicode token against a valid empty ledger. From the repository root, `PYTHONPATH=application\src; python -m unittest application.tests.test_manual_region_review` passed 11 tests and `python -m unittest application.tests.test_review_ledger` passed 19 tests. `python -m compileall -q application/src/alfa_document_intelligence/local_intake_app.py application/tests/test_manual_region_review.py` and `git diff --check` also passed. Independent re-review returned READY after the initial BLOCKED finding.
+
+The required check passed on both push [run 42645390959](https://github.com/voxer21582/OCR-dev/actions/runs/42645390959) and pull request [run 42645400934](https://github.com/voxer21582/OCR-dev/actions/runs/42645400934). These runs use the existing explicit synthetic selector list; no workflow or required-check configuration changed. PR #95 remains draft and unmerged. This candidate does not complete #34: browser walkthrough and archive behavior remain unverified, and no R7/R8 tests or operations were performed.
+
 ## R6 custom-family review integration candidate (2026-11-09)
 
 The isolated canonical candidate binds manual custom-family selections to the validated immutable definition already stored in the record. It extends the review-event schema with an optional family snapshot, embeds that snapshot in the hash-chained event, and exposes a custom family in the local UI only when both the snapshot is valid and the family is an observed OCR alternative with matching evidence. Built-in family handling remains unchanged. The record's extracted family and fiscal classification remain separate.
