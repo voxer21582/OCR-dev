@@ -66,8 +66,11 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         self.assertIn(b"data-region-image", page)
         token_match = re.search(rb'name="_ocr2_csrf" value="([A-Za-z0-9_-]+)"', page)
         self.assertIsNotNone(token_match)
+        revision_match = re.search(rb'name="expected_review_head" value="([a-f0-9]*)"', page)
+        self.assertIsNotNone(revision_match)
         form = urlencode({
             "_ocr2_csrf": token_match.group(1).decode("ascii"), "value": "Hotel Sintetico",
+            "expected_review_head": revision_match.group(1).decode("ascii"),
             "region_page": "1", "region_x0": "0.1", "region_y0": "0.2",
             "region_x1": "0.7", "region_y1": "0.4", "review_seconds": "0",
         }).encode("ascii")
