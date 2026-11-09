@@ -67,6 +67,9 @@ jobs:
           test_rapidocr_runtime_factory
           test_document_processing.DocumentProcessingProgressTests
           test_document_processing.OverflowProcessingTests
+          test_handoff_latest_correction.HandoffLatestCorrectionTests
+          test_tax_exact_arithmetic.TaxExactArithmeticTests
+          test_semantic_failure_warning.SemanticFailureWarningTests
           test_catalog_pipeline.CatalogSemanticProposalTests
           test_catalog_pipeline.CatalogAnalysisPipelineTests
           test_catalog_pipeline.RequiredCustomFieldValidationTests

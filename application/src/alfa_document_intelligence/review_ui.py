@@ -64,6 +64,21 @@ def _render_record(record: dict[str, Any], *, has_source: bool, key: str) -> str
             "</tr>"
         )
     fiscal = overlay["reviewed_fiscal_document_state"]
+    semantic = record["processing"]["semantic_extraction"]
+    warning = ""
+    if semantic["status"] == "failed":
+        reason = (
+            " È stato raggiunto un limite di revisione delle proposte."
+            if semantic.get("error_code") in (
+                "semantic_proposal_field_limit",
+                "semantic_proposal_catalog_limit",
+                "semantic_proposal_family_limit",
+            ) else ""
+        )
+        warning = (
+            "<p>Estrazione automatica non completata. "
+            f"È necessaria una verifica manuale.{reason}</p>"
+        )
     preview = (
         f'<p><a href="/reviews/{quote(key, safe="")}/source" target="_blank" '
         'rel="noopener noreferrer">Apri documento originale</a></p>'
@@ -79,6 +94,7 @@ def _render_record(record: dict[str, Any], *, has_source: bool, key: str) -> str
         f"<p>Stato revisione: <strong>{escape(str(overlay['review_status']))}</strong></p>"
         f"<p>Famiglia documento revisionata: {escape(str(overlay['reviewed_document_family']))}</p>"
         f"<p>Stato fiscale (decisione distinta): {escape(str(fiscal.get('status', 'unknown')))}</p>"
+        f"{warning}"
         "<p>Vista di sola lettura; nessuna decisione amministrativa.</p>"
         f"{preview}"
         "<table><thead><tr><th>Campo</th><th>Valore revisionato</th>"

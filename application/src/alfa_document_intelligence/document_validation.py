@@ -8,7 +8,6 @@ from __future__ import annotations
 from datetime import date
 import json
 import re
-from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from .contracts import validate_document_record
@@ -22,6 +21,9 @@ _RULES = {
 }
 _TAX_ARITHMETIC_FAMILIES = {"invoice", "fiscal_receipt", "hotel_document"}
 _TAX_ARITHMETIC_FIELDS = ("taxable_base", "vat_amount", "total_amount")
+# Bound only tax-amount arithmetic; this is not a total input-size limit.
+# Longer candidates require review even if their textual amount is valid.
+_MAX_CENT_AMOUNT_LENGTH = 128
 _CENT_AMOUNT = re.compile(r"^-?(?:0|[1-9][0-9]*)\.[0-9]{2}$")
 
 
@@ -61,23 +63,25 @@ def _unique_evidence(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [unique[key] for key in sorted(unique)]
 
 
-def _observed_decimal(candidate: dict[str, Any]) -> Decimal | None:
+def _observed_cents(candidate: dict[str, Any]) -> int | None:
     if candidate.get("status") != "observed":
         return None
     value = candidate.get("value")
-    if not isinstance(value, str) or not _CENT_AMOUNT.fullmatch(value):
+    if (
+        not isinstance(value, str)
+        or len(value) > _MAX_CENT_AMOUNT_LENGTH
+        or not _CENT_AMOUNT.fullmatch(value)
+    ):
         return None
-    try:
-        return Decimal(value)
-    except InvalidOperation:
-        return None
+    # The bounded canonical form converts exactly, independent of Decimal context.
+    return int(value.replace(".", ""))
 
 
 def _tax_arithmetic_finding(fields: dict[str, Any]) -> dict[str, Any] | None:
     if not all(name in fields for name in _TAX_ARITHMETIC_FIELDS):
         return None
     candidates = [fields[name] for name in _TAX_ARITHMETIC_FIELDS]
-    values = [_observed_decimal(candidate) for candidate in candidates]
+    values = [_observed_cents(candidate) for candidate in candidates]
     evidence = _unique_evidence(candidates)
     if all(value is not None for value in values) and values[0] + values[1] == values[2]:
         outcome, severity, message_code = "pass", "info", "taxable_base_vat_sum_matches_total"
