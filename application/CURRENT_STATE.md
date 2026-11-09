@@ -2,6 +2,10 @@
 
 Updated: 2026-11-09
 
+## Reviewed CSV projection — candidate
+
+A separate local serializer projects extracted and effective reviewed candidates side by side after verifying the review ledger. The existing JSON and CSV exports retain their previous contracts. The [manifest](../docs/application/reviewed-csv-projection-manifest.md) records 32 selected synthetic tests and limitations. The function is not wired to an app export flow; spreadsheet behavior, archive use and product acceptance remain unverified. R7/R8 remain blocked.
+
 ## CSV identifier safety — candidate
 
 CSV export rejects document and field identifiers that do not match the documented identifier patterns, preventing formula-like identifiers from becoming direct spreadsheet cells. This can reject malformed records previously accepted by the runtime invariant checker; JSON export is unchanged. The [manifest](../docs/application/csv-identifier-safety-manifest.md) records 11 local synthetic tests and limitations. Spreadsheet import behavior, archive operation and complete product acceptance are not verified; R7/R8 remain blocked.
