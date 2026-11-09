@@ -64,6 +64,8 @@ jobs:
           test_analysis_pipeline
           test_document_validation
           test_loopback_csrf
+          test_volatile_session_protection.VolatileSessionProtectionTest
+          test_stale_session_isolation.StaleSessionIsolationTests
           test_manual_region_review
           test_rapidocr_adapter
           test_document_family_catalog
