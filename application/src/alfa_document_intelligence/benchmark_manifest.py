@@ -27,7 +27,11 @@ def validate_manifest(
     *,
     required_splits: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Validate a privacy-preserving split manifest and optionally pin its frozen set."""
+    """Validate supplied keys and report coverage without asserting group independence.
+
+    Counts describe only whether each record supplies keys. They cannot prove
+    that keys cover every relevant group or were generated consistently.
+    """
     if not isinstance(manifest, dict) or set(manifest) != _REQUIRED_TOP_LEVEL or manifest.get("manifest_version") != "1":
         raise ValueError("manifest must contain only manifest_version and records, with version '1'")
     records = manifest.get("records")
@@ -38,6 +42,7 @@ def validate_manifest(
     hashes: set[str] = set()
     group_split: dict[str, str] = {}
     counts: Counter[str] = Counter()
+    records_with_group_keys = 0
     for index, row in enumerate(records):
         prefix = f"records[{index}]"
         if not isinstance(row, dict) or set(row) != _REQUIRED_RECORD:
@@ -68,6 +73,8 @@ def validate_manifest(
             raise ValueError(f"{prefix}.group_keys must be a list of 64-character keyed opaque hashes")
         if len(set(groups)) != len(groups):
             raise ValueError(f"{prefix}.group_keys must be unique within a record")
+        if groups:
+            records_with_group_keys += 1
         for key in groups:
             previous = group_split.setdefault(key, split)
             if previous != split:
@@ -92,6 +99,11 @@ def validate_manifest(
         "records": len(records),
         "split_counts": {split: counts[split] for split in sorted(SPLITS)},
         "frozen_manifest_sha256": frozen_sha256,
+        "group_key_coverage": {
+            "records_with_keys": records_with_group_keys,
+            "records_without_keys": len(records) - records_with_group_keys,
+            "interpretation": "provided_keys_only",
+        },
     }
 
 
