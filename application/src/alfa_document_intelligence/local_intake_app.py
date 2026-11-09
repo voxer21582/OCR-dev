@@ -699,10 +699,16 @@ def _render_candidate_evidence(evidence: Any) -> str:
         detail = f"Pagina {page}; SHA-256 sorgente {source_hash}"
         literal = item.get("literal")
         region = item.get("region")
+        text_span = item.get("text_span")
+        token_ids = item.get("token_ids")
+        if isinstance(region, dict):
+            detail += "; regione " + escape(json.dumps(region, ensure_ascii=True, sort_keys=True))
+        if isinstance(text_span, dict):
+            detail += "; intervallo testuale " + escape(json.dumps(text_span, ensure_ascii=True, sort_keys=True))
+        if isinstance(token_ids, list) and token_ids:
+            detail += "; identificativi token " + escape(json.dumps(token_ids, ensure_ascii=True))
         if isinstance(literal, str) and literal:
             detail += f"; testo rilevato <q>{escape(literal)}</q>"
-        elif isinstance(region, dict):
-            detail += "; regione " + escape(json.dumps(region, ensure_ascii=True, sort_keys=True))
         rows.append(f"<li>{detail}</li>")
     if not rows:
         return "<p>Nessuna evidenza specifica collegata.</p>"
@@ -770,7 +776,8 @@ def _render_editable_record(
                     "<li>Correzione umana: "
                     f"{escape(str(event_value)) if event_value is not None else '—'}; "
                     f"motivo {escape(str(event.get('reason_code', 'non specificato')))}; "
-                    f"{escape(str(event.get('timestamp', 'data non disponibile')))}.</li>"
+                    f"{escape(str(event.get('timestamp', 'data non disponibile')))}."
+                    f"{_render_candidate_evidence(event_candidate.get('evidence')) if isinstance(event_candidate, dict) else ''}</li>"
                 )
             history_html = "<h4>Storico delle decisioni sul campo</h4><ul>" + "".join(history_rows) + "</ul>"
         value = candidate.get("value")

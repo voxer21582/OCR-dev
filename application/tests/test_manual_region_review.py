@@ -13,6 +13,7 @@ from alfa_document_intelligence.local_intake_app import (
     IntakeRequestError,
     _apply_field_correction,
     _page,
+    _render_candidate_evidence,
     _render_editable_record,
     _source_page_png,
     create_expense_report_app,
@@ -24,7 +25,7 @@ from alfa_document_intelligence.manual_region_review import (
     normalized_rectangle,
 )
 from alfa_document_intelligence.ocr_adapter import RasterPage
-from alfa_document_intelligence.review_ledger import reviewed_overlay
+from alfa_document_intelligence.review_ledger import append_review_event, reviewed_overlay
 
 
 class ManualRegionEvidenceTests(unittest.TestCase):
@@ -335,6 +336,47 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         csp = response["headers"]["Content-Security-Policy"]
         self.assertIn("img-src 'self'", csp)
         self.assertNotIn("unsafe-inline", csp)
+
+    def test_review_history_renders_evidence_from_each_correction(self):
+        record = json.loads((Path(__file__).parent / "fixtures" / "synthetic_invoice.json").read_text(encoding="utf-8"))
+        first = json.loads(json.dumps(record["fields"]["total_amount"]))
+        first["value"] = "124.00"
+        first["normalization"]["normalized_value"] = "124.00"
+        first["evidence"][0]["literal"] = "PRIMA PROVA SINTETICA"
+        second = json.loads(json.dumps(first))
+        second["value"] = "125.00"
+        second["normalization"]["normalized_value"] = "125.00"
+        second["evidence"][0]["literal"] = "SECONDA PROVA SINTETICA"
+        record = append_review_event(record, actor_id="synthetic-reviewer", action="queued", timestamp="2026-11-09T10:00:00Z")
+        record = append_review_event(record, actor_id="synthetic-reviewer", action="opened", timestamp="2026-11-09T10:01:00Z")
+        record = append_review_event(
+            record, actor_id="synthetic-reviewer", action="field_corrected",
+            timestamp="2026-11-09T10:02:00Z", field_name="total_amount",
+            reason_code="first_synthetic_correction", candidate=first,
+        )
+        record = append_review_event(
+            record, actor_id="synthetic-reviewer", action="field_corrected",
+            timestamp="2026-11-09T10:03:00Z", field_name="total_amount",
+            reason_code="second_synthetic_correction", candidate=second,
+        )
+
+        page = _render_editable_record(record, document_id="synthetic-1", has_source=False)
+
+        self.assertIn("PRIMA PROVA SINTETICA", page)
+        self.assertIn("SECONDA PROVA SINTETICA", page)
+
+    def test_candidate_evidence_renders_text_span_and_token_id_locators(self):
+        source_hash = "a" * 64
+        rendered = _render_candidate_evidence([
+            {
+                "source_sha256": source_hash, "page_number": 1,
+                "text_span": {"start": 4, "end": 9, "unit": "unicode_codepoint"},
+            },
+            {"source_sha256": source_hash, "page_number": 2, "token_ids": ["synthetic-token-7"]},
+        ])
+
+        self.assertIn("intervallo testuale", rendered)
+        self.assertIn("synthetic-token-7", rendered)
 
 
 if __name__ == "__main__":
