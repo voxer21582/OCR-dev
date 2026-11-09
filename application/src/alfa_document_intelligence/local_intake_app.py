@@ -1101,6 +1101,8 @@ def create_expense_report_app(
                 return _page(environ, start_response, "200 OK", _upload_page(archive_enabled=True))
             return _page(environ, start_response, "200 OK", _bundle_page(state, archive_enabled=archive_store is not None))
         if method == "POST" and path == "/upload":
+            if state is not None and not state.archive_only:
+                return _page(environ, start_response, "409 Conflict", "<p>È già in corso una sessione. Torna alla sessione corrente; per ricominciare usa la cancellazione esplicita.</p><p><a href=\"/\">Torna alla sessione</a></p>")
             try:
                 files = _multipart_files(environ)
                 batch = materialize_stream_batch(
