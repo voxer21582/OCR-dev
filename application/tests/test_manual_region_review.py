@@ -1,4 +1,5 @@
 import hashlib
+import html
 import io
 import json
 import re
@@ -7,7 +8,7 @@ import unittest
 import zlib
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from alfa_document_intelligence.local_intake_app import (
     IntakeRequestError,
@@ -27,6 +28,32 @@ from alfa_document_intelligence.ocr_adapter import RasterPage
 from alfa_document_intelligence.review_ledger import reviewed_overlay
 
 
+class _BrowserClient:
+    """Follow the session-bound local URLs emitted by the application."""
+
+    def __init__(self, app):
+        self.app = app
+        self.urls = {}
+        self.invoke({"REQUEST_METHOD": "GET", "PATH_INFO": "/", "HTTP_HOST": "127.0.0.1:8080"})
+
+    def invoke(self, environ):
+        environ = dict(environ)
+        path = environ["PATH_INFO"]
+        if path != "/":
+            url = urlsplit(self.urls[path])
+            environ["PATH_INFO"] = url.path
+            environ["QUERY_STRING"] = url.query
+        response = {}
+        payload = b"".join(self.app(
+            environ, lambda status, headers: response.update(status=status, headers=dict(headers))
+        ))
+        if response["headers"].get("Content-Type", "").startswith("text/html"):
+            for match in re.finditer(rb"(?:href|action|src)=[\"'](/[^\"']+)[\"']", payload):
+                url = html.unescape(match.group(1).decode("utf-8"))
+                self.urls[urlsplit(url).path] = url
+        return response, payload
+
+
 class ManualRegionEvidenceTests(unittest.TestCase):
     def test_browser_can_append_source_bound_human_correction_with_opaque_origin_token(self):
         def processor(record, _source):
@@ -38,8 +65,9 @@ class ManualRegionEvidenceTests(unittest.TestCase):
 
         app = create_expense_report_app(document_processor=processor)
 
+        client = _BrowserClient(app)
+
         def invoke(method, path, body=b"", content_type="", origin="http://127.0.0.1:8080"):
-            response = {}
             environ = {
                 "REQUEST_METHOD": method, "PATH_INFO": path, "HTTP_HOST": "127.0.0.1:8080",
                 "CONTENT_LENGTH": str(len(body)) if body else "", "CONTENT_TYPE": content_type,
@@ -47,8 +75,7 @@ class ManualRegionEvidenceTests(unittest.TestCase):
             }
             if origin is not None:
                 environ["HTTP_ORIGIN"] = origin
-            payload = b"".join(app(environ, lambda status, headers: response.update(status=status, headers=dict(headers))))
-            return response, payload
+            return client.invoke(environ)
 
         boundary = "synthetic-region-correction"
         source = b"%PDF-1.7\nsynthetic source\n"
@@ -95,10 +122,8 @@ class ManualRegionEvidenceTests(unittest.TestCase):
             "Content-Type: application/pdf\r\n\r\n"
         ).encode("ascii") + source + f"\r\n--{boundary}--\r\n".encode("ascii")
 
-        def invoke(environ):
-            response = {}
-            payload = b"".join(app(environ, lambda status, headers: response.update(status=status, headers=dict(headers))))
-            return response, payload
+        client = _BrowserClient(app)
+        invoke = client.invoke
 
         response, _ = invoke({
             "REQUEST_METHOD": "POST", "PATH_INFO": "/upload", "HTTP_HOST": "127.0.0.1:8080",
@@ -111,6 +136,10 @@ class ManualRegionEvidenceTests(unittest.TestCase):
             "REQUEST_METHOD": "POST", "PATH_INFO": "/assign-note", "HTTP_HOST": "127.0.0.1:8080",
             "HTTP_ORIGIN": "http://127.0.0.1:8080", "CONTENT_TYPE": "application/x-www-form-urlencoded",
             "CONTENT_LENGTH": str(len(assignment)), "wsgi.input": io.BytesIO(assignment),
+        })
+        self.assertTrue(response["status"].startswith("200"))
+        response, _ = invoke({
+            "REQUEST_METHOD": "GET", "PATH_INFO": "/reviews/doc-001", "HTTP_HOST": "127.0.0.1:8080",
         })
         self.assertTrue(response["status"].startswith("200"))
         decoded = DecodedPage(RasterPage(1, 1, 1, b"\xff\x00\x00"), 1)
@@ -135,10 +164,8 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         from urllib.parse import urlencode
         app = create_expense_report_app()
 
-        def invoke(environ):
-            response = {}
-            body = b"".join(app(environ, lambda status, headers: response.update(status=status, headers=dict(headers))))
-            return response, body
+        client = _BrowserClient(app)
+        invoke = client.invoke
 
         boundary = "synthetic-session"
         source = b"%PDF-1.7\nsynthetic receipt\n"
@@ -156,18 +183,14 @@ class ManualRegionEvidenceTests(unittest.TestCase):
                 "CONTENT_LENGTH": str(len(body)), "wsgi.input": io.BytesIO(body),
             })
             self.assertTrue(response["status"].startswith("200"))
-        rejected = {}
         body = b"note_document_id=synthetic"
-        output = app(
-            {
-                "REQUEST_METHOD": "POST", "PATH_INFO": "/clear", "HTTP_HOST": "127.0.0.1:8080",
-                "HTTP_ORIGIN": "https://untrusted.example", "CONTENT_TYPE": "application/x-www-form-urlencoded",
-                "CONTENT_LENGTH": str(len(body)), "wsgi.input": __import__("io").BytesIO(body),
-            },
-            lambda status, headers: rejected.update(status=status, headers=dict(headers)),
-        )
+        rejected, output = invoke({
+            "REQUEST_METHOD": "POST", "PATH_INFO": "/clear", "HTTP_HOST": "127.0.0.1:8080",
+            "HTTP_ORIGIN": "https://untrusted.example", "CONTENT_TYPE": "application/x-www-form-urlencoded",
+            "CONTENT_LENGTH": str(len(body)), "wsgi.input": io.BytesIO(body),
+        })
         self.assertTrue(rejected["status"].startswith("403"))
-        self.assertIn(b"Richiesta locale non valida", b"".join(output))
+        self.assertIn(b"Richiesta locale non valida", output)
         response, page = invoke({
             "REQUEST_METHOD": "GET", "PATH_INFO": "/reviews/doc-001", "HTTP_HOST": "127.0.0.1:8080",
         })

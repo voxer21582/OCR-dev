@@ -1,6 +1,7 @@
 import io
+import re
 import unittest
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from alfa_document_intelligence.local_intake_app import create_expense_report_app
 
@@ -12,12 +13,20 @@ SECOND = b"%PDF-1.7\nsecond synthetic document\n"
 def request(app, method="GET", path="/", body=b"", content_type=""):
     response = {}
 
+    if path != "/":
+        status, page = request(app)
+        assert status == "200 OK"
+        token = re.search(rb'_ocr2_session=([A-Za-z0-9_-]+)', page)
+        assert token is not None
+        path += "?_ocr2_session=" + token.group(1).decode("ascii")
+    parsed = urlsplit(path)
+
     def start_response(status, headers):
         response["status"] = status
         response["headers"] = dict(headers)
 
     environ = {
-        "REQUEST_METHOD": method, "PATH_INFO": path,
+        "REQUEST_METHOD": method, "PATH_INFO": parsed.path, "QUERY_STRING": parsed.query,
         "HTTP_HOST": "127.0.0.1:8080", "HTTP_ORIGIN": "http://127.0.0.1:8080",
         "CONTENT_LENGTH": str(len(body)) if body else "", "CONTENT_TYPE": content_type,
         "wsgi.input": io.BytesIO(body),

@@ -245,6 +245,18 @@ def _multipart_files(environ: dict[str, Any]) -> list[tuple[str, bytes]]:
     return files
 
 
+def _bind_session_urls(body: str, token: str) -> str:
+    """Bind emitted local session URLs to the current volatile generation."""
+    def bind(match: re.Match[str]) -> str:
+        prefix, url, suffix = match.groups()
+        if url != "/" and not re.match(r"^/(?:upload|assign-note|clear|chatgpt(?:/|$)|review-times\.csv(?:$|\?)|reviews/)", url):
+            return match.group(0)
+        separator = "&amp;" if "?" in url else "?"
+        return f"{prefix}{url}{separator}_ocr2_session={token}{suffix}"
+
+    return re.sub(r'''(\b(?:href|action|src)\s*=\s*["'])(/[^"']*)(["'])''', bind, body, flags=re.IGNORECASE)
+
+
 def _page(
     environ: dict[str, Any], start_response: Callable, status: str, body: str,
     content_type: str = "text/html; charset=utf-8", *, download_filename: str | None = None,
@@ -258,6 +270,9 @@ def _page(
         body,
         flags=re.IGNORECASE,
     )
+    generation = environ.get("_ocr2_session_generation")
+    if generation and content_type.startswith("text/html"):
+        body = _bind_session_urls(body, generation)
     payload = body.replace('nonce="__CSP_NONCE__"', f'nonce="{nonce}"').encode("utf-8")
     has_region_editor = 'data-region-image' in body
     inline_style_nonce = '<style nonce="__CSP_NONCE__">' in body
@@ -605,7 +620,7 @@ _REGION_REVIEW_SCRIPT = (
     'rect=form.querySelector("[data-region-selection]"),page=form.querySelector("[data-region-page]"),'
     'status=form.querySelector("[data-region-status]"),fields=["x0","y0","x1","y1"].map(k=>form.querySelector(`[name=region_${k}]`));let start=null;'
     'const clear=()=>{rect.setAttribute("width","0");rect.setAttribute("height","0");start=null};'
-    'page.addEventListener("change",()=>{img.src=`${img.dataset.previewBase}/${page.value}.png`;clear()});'
+    'page.addEventListener("change",()=>{img.src=`${img.dataset.previewBase}/${page.value}.png${new URL(img.src).search}`;clear()});'
     'const point=e=>{const r=svg.getBoundingClientRect();return [Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))]};'
     'svg.addEventListener("pointerdown",e=>{if(e.button!==0)return;start=point(e);svg.setPointerCapture(e.pointerId);rect.setAttribute("x",start[0]);rect.setAttribute("y",start[1]);rect.setAttribute("width","0");rect.setAttribute("height","0")});'
     'svg.addEventListener("pointermove",e=>{if(!start)return;const p=point(e),x0=Math.min(start[0],p[0]),y0=Math.min(start[1],p[1]),x1=Math.max(start[0],p[0]),y1=Math.max(start[1],p[1]);rect.setAttribute("x",x0);rect.setAttribute("y",y0);rect.setAttribute("width",x1-x0);rect.setAttribute("height",y1-y0)});'
@@ -914,9 +929,10 @@ def create_expense_report_app(
         raise ValueError("idle_timeout_seconds must be a positive integer")
     state: _VolatileSession | None = None
     csrf_token = secrets.token_urlsafe(32)
+    generation = secrets.token_urlsafe(32)
 
     def app(environ: dict[str, Any], start_response: Callable) -> list[bytes]:
-        nonlocal state
+        nonlocal state, generation
         environ["_ocr2_csrf_token"] = csrf_token
         if _loopback_host_parts(environ.get("HTTP_HOST", "")) is None:
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
@@ -925,8 +941,23 @@ def create_expense_report_app(
         now = clock()
         if state is not None and now - state.last_activity > idle_timeout_seconds:
             state = None
+            if archive_store is None:
+                generation = secrets.token_urlsafe(32)
         method = environ.get("REQUEST_METHOD", "")
         path = environ.get("PATH_INFO", "")
+        if archive_store is None:
+            environ["_ocr2_session_generation"] = generation
+            guarded = ((method == "GET" and (path.startswith("/reviews/") or path in {"/chatgpt", "/review-times.csv"} or (path in {"/", "/upload"} and bool(environ.get("QUERY_STRING", "")))))
+                       or (method == "POST" and (path in {"/upload", "/assign-note", "/clear"} or path.startswith("/chatgpt/") or path.startswith("/reviews/"))))
+            if guarded:
+                try:
+                    query = parse_qs(environ.get("QUERY_STRING", ""), keep_blank_values=True, max_num_fields=16)
+                    values = query.get("_ocr2_session", [])
+                    valid = len(values) == 1 and values[0].isascii() and secrets.compare_digest(values[0], generation)
+                except (ValueError, TypeError):
+                    valid = False
+                if not valid:
+                    return _page(environ, start_response, "409 Conflict", "Sessione non disponibile")
         if archive_store is not None and method == "GET" and path == "/archive":
             raw_query = environ.get("QUERY_STRING", "")
             try:
@@ -1118,6 +1149,9 @@ def create_expense_report_app(
             session_id = secrets.token_hex(18)
             document_ids = tuple(f"doc-{index + 1:03d}" for index in range(len(payloads)))
             state = _VolatileSession(session_id, batch, document_ids, now)
+            if archive_store is None:
+                generation = secrets.token_urlsafe(32)
+                environ["_ocr2_session_generation"] = generation
             return _page(environ, start_response, "200 OK", _choose_note_page(state))
         if method == "POST" and path == "/chatgpt/return":
             if state is None or state.intake is None:
@@ -1174,6 +1208,9 @@ def create_expense_report_app(
             return _page(environ, start_response, "200 OK", _bundle_page(state, archive_enabled=archive_store is not None))
         if method == "POST" and path == "/clear":
             state = None
+            if archive_store is None:
+                generation = secrets.token_urlsafe(32)
+                environ["_ocr2_session_generation"] = generation
             return _page(environ, start_response, "200 OK", _upload_page(archive_enabled=archive_store is not None))
         preview_match = re.fullmatch(r"/reviews/([^/]+)/pages/([1-9][0-9]{0,4})\.png", path)
         if method == "GET" and preview_match is not None:
@@ -1223,6 +1260,18 @@ def create_expense_report_app(
                             archive_save_enabled=archive_store is not None,
                         ),
                     )
+            if archive_store is None:
+                captured: dict[str, Any] = {}
+                def capture(status: str, headers: list[tuple[str, str]], exc_info: Any = None) -> None:
+                    captured["status"] = status
+                    captured["headers"] = headers
+                response = b"".join(review_app(environ, capture))
+                headers = captured["headers"]
+                if any(k.lower() == "content-type" and v.startswith("text/html") for k, v in headers):
+                    response = _bind_session_urls(response.decode("utf-8"), generation).encode("utf-8")
+                    headers = [(k, str(len(response)) if k.lower() == "content-length" else v) for k, v in headers]
+                start_response(captured["status"], headers)
+                return [response]
             return review_app(environ, start_response)
         if method == "POST" and path.startswith("/reviews/") and path.endswith("/open"):
             if not _same_origin_loopback_post(environ):
