@@ -2,6 +2,14 @@
 
 Updated: 2026-11-09
 
+## R6 custom-family review integration candidate (2026-11-09)
+
+The isolated canonical candidate binds manual custom-family selections to the validated immutable definition already stored in the record. It extends the review-event schema with an optional family snapshot, embeds that snapshot in the hash-chained event, and exposes a custom family in the local UI only when both the snapshot is valid and the family is an observed OCR alternative with matching evidence. Built-in family handling remains unchanged. The record's extracted family and fiscal classification remain separate.
+
+Local synthetic checks: `PYTHONPATH=application\\src;application\\tests python -B -m unittest -q test_document_contract test_review_ledger` passed 48 tests; direct invocations of the built-in and custom-family UI regressions also passed. The two new regressions were first observed failing for the missing schema property and the UI's built-in-only allowlist. The document schema parsed as JSON, modified Python files compiled, and `git diff --check` passed. `pytest` is absent in this interpreter and was not installed.
+
+The complete diff received an independent READY review. PR [#94](https://github.com/voxer21582/OCR-dev/pull/94) is open and its current [GitHub Actions run](https://github.com/voxer21582/OCR-dev/actions/runs/42603058089) passed Analyze (actions), Analyze (python), CodeQL, and both required-check runs. The workflow's explicit allowlist does not include `test_review_ledger` or `test_local_intake_app`, so the green run does not verify those two modules; the request to coordinate their CI addition is with “Punti bloccati” because open PRs #36 and #88 own workflow changes. This remains a migration candidate, not R6 acceptance: archive reopen/migration behavior, browser-level verification, and owner-approved merge remain pending. No real documents, OCR activation, R7/R8, Windows-native tests, or release are included.
+
 ## Accepted manual handoff correction (2026-11-09)
 
 The accepted implementation retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.

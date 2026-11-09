@@ -3,6 +3,8 @@ import json
 import unittest
 from pathlib import Path
 
+from alfa_document_intelligence.document_family_catalog import load_custom_family_catalog
+from alfa_document_intelligence.contracts import validate_document_record
 from alfa_document_intelligence.review_ledger import (
     ReviewRejected,
     append_review_event,
@@ -89,6 +91,134 @@ class ReviewLedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(ReviewRejected, "evidence-bound alternative"):
             self._event(
                 result, "field_corrected", "reviewer-ref-1", "family-3",
+                field_name="document_family", reason_code="family_review", candidate=candidate,
+            )
+
+    def test_custom_document_family_review_requires_a_valid_embedded_snapshot(self):
+        catalog = load_custom_family_catalog(json.dumps({
+            "catalog_version": "1",
+            "families": [{
+                "id": "custom_taxi_receipt",
+                "label": "Ricevuta taxi",
+                "title_cues": ["RICEVUTA TAXI"],
+                "fields": [{"id": "pickup_city", "label": "Città", "aliases": ["Partenza"]}],
+            }],
+        }))
+        record = copy.deepcopy(self.record)
+        record["schema_version"] = "0.2.0"
+        record["document_family"] = "unknown"
+        record["document_family_definitions"] = [catalog.snapshot_for("custom_taxi_receipt")]
+        evidence = copy.deepcopy(record["fiscal_document_state"]["evidence"])
+        record["fields"]["document_family_candidates"] = {
+            "value": None,
+            "status": "uncertain",
+            "alternatives": [{"value": "custom_taxi_receipt", "status": "observed", "evidence": evidence}],
+            "evidence": evidence,
+        }
+        queued = self._event(record, "queued", "reviewer-ref-1", "custom-family-1")
+        opened = self._event(queued, "opened", "reviewer-ref-1", "custom-family-2")
+        candidate = {"value": "custom_taxi_receipt", "status": "observed", "alternatives": [], "evidence": evidence}
+
+        reviewed = self._event(
+            opened, "field_corrected", "reviewer-ref-1", "custom-family-3",
+            field_name="document_family", reason_code="family_review", candidate=candidate,
+        )
+
+        self.assertEqual(record["document_family"], "unknown")
+        self.assertEqual(validate_document_record(reviewed), [])
+        self.assertEqual(reviewed_overlay(reviewed)["reviewed_document_family"], "custom_taxi_receipt")
+        self.assertEqual(reviewed["document_family_definitions"], record["document_family_definitions"])
+        self.assertEqual(
+            reviewed["review"]["events"][-1]["document_family_snapshot"],
+            record["document_family_definitions"][0],
+        )
+
+    def test_custom_document_family_review_binds_snapshot_into_event_hash(self):
+        catalog = load_custom_family_catalog(json.dumps({
+            "catalog_version": "1",
+            "families": [{
+                "id": "custom_taxi_receipt",
+                "label": "Ricevuta taxi",
+                "title_cues": ["RICEVUTA TAXI"],
+                "fields": [{"id": "pickup_city", "label": "Città", "aliases": ["Partenza"]}],
+            }],
+        }))
+        record = copy.deepcopy(self.record)
+        record["schema_version"] = "0.2.0"
+        record["document_family"] = "unknown"
+        record["document_family_definitions"] = [catalog.snapshot_for("custom_taxi_receipt")]
+        evidence = copy.deepcopy(record["fiscal_document_state"]["evidence"])
+        record["fields"]["document_family_candidates"] = {
+            "value": None,
+            "status": "uncertain",
+            "alternatives": [{"value": "custom_taxi_receipt", "status": "observed", "evidence": evidence}],
+            "evidence": evidence,
+        }
+        queued = self._event(record, "queued", "reviewer-ref-1", "custom-snapshot-1")
+        opened = self._event(queued, "opened", "reviewer-ref-1", "custom-snapshot-2")
+        candidate = {"value": "custom_taxi_receipt", "status": "observed", "alternatives": [], "evidence": evidence}
+        reviewed = self._event(
+            opened, "field_corrected", "reviewer-ref-1", "custom-snapshot-3",
+            field_name="document_family", reason_code="family_review", candidate=candidate,
+        )
+
+        changed_catalog = load_custom_family_catalog(json.dumps({
+            "catalog_version": "1",
+            "families": [{
+                "id": "custom_taxi_receipt",
+                "label": "Ricevuta taxi aggiornata",
+                "title_cues": ["RICEVUTA TAXI"],
+                "fields": [{"id": "pickup_city", "label": "Città", "aliases": ["Partenza"]}],
+            }],
+        }))
+        reviewed["document_family_definitions"] = [changed_catalog.snapshot_for("custom_taxi_receipt")]
+        with self.assertRaisesRegex(ReviewRejected, "does not bind its embedded snapshot"):
+            verify_review_ledger(reviewed)
+
+    def test_family_snapshot_cannot_be_added_to_workflow_or_flag_events(self):
+        queued = self._event(self.record, "queued", "reviewer-ref-1", "unexpected-snapshot-1")
+        queued["review"]["events"][0]["document_family_snapshot"] = {"synthetic": True}
+        with self.assertRaisesRegex(ReviewRejected, "allowed only for family selection"):
+            verify_review_ledger(queued)
+
+        clean_queued = self._event(self.record, "queued", "reviewer-ref-1", "unexpected-snapshot-2")
+        opened = self._event(clean_queued, "opened", "reviewer-ref-1", "unexpected-snapshot-3")
+        flagged = self._event(
+            opened, "flagged", "reviewer-ref-1", "unexpected-snapshot-4", reason_code="synthetic_flag"
+        )
+        flagged["review"]["events"][-1]["document_family_snapshot"] = {"synthetic": True}
+        with self.assertRaisesRegex(ReviewRejected, "allowed only for family selection"):
+            verify_review_ledger(flagged)
+
+    def test_custom_document_family_review_rejects_missing_or_invalid_snapshot(self):
+        record = copy.deepcopy(self.record)
+        record["schema_version"] = "0.2.0"
+        record["document_family"] = "unknown"
+        evidence = copy.deepcopy(record["fiscal_document_state"]["evidence"])
+        record["fields"]["document_family_candidates"] = {
+            "value": None,
+            "status": "uncertain",
+            "alternatives": [{"value": "custom_taxi_receipt", "status": "observed", "evidence": evidence}],
+            "evidence": evidence,
+        }
+        queued = self._event(record, "queued", "reviewer-ref-1", "custom-invalid-1")
+        opened = self._event(queued, "opened", "reviewer-ref-1", "custom-invalid-2")
+        candidate = {"value": "custom_taxi_receipt", "status": "observed", "alternatives": [], "evidence": evidence}
+
+        with self.assertRaisesRegex(ReviewRejected, "snapshot"):
+            self._event(
+                opened, "field_corrected", "reviewer-ref-1", "custom-invalid-3",
+                field_name="document_family", reason_code="family_review", candidate=candidate,
+            )
+
+        record["document_family_definitions"] = [{
+            "catalog_version": "1", "family": {"id": "custom_taxi_receipt"}, "family_sha256": "0" * 64,
+        }]
+        queued = self._event(record, "queued", "reviewer-ref-1", "custom-invalid-4")
+        opened = self._event(queued, "opened", "reviewer-ref-1", "custom-invalid-5")
+        with self.assertRaisesRegex(ReviewRejected, "snapshot"):
+            self._event(
+                opened, "field_corrected", "reviewer-ref-1", "custom-invalid-6",
                 field_name="document_family", reason_code="family_review", candidate=candidate,
             )
     def test_fiscal_state_correction_is_logged_without_overwriting_extraction(self):

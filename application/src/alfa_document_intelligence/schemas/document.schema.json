@@ -785,9 +785,42 @@
         },
         "fiscal_state": {
           "$ref": "#/$defs/fiscalDocumentState"
+        },
+        "document_family_snapshot": {
+          "$ref": "#/$defs/documentFamilyDefinition"
         }
       },
       "allOf": [
+        {
+          "if": {
+            "required": [
+              "document_family_snapshot"
+            ]
+          },
+          "then": {
+            "required": [
+              "action",
+              "field_name"
+            ],
+            "properties": {
+              "action": {
+                "enum": [
+                  "field_corrected",
+                  "alternative_selected"
+                ]
+              },
+              "field_name": {
+                "const": "document_family"
+              },
+              "candidate": {
+                "properties": {
+                  "status": { "const": "observed" },
+                  "value": { "type": "string", "pattern": "^custom_[a-z][a-z0-9_]{1,24}$" }
+                }
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": {

@@ -1,7 +1,9 @@
 import io
+import json
 from urllib.parse import urlencode
 import zipfile
 
+from alfa_document_intelligence.document_family_catalog import load_custom_family_catalog
 from alfa_document_intelligence.local_intake_app import create_expense_report_app
 
 
@@ -135,6 +137,71 @@ def test_reviewer_can_select_only_an_evidence_bound_document_family():
     assert status == "200 OK"
     assert b"Stato attuale: payment_evidence" in fiscal_reviewed
     assert b"Famiglia attualmente revisionata: pos_slip" in fiscal_reviewed
+
+
+def test_reviewer_can_select_a_custom_family_with_its_validated_snapshot():
+    catalog = load_custom_family_catalog(json.dumps({
+        "catalog_version": "1",
+        "families": [{
+            "id": "custom_taxi_receipt",
+            "label": "Ricevuta taxi",
+            "title_cues": ["RICEVUTA TAXI"],
+            "fields": [{"id": "pickup_city", "label": "Città", "aliases": ["Partenza"]}],
+        }],
+    }, ensure_ascii=False))
+
+    def processor(record, _source_bytes):
+        if record.get("document_family") != "expense_report":
+            record["schema_version"] = "0.2.0"
+            record["document_family"] = "unknown"
+            record["document_family_definitions"] = [catalog.snapshot_for("custom_taxi_receipt")]
+            record["pages"] = [{"page_number": 1, "width_px": 1000, "height_px": 1400}]
+            record["processing"]["ocr"]["status"] = "completed"
+            evidence = {
+                "source_sha256": record["source"]["sha256"],
+                "page_number": 1,
+                "token_ids": ["synthetic-family-cue"],
+                "literal": "RICEVUTA TAXI",
+                "producer": {"stage": "ocr", "name": "synthetic", "version": "1"},
+            }
+            record["fields"]["document_family_candidates"] = {
+                "value": None,
+                "status": "uncertain",
+                "alternatives": [{
+                    "value": "custom_taxi_receipt",
+                    "status": "observed",
+                    "evidence": [evidence],
+                }],
+                "evidence": [evidence],
+            }
+        return record
+
+    app = create_expense_report_app(document_processor=processor)
+    body, content_type = _multipart("trasferta.zip", _zip_bytes())
+    _request(app, "POST", "/upload", body, content_type)
+    assign = urlencode({"note_document_id": "doc-001"}).encode()
+    _request(app, "POST", "/assign-note", assign, "application/x-www-form-urlencoded")
+
+    status, _, review = _request(app, path="/reviews/doc-002")
+    assert status == "200 OK"
+    assert b'<option value="custom_taxi_receipt">Ricevuta taxi</option>' in review
+
+    unsupported = urlencode({"document_family": "custom_wrong_family", "review_seconds": "1"}).encode()
+    status, _, error = _request(
+        app, "POST", "/reviews/doc-002/document-family", unsupported,
+        "application/x-www-form-urlencoded",
+    )
+    assert status == "400 Bad Request"
+    assert b"snapshot valido" in error
+
+    selected = urlencode({"document_family": "custom_taxi_receipt", "review_seconds": "1"}).encode()
+    status, _, reviewed = _request(
+        app, "POST", "/reviews/doc-002/document-family", selected,
+        "application/x-www-form-urlencoded",
+    )
+
+    assert status == "200 OK"
+    assert b"Famiglia attualmente revisionata: custom_taxi_receipt" in reviewed
 def test_clear_releases_volatile_session_and_returns_to_upload_form():
     app = create_expense_report_app()
     body, content_type = _multipart("trasferta.zip", _zip_bytes())
