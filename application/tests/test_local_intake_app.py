@@ -109,6 +109,14 @@ def test_reviewer_can_select_only_an_evidence_bound_document_family():
             "literal": "CARD PAYMENT SLIP",
             "producer": {"stage": "ocr", "name": "synthetic", "version": "1"},
         }
+        fiscal_evidence = {
+            "source_sha256": record["source"]["sha256"],
+            "page_number": 1,
+            "token_ids": ["synthetic-fiscal-status"],
+            "literal": "SYNTHETIC FISCAL STATUS REGION",
+            "producer": {"stage": "ocr", "name": "synthetic", "version": "1"},
+        }
+        record["fiscal_document_state"] = {"status": "unknown", "evidence": [fiscal_evidence]}
         record["fields"]["document_family_candidates"] = {
             "value": None, "status": "uncertain",
             "alternatives": [{"value": "pos_slip", "status": "observed", "evidence": [evidence]}],
@@ -128,6 +136,10 @@ def test_reviewer_can_select_only_an_evidence_bound_document_family():
     assert b"Seleziona famiglia" in review
     assert b"pos_slip" in review
     assert b"La famiglia non determina da sola lo stato fiscale" in review
+    assert b"Proposta automatica iniziale" in review
+    assert b"Non determinato" in review
+    assert b"SYNTHETIC FISCAL STATUS REGION" in review
+    assert b'<option value="unknown"' not in review
     initial_head = _review_head(review)
     _assert_review_forms_bound(review)
     missing_head = urlencode({"document_family": "pos_slip", "review_seconds": "1"}).encode()
@@ -174,7 +186,12 @@ def test_reviewer_can_select_only_an_evidence_bound_document_family():
     payment = _review_payload(current, {"fiscal_status": "payment_evidence", "evidence_index": "0", "review_seconds": "2"})
     status, _, fiscal_reviewed = _request(app, "POST", "/reviews/doc-002/fiscal-state", payment, "application/x-www-form-urlencoded")
     assert status == "200 OK"
-    assert b"Stato attuale: payment_evidence" in fiscal_reviewed
+    assert b"Stato dopo revisione umana" in fiscal_reviewed
+    assert b"Stato attuale: Prova di pagamento" in fiscal_reviewed
+    assert b"Proposta automatica iniziale" in fiscal_reviewed
+    assert b"Storia delle classificazioni fiscali" in fiscal_reviewed
+    assert b"human_reviewed_fiscal_state" in fiscal_reviewed
+    assert b"Risultati automatici non aggiornati" in fiscal_reviewed
     assert b"Famiglia attualmente revisionata: pos_slip" in fiscal_reviewed
 
 
