@@ -2,6 +2,10 @@
 
 Updated: 2026-11-09
 
+## Expense-report trip-date consistency — candidate
+
+The candidate checks the ordering of two present trip-date candidates without changing extraction or making administrative decisions. Sixty selected synthetic tests passed locally, including synthetic-token pipeline coverage; the [manifest](../docs/application/trip-date-consistency-manifest.md) records the command and limits. This does not demonstrate real OCR or product acceptance; R7/R8 remain blocked.
+
 ## Accepted manual handoff correction (2026-11-09)
 
 The accepted implementation retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.
