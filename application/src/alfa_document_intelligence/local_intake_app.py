@@ -24,7 +24,7 @@ from .contracts import validate_document_record
 from .document_family_catalog import validate_family_snapshot
 from .expense_reports import ExpenseReportIntakeSession, create_expense_report_intake_session
 from .ingestion import IngestionLimits, MaterializedBatch, UploadRejected, materialize_stream_batch
-from .review_ledger import append_review_event, reviewed_overlay
+from .review_ledger import append_review_event, reviewed_overlay, verify_review_ledger
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
@@ -59,6 +59,33 @@ class _VolatileSession:
 
 
 _ARCHIVE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+
+def _review_revision_field(record: dict[str, Any]) -> str:
+    head = verify_review_ledger(record) or ""
+    return f'<input type="hidden" name="expected_review_head" value="{escape(head, quote=True)}">'
+
+
+def _review_revision_matches(environ: dict[str, Any], record: dict[str, Any]) -> bool:
+    try:
+        submitted = _multipart_scalar(environ, "expected_review_head", required=False)
+    except IntakeRequestError:
+        return False
+    current = verify_review_ledger(record) or ""
+    if (
+        submitted is None
+        or not re.fullmatch(r"[a-f0-9]{64}", submitted)
+        or not re.fullmatch(r"[a-f0-9]{64}", current)
+    ):
+        return False
+    return secrets.compare_digest(submitted, current)
+
+
+def _review_revision_conflict(environ: dict[str, Any], start_response: Callable) -> list[bytes]:
+    return _page(
+        environ, start_response, "409 Conflict",
+        "<p>La revisione è cambiata in un’altra scheda. Ricarica la pagina prima di registrare la decisione.</p>",
+    )
 
 
 def _valid_custom_family_snapshot(record: dict[str, Any], family: str) -> dict[str, Any] | None:
@@ -708,7 +735,7 @@ def _render_editable_record(
         candidate.get("status") == "absent" and name not in {"document_family_candidates", "fiscal_document_state"}
         for name, candidate in fields.items()
     )
-    return (
+    body = (
         "<!doctype html><html lang=\"it\"><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
         "<title>Revisione documento</title><main><p><a href=\"/\">Torna al fascicolo</a></p>"
@@ -723,6 +750,13 @@ def _render_editable_record(
         'document.querySelectorAll("[data-review-timer]").forEach(form=>form.addEventListener("submit",()=>{tick();'
         'const input=form.querySelector("[data-review-seconds]");if(input)input.value=String(Math.floor(Number(input.value||0)+active/1000))}));})();'
         '</script></main></html>'
+    )
+    revision_field = _review_revision_field(record)
+    return re.sub(
+        r'(<form\b(?=[^>]*\bdata-review-timer\b)[^>]*>)',
+        lambda match: match.group(1) + revision_field,
+        body,
+        flags=re.IGNORECASE,
     )
 
 
@@ -1265,6 +1299,8 @@ def create_expense_report_app(
                 record = state.intake.documents.get(document_id)
                 if not document_id or "/" in document_id or not isinstance(record, dict):
                     raise IntakeRequestError("Documento non trovato")
+                if not _review_revision_matches(environ, record):
+                    return _review_revision_conflict(environ, start_response)
                 if record["review"]["status"] != "in_progress":
                     raise IntakeRequestError("La revisione non è aperta o è già conclusa")
                 seconds = _read_review_seconds(environ)
@@ -1296,6 +1332,8 @@ def create_expense_report_app(
                 record = state.intake.documents.get(document_id)
                 if not document_id or "/" in document_id or not isinstance(record, dict):
                     raise IntakeRequestError("Documento non trovato")
+                if not _review_revision_matches(environ, record):
+                    return _review_revision_conflict(environ, start_response)
                 if seconds < state.review_seconds.get(document_id, 0):
                     raise IntakeRequestError("La durata non può diminuire durante la revisione")
                 updated = _apply_fiscal_state_correction(
@@ -1323,6 +1361,8 @@ def create_expense_report_app(
                 record = state.intake.documents.get(document_id)
                 if not document_id or "/" in document_id or not isinstance(record, dict):
                     raise IntakeRequestError("Documento non trovato")
+                if not _review_revision_matches(environ, record):
+                    return _review_revision_conflict(environ, start_response)
                 if seconds < state.review_seconds.get(document_id, 0):
                     raise IntakeRequestError("La durata non può diminuire durante la revisione")
                 updated = _apply_document_family_selection(record, family=family, timestamp=datetime.now(timezone.utc).isoformat())
@@ -1366,6 +1406,8 @@ def create_expense_report_app(
                 record = state.intake.documents.get(document_id)
                 if not document_id or "/" in document_id or not isinstance(record, dict):
                     raise IntakeRequestError("Documento non trovato")
+                if not _review_revision_matches(environ, record):
+                    return _review_revision_conflict(environ, start_response)
                 if region_page_number is not None:
                     source_bytes = state.intake.source_bytes.get(document_id)
                     source = record.get("source", {})
