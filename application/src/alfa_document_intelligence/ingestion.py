@@ -13,7 +13,7 @@ import stat
 import zipfile
 from typing import BinaryIO, Iterable
 
-from .image_safety import ImageHeaderError, ImageInfo, inspect_image_header
+from .image_safety import ImageHeaderError, ImageInfo, inspect_image_header, inspect_tiff_snapshot
 
 
 @dataclass(frozen=True)
@@ -164,9 +164,14 @@ _DRIVE_PREFIX = re.compile(r"^[a-zA-Z]:")
 _ALLOWED_ENTRY_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
 
 
-def _image_info(stream: BinaryIO, kind: str, limits: IngestionLimits) -> ImageInfo:
-    header = stream.read(limits.max_image_header_bytes)
+def _image_info(stream: BinaryIO, kind: str, limits: IngestionLimits, size: int | None = None) -> ImageInfo:
     try:
+        if kind == "tiff" and size is not None:
+            return inspect_tiff_snapshot(stream, size, max_header_bytes=limits.max_image_header_bytes,
+                                         max_dimension=limits.max_image_dimension,
+                                         max_pixels=limits.max_image_pixels,
+                                         max_tiff_pages=limits.max_tiff_pages)
+        header = stream.read(limits.max_image_header_bytes)
         return inspect_image_header(
             header,
             kind,
@@ -227,6 +232,7 @@ def _inventory_archive(source: BinaryIO, limits: IngestionLimits) -> tuple[tuple
     documents: list[FileInventory] = []
     seen_names: set[str] = set()
     total_uncompressed = 0
+    actual_total = 0
     try:
         with zipfile.ZipFile(source) as archive:
             infos = archive.infolist()
@@ -261,22 +267,42 @@ def _inventory_archive(source: BinaryIO, limits: IngestionLimits) -> tuple[tuple
                 compressed = max(info.compress_size, 1)
                 if info.file_size / compressed > limits.max_compression_ratio:
                     raise UploadRejected("archive member exceeds configured compression ratio")
-                try:
-                    with archive.open(info, "r") as stream:
-                        size, digest = _hash_stream(stream, limits.max_entry_uncompressed_bytes, limits.chunk_bytes)
-                except (RuntimeError, zipfile.BadZipFile, OSError) as exc:
-                    raise UploadRejected("archive member could not be safely read") from exc
-                if size != info.file_size:
-                    raise UploadRejected("archive member size does not match its directory entry")
-                with archive.open(info, "r") as stream:
-                    prefix = stream.read(1024)
-                kind = _kind_from_header(prefix)
-                if kind is None or (suffix == ".pdf" and kind != "pdf") or (suffix in {".jpg", ".jpeg"} and kind != "jpeg") or (suffix == ".png" and kind != "png") or (suffix == ".webp" and kind != "webp") or (suffix in {".tif", ".tiff"} and kind != "tiff"):
-                    raise UploadRejected("archive member extension does not match supported file content")
-                image = None
-                if kind in {"png", "jpeg", "tiff", "webp"}:
-                    with archive.open(info, "r") as stream:
-                        image = _image_info(stream, kind, limits)
+                # One bounded snapshot binds hashing, classification and inspection to
+                # the same bytes, and avoids repeated decompression for TIFF seeks.
+                with io.BytesIO() as member:
+                    digest_obj = hashlib.sha256()
+                    size = 0
+                    prefix = bytearray()
+                    try:
+                        with archive.open(info, "r") as stream:
+                            while True:
+                                block = stream.read(limits.chunk_bytes)
+                                if not block:
+                                    break
+                                size += len(block)
+                                if size > limits.max_entry_uncompressed_bytes:
+                                    raise UploadRejected("archive member exceeds configured size limit")
+                                if actual_total + size > limits.max_archive_uncompressed_bytes:
+                                    raise UploadRejected("archive exceeds configured expanded-size limit")
+                                if size > info.file_size:
+                                    raise UploadRejected("archive member size does not match its directory entry")
+                                if len(prefix) < 1024:
+                                    prefix.extend(block[:1024 - len(prefix)])
+                                digest_obj.update(block)
+                                member.write(block)
+                    except (RuntimeError, zipfile.BadZipFile, OSError) as exc:
+                        raise UploadRejected("archive member could not be safely read") from exc
+                    if size != info.file_size:
+                        raise UploadRejected("archive member size does not match its directory entry")
+                    actual_total += size
+                    digest = digest_obj.hexdigest()
+                    kind = _kind_from_header(bytes(prefix))
+                    if kind is None or (suffix == ".pdf" and kind != "pdf") or (suffix in {".jpg", ".jpeg"} and kind != "jpeg") or (suffix == ".png" and kind != "png") or (suffix == ".webp" and kind != "webp") or (suffix in {".tif", ".tiff"} and kind != "tiff"):
+                        raise UploadRejected("archive member extension does not match supported file content")
+                    image = None
+                    if kind in {"png", "jpeg", "tiff", "webp"}:
+                        member.seek(0)
+                        image = _image_info(member, kind, limits, size)
                 documents.append(FileInventory(name, kind, size, digest, image.width_px if image else None, image.height_px if image else None, image.page_count if image else None))
     except zipfile.BadZipFile as exc:
         raise UploadRejected("invalid ZIP archive") from exc
@@ -352,7 +378,7 @@ def _inventory_snapshot(
         raise UploadRejected("unsupported or unrecognized file format")
     if source_kind in {"png", "jpeg", "tiff", "webp"}:
         snapshot.seek(0)
-        image = _image_info(snapshot, source_kind, limits)
+        image = _image_info(snapshot, source_kind, limits, size)
         source = FileInventory(source.name, source.media_kind, source.byte_length, source.sha256, image.width_px, image.height_px, image.page_count)
     return UploadInventory("pending_security_scan", source, (source,), False)
 
