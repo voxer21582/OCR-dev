@@ -733,8 +733,13 @@ def _render_editable_record(
             for event in field_events:
                 event_candidate = event.get("candidate", {})
                 event_value = event_candidate.get("value") if isinstance(event_candidate, dict) else None
+                action_label = (
+                    "Alternativa selezionata"
+                    if event.get("action") == "alternative_selected"
+                    else "Correzione umana"
+                )
                 history_rows.append(
-                    "<li>Correzione umana: "
+                    f"<li>{action_label}: "
                     f"{escape(str(event_value)) if event_value is not None else '—'}; "
                     f"motivo {escape(str(event.get('reason_code', 'non specificato')))}; "
                     f"{escape(str(event.get('timestamp', 'data non disponibile')))}.</li>"

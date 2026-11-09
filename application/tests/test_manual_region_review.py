@@ -24,7 +24,7 @@ from alfa_document_intelligence.manual_region_review import (
     normalized_rectangle,
 )
 from alfa_document_intelligence.ocr_adapter import RasterPage
-from alfa_document_intelligence.review_ledger import reviewed_overlay
+from alfa_document_intelligence.review_ledger import append_review_event, reviewed_overlay
 
 
 class ManualRegionEvidenceTests(unittest.TestCase):
@@ -335,6 +335,30 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         csp = response["headers"]["Content-Security-Policy"]
         self.assertIn("img-src 'self'", csp)
         self.assertNotIn("unsafe-inline", csp)
+
+    def test_review_history_distinguishes_manual_correction_from_alternative_selection(self):
+        record = json.loads((Path(__file__).parent / "fixtures" / "synthetic_invoice.json").read_text(encoding="utf-8"))
+        record = append_review_event(record, actor_id="synthetic-reviewer", action="queued", timestamp="2026-11-09T10:00:00Z")
+        record = append_review_event(record, actor_id="synthetic-reviewer", action="opened", timestamp="2026-11-09T10:01:00Z")
+        corrected = json.loads(json.dumps(record["fields"]["total_amount"]))
+        corrected["value"] = "125.00"
+        corrected["normalization"]["normalized_value"] = "125.00"
+        record = append_review_event(
+            record, actor_id="synthetic-reviewer", action="field_corrected",
+            timestamp="2026-11-09T10:02:00Z", field_name="total_amount",
+            reason_code="visual_correction", candidate=corrected,
+        )
+        selected = json.loads(json.dumps(record["fields"]["total_amount"]))
+        record = append_review_event(
+            record, actor_id="synthetic-reviewer", action="alternative_selected",
+            timestamp="2026-11-09T10:03:00Z", field_name="total_amount",
+            reason_code="selected_proposal", candidate=selected,
+        )
+
+        page = _render_editable_record(record, document_id="synthetic-1", has_source=False)
+
+        self.assertIn("Correzione umana: 125.00", page)
+        self.assertIn("Alternativa selezionata: 123.45", page)
 
 
 if __name__ == "__main__":
