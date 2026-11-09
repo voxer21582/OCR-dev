@@ -8,11 +8,14 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from typing import Any
 
 from .contracts import validate_document_record
 
 CSV_EXPORT_VERSION = "ocr2-document-csv-v1"
+_CSV_DOCUMENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
+_CSV_FIELD_NAME = re.compile(r"[a-z][a-z0-9_]{1,63}\Z")
 CSV_COLUMNS = (
     "export_format_version",
     "document_id",
@@ -84,6 +87,10 @@ def export_document_csv(record: dict[str, Any]) -> str:
     """
     document = _validated_record(record)
     fields = document["fields"]
+    if not isinstance(document["document_id"], str) or not _CSV_DOCUMENT_ID.fullmatch(document["document_id"]):
+        raise ExportValidationError(["document_id: invalid CSV identifier"])
+    if any(not isinstance(name, str) or not _CSV_FIELD_NAME.fullmatch(name) for name in fields):
+        raise ExportValidationError(["fields: invalid CSV field identifier"])
     field_names = sorted(fields)
     if not field_names:
         field_names = [""]

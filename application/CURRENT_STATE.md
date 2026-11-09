@@ -2,6 +2,10 @@
 
 Updated: 2026-11-09
 
+## CSV identifier safety — candidate
+
+CSV export rejects document and field identifiers that do not match the documented identifier patterns, preventing formula-like identifiers from becoming direct spreadsheet cells. This can reject malformed records previously accepted by the runtime invariant checker; JSON export is unchanged. The [manifest](../docs/application/csv-identifier-safety-manifest.md) records 11 local synthetic tests and limitations. Spreadsheet import behavior, archive operation and complete product acceptance are not verified; R7/R8 remain blocked.
+
 ## Accepted manual handoff correction (2026-11-09)
 
 The accepted implementation retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.
