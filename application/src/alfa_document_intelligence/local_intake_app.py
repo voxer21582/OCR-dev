@@ -72,7 +72,13 @@ def _review_revision_matches(environ: dict[str, Any], record: dict[str, Any]) ->
     except IntakeRequestError:
         return False
     current = verify_review_ledger(record) or ""
-    return submitted is not None and secrets.compare_digest(submitted, current)
+    if (
+        submitted is None
+        or not re.fullmatch(r"[a-f0-9]{64}", submitted)
+        or not re.fullmatch(r"[a-f0-9]{64}", current)
+    ):
+        return False
+    return secrets.compare_digest(submitted, current)
 
 
 def _review_revision_conflict(environ: dict[str, Any], start_response: Callable) -> list[bytes]:

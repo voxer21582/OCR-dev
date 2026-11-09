@@ -13,6 +13,7 @@ from alfa_document_intelligence.local_intake_app import (
     IntakeRequestError,
     _apply_field_correction,
     _page,
+    _review_revision_matches,
     _render_editable_record,
     _source_page_png,
     create_expense_report_app,
@@ -28,6 +29,24 @@ from alfa_document_intelligence.review_ledger import reviewed_overlay
 
 
 class ManualRegionEvidenceTests(unittest.TestCase):
+    def test_invalid_review_revision_is_rejected_for_an_empty_ledger(self):
+        record = self._record_with_absent_field()
+        record["review"] = {"status": "not_started", "events": []}
+
+        for values in (
+            {"review_seconds": "0"},
+            {"expected_review_head": ""},
+            {"expected_review_head": "é"},
+        ):
+            with self.subTest(values=values):
+                body = urlencode(values).encode("ascii")
+                environ = {
+                    "CONTENT_LENGTH": str(len(body)),
+                    "CONTENT_TYPE": "application/x-www-form-urlencoded",
+                    "wsgi.input": io.BytesIO(body),
+                }
+                self.assertFalse(_review_revision_matches(environ, record))
+
     def test_browser_can_append_source_bound_human_correction_with_opaque_origin_token(self):
         def processor(record, _source):
             record["pages"] = [{"page_number": 1}]
