@@ -17,6 +17,13 @@ _RULES = {
         "check_in_date",
         "check_out_date",
         "hotel-stay-date-order",
+        ("hotel_stay_dates_require_review", "hotel_stay_date_order_valid", "hotel_checkout_precedes_checkin"),
+    ),
+    "expense_report": (
+        "trip_start_date",
+        "trip_end_date",
+        "trip-date-order",
+        ("trip_dates_require_review", "trip_date_order_valid", "trip_end_precedes_start"),
     ),
 }
 _TAX_ARITHMETIC_FAMILIES = {"invoice", "fiscal_receipt", "hotel_document"}
@@ -154,7 +161,7 @@ def _required_custom_field_findings(record: dict[str, Any]) -> list[dict[str, An
 def validate_document_consistency(record: dict[str, Any]) -> list[dict[str, Any]]:
     """Check supported document relationships and return evidence-bound findings.
 
-    Hotel stay dates are ordered when both are observed ISO dates. For invoices,
+    Hotel stay and expense-report trip dates are ordered when both are observed ISO dates. For invoices,
     fiscal receipts, and hotel documents, an arithmetic-only check compares
     explicitly represented taxable base plus VAT amount with total. A mismatch,
     an uncertain value, or a non-canonical amount is indeterminate and requires
@@ -168,19 +175,19 @@ def validate_document_consistency(record: dict[str, Any]) -> list[dict[str, Any]
     findings: list[dict[str, Any]] = _required_custom_field_findings(record)
     rule = _RULES.get(record.get("document_family"))
     if rule is not None:
-        start_name, end_name, rule_id = rule
+        start_name, end_name, rule_id, message_codes = rule
         if start_name in fields and end_name in fields:
             start, end = fields[start_name], fields[end_name]
             evidence = _unique_evidence([start, end])
             start_value, end_value = _date_value(start), _date_value(end)
             if start_value is None or end_value is None:
                 outcome, severity, message_code = (
-                    "indeterminate", "warning", "hotel_stay_dates_require_review"
+                    "indeterminate", "warning", message_codes[0]
                 )
             elif start_value <= end_value:
-                outcome, severity, message_code = "pass", "info", "hotel_stay_date_order_valid"
+                outcome, severity, message_code = "pass", "info", message_codes[1]
             else:
-                outcome, severity, message_code = "fail", "error", "hotel_checkout_precedes_checkin"
+                outcome, severity, message_code = "fail", "error", message_codes[2]
             findings.append({
                 "rule_id": rule_id,
                 "rule_version": "1",
