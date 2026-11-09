@@ -56,6 +56,9 @@ jobs:
           test_document_contract
           test_document_decoder_contract
           test_ingestion
+          test_tiff_offset_fixture.TiffOffsetFixtureTests
+          test_tiff_offset_fixture.TiffBoundaryTests
+          test_tiff_offset_fixture.TiffReviewTests
           test_ocr_adapter
           test_semantic_proposals
           test_analysis_pipeline
