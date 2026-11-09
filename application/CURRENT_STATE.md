@@ -2,6 +2,10 @@
 
 Updated: 2026-11-09
 
+## RapidOCR output shape — candidate
+
+The adapter rejects result objects that omit expected output attributes instead of treating them as blank pages. Twenty-five synthetic tests passed locally; the [manifest](../docs/application/rapidocr-output-shape-manifest.md) records the command and limitations. No actual RapidOCR model or native decoder was exercised; product acceptance is not established. R7/R8 remain blocked.
+
 ## Accepted manual handoff correction (2026-11-09)
 
 The accepted implementation retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.
