@@ -1,5 +1,7 @@
 import io
-from urllib.parse import urlencode
+import re
+from urllib.parse import urlencode, urlsplit
+from weakref import WeakKeyDictionary
 import zipfile
 
 from alfa_document_intelligence.local_intake_app import create_expense_report_app
@@ -7,6 +9,7 @@ from alfa_document_intelligence.local_intake_app import create_expense_report_ap
 
 NOTE = b"%PDF-1.7\nsynthetic expense report\n"
 RECEIPT = b"%PDF-1.7\nsynthetic fiscal receipt\n"
+_SESSION_GENERATIONS = WeakKeyDictionary()
 
 
 def _zip_bytes():
@@ -27,6 +30,16 @@ def _multipart(filename, data, boundary="test-boundary"):
 
 
 def _request(app, method="GET", path="/", body=b"", content_type=""):
+    # Follow the generation emitted in local links/forms, as a browser would.
+    # A bare GET of the home page remains unbound so idle expiry can be observed.
+    parts = urlsplit(path)
+    if app not in _SESSION_GENERATIONS and (method != "GET" or parts.path != "/"):
+        _request(app)
+    query = parts.query
+    if not query and not (method == "GET" and parts.path == "/"):
+        generation = _SESSION_GENERATIONS.get(app)
+        if generation:
+            query = urlencode({"_ocr2_session": generation})
     response = {}
 
     def start_response(status, headers):
@@ -35,7 +48,8 @@ def _request(app, method="GET", path="/", body=b"", content_type=""):
 
     environ = {
         "REQUEST_METHOD": method,
-        "PATH_INFO": path,
+        "PATH_INFO": parts.path,
+        "QUERY_STRING": query,
         "HTTP_HOST": "127.0.0.1:8080",
         "HTTP_ORIGIN": "http://127.0.0.1:8080",
         "CONTENT_LENGTH": str(len(body)) if body else "",
@@ -43,6 +57,9 @@ def _request(app, method="GET", path="/", body=b"", content_type=""):
         "wsgi.input": io.BytesIO(body),
     }
     result = b"".join(app(environ, start_response))
+    match = re.search(rb"[?&](?:amp;)?_ocr2_session=([A-Za-z0-9_-]+)", result)
+    if match:
+        _SESSION_GENERATIONS[app] = match.group(1).decode("ascii")
     return response["status"], response["headers"], result
 
 
@@ -218,7 +235,7 @@ def test_chatgpt_response_is_returned_as_escaped_unapproved_volatile_draft():
     status, _, page = _request(app, path="/chatgpt")
     assert status == "200 OK"
     assert b"copiarlo in ChatGPT" not in page
-    assert b' action="/chatgpt/return"' in page
+    assert b' action="/chatgpt/return?_ocr2_session=' in page
     assert b"bozza" in page
 
     returned = "<script>alert('x')</script> rimborso approvato"

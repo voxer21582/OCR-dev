@@ -1,5 +1,6 @@
 import io
 import unittest
+from copy import deepcopy
 from html.parser import HTMLParser
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -84,6 +85,85 @@ def _upload(app, page, source, origin="http://127.0.0.1:8080", action=None):
 
 
 class StaleSessionIsolationTests(unittest.TestCase):
+    def test_stale_posts_cannot_change_replacement_session(self):
+        sessions = []
+        create = local_intake_app.create_expense_report_intake_session
+
+        def capture_session(*args, **kwargs):
+            session = create(*args, **kwargs)
+            sessions.append(session)
+            return session
+
+        with patch.object(local_intake_app, "create_expense_report_intake_session", capture_session):
+            app = local_intake_app.create_expense_report_app()
+            first_upload = _upload(app, _request(app)["body"], OLD_SOURCE)
+            old_assign = _Page(first_upload["body"]).form("/assign-note")
+            first_assignment = _post(app, old_assign, [("note_document_id", "doc-001")])
+            old_bundle = _Page(first_assignment["body"])
+            old_review = _request(app, url=old_bundle.link("/reviews/doc-001"))
+            self.assertEqual(old_review["status"], "200 OK")
+            old_chat = _Page(_request(app, url=old_bundle.link("/chatgpt"))["body"])
+            cleared = _post(app, old_bundle.form("/clear"))
+            second_upload = _upload(app, cleared["body"], NEW_SOURCE)
+
+            stale_assign = _post(app, old_assign, [("note_document_id", "doc-001")])
+            self.assertEqual(stale_assign["status"], "409 Conflict")
+            self.assertEqual(len(sessions), 1)
+            second_assignment = _post(app, _Page(second_upload["body"]).form("/assign-note"),
+                                      [("note_document_id", "doc-001")])
+            self.assertEqual(second_assignment["status"], "200 OK")
+            current_bundle = _Page(second_assignment["body"])
+            current_review = _request(app, url=current_bundle.link("/reviews/doc-001"))
+            self.assertEqual(current_review["status"], "200 OK")
+            before_documents = deepcopy(sessions[-1].documents)
+            before_bundle = deepcopy(sessions[-1].bundle)
+            before_times = _request(app, url=current_bundle.link("/review-times.csv"))["body"]
+            chat_link = current_bundle.link("/chatgpt")
+            before_chat = _request(app, url=chat_link)["body"]
+
+            old_token_query = urlsplit(old_bundle.link("/reviews/doc-001")).query
+            def old_review_form(action):
+                return {"action": f"/reviews/doc-001/{action}?{old_token_query}", "fields": []}
+
+            cases = (
+                (old_review_form("complete"), [("review_seconds", "12")]),
+                (old_review_form("fiscal-state"), [("fiscal_status", "fiscal_document"), ("evidence_index", "0")]),
+                (old_review_form("document-family"), [("document_family", "invoice")]),
+                (old_review_form("open"), []),
+                (old_chat.form("/chatgpt/return"), [("draft", "Synthetic stale draft")]),
+            )
+            for form, fields in cases:
+                with self.subTest(action=urlsplit(form["action"]).path):
+                    self.assertEqual(_post(app, form, fields)["status"], "409 Conflict")
+                    self.assertEqual(sessions[-1].documents, before_documents)
+                    self.assertEqual(sessions[-1].bundle, before_bundle)
+                    self.assertEqual(_request(app, url=current_bundle.link("/review-times.csv"))["body"], before_times)
+                    self.assertEqual(_request(app, url=chat_link)["body"], before_chat)
+
+    def test_invalid_session_queries_cannot_mutate_current_session(self):
+        app = local_intake_app.create_expense_report_app()
+        uploaded = _upload(app, _request(app)["body"], NEW_SOURCE)
+        assign = _Page(uploaded["body"]).form("/assign-note")
+        action = urlsplit(assign["action"])
+        token = parse_qs(action.query)["_ocr2_session"][0]
+        invalid_queries = (
+            "_ocr2_session=",
+            urlencode({"_ocr2_session": "\u00e9"}),
+            urlencode([("_ocr2_session", token), ("_ocr2_session", "different")]),
+            urlencode([("_ocr2_session", token)] + [(f"extra{i}", "x") for i in range(16)]),
+        )
+        for query in invalid_queries:
+            with self.subTest(query=query):
+                invalid_form = dict(assign, action=action.path + "?" + query)
+                response = _post(app, invalid_form, [("note_document_id", "doc-001")])
+                self.assertEqual(response["status"], "409 Conflict")
+                # A successful assignment afterward demonstrates that none of
+                # the rejected attempts consumed or replaced the upload state.
+        assigned = _post(app, assign, [("note_document_id", "doc-001")])
+        self.assertEqual(assigned["status"], "200 OK")
+        source = _Page(_request(app, url=_Page(assigned["body"]).link("/reviews/doc-001"))["body"])
+        self.assertEqual(_request(app, url=source.link("/reviews/doc-001/source"))["body"], NEW_SOURCE)
+
     def test_expired_review_link_cannot_open_replacement_session(self):
         now = [0.0]
         app = local_intake_app.create_expense_report_app(clock=lambda: now[0], idle_timeout_seconds=5)
