@@ -2,9 +2,13 @@
 
 Updated: 2026-11-09
 
+## Manual custom-field review — candidate
+
+This candidate permits source-bound human entry for custom fields declared by the document's validated embedded family snapshots. Invalid typed values submitted with a region return a form preserving its inputs. The [scoped manifest](../docs/application/manual-custom-field-manifest.md) records 70 local synthetic tests and their limits. Preview is mocked, and browser behavior, native decoding and archive reopening remain unverified. Required-field findings remain based on extraction. This builds on the pending missing-field candidate and does not establish product acceptance or unblock R7/R8.
+
 ## Manual entry of missing fields — candidate
 
-This candidate allows source-region transcription of selected built-in fields not proposed by OCR and requires a generated page preview before any new region correction. Twenty scoped synthetic tests passed locally; preview generation was mocked. The [scoped manifest](../docs/application/manual-missing-field-manifest.md) records the exact command, provenance and limitations. This does not establish actual browser display, human inspection, native decoding, archive reopening or product acceptance. Custom-family manual fields are not included. R7/R8 remain blocked.
+The preceding candidate allows source-region transcription of selected built-in fields not proposed by OCR and requires a generated page preview before any new region correction. Twenty scoped synthetic tests passed locally; preview generation was mocked. The [scoped manifest](../docs/application/manual-missing-field-manifest.md) records the exact command, provenance and limitations. This does not establish actual browser display, human inspection, native decoding, archive reopening or product acceptance. Custom-family manual fields were not included in that candidate and are addressed separately above. R7/R8 remain blocked.
 
 ## Accepted manual handoff correction (2026-11-09)
 
