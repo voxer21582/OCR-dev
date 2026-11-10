@@ -1,4 +1,4 @@
-# Document export contracts — CI manifest
+# Synthetic application contracts — CI manifest
 
 **Prepared:** 2026-11-10
 **Candidate branch:** `codex/ci-document-export-20261110`
@@ -8,24 +8,26 @@
 
 | File | SHA-256 | Provenance and review |
 | --- | --- | --- |
-| `.github/workflows/ocr2-synthetic-taxonomy.yml` | `1AF0AF986894EDCF0467448666982FDC34048170D3FD789623333E19183EB093` | Existing workflow with one explicit serializer-test module appended; no action, trigger, permission, runner, lock, or required-check change. Independent review READY on 2026-11-10. |
+| `.github/workflows/ocr2-synthetic-taxonomy.yml` | `A18AF97538B0423409FF2C1C60B0222042318A21448BE31AF8DFE38D94F7689F` | Existing workflow with two explicit synthetic-contract modules appended: review ledger and document export. No action, trigger, permission, runner, lock, or required-check change. |
 
-The selector runs the already-present public test file `application/tests/test_document_export.py` (SHA-256 `498A181DDFB9E531DE566A0112520F4F93A371E9D5B79E7F0E167F8C2AAE69F2`); it is not changed by this CI-only candidate. The independent reviewer checked both file hashes and the workflow/test scope, but did not rerun the seven local tests.
+The selectors run the already-present test files `application/tests/test_document_export.py` (SHA-256 `498A181DDFB9E531DE566A0112520F4F93A371E9D5B79E7F0E167F8C2AAE69F2`) and `application/tests/test_review_ledger.py` (SHA-256 `9B9AF2E5F6B6922D3ADEC1D384E786D69871EFC96DBC4F3753CDA34325C6EB37`); neither test file is changed by this CI-only candidate.
 
 ## Test scope and evidence
 
-From `application/` on 2026-11-10, PowerShell command `$env:PYTHONPATH='src;tests'; python -B -m unittest -v test_document_export` passed all seven tests. The in-memory synthetic fixtures verify complete-record JSON round-trip without source bytes, contract rejection, schema-required-property rejection, CSV candidate projection, formula-like literal handling, and document identity when there are no fields.
+From `application/` on 2026-11-10, PowerShell command `$env:PYTHONPATH='src;tests'; python -B -m unittest -v test_document_export` passed all seven export tests. The in-memory synthetic fixtures verify complete-record JSON round-trip without source bytes, contract rejection, schema-required-property rejection, CSV candidate projection, formula-like literal handling, and document identity when there are no fields.
 
-Also on 2026-11-10, the full explicitly allowlisted application command from `.github/workflows/ocr2-synthetic-taxonomy.yml`, including `test_document_export`, passed **286 tests** locally on Windows with CPython 3.13.15. The run used the existing environment and did not install dependencies. This is broader local evidence for the allowlisted synthetic contracts, but it is not a hosted Ubuntu Actions result and does not replace the required PR check.
+On 2026-11-10, PowerShell command `$env:PYTHONPATH='src;tests'; python -B -m unittest -v test_review_ledger` passed all 15 review-ledger tests. Tests read only the checked-in synthetic invoice fixture and exercise in-memory event, hash-chain, evidence-binding, and overlay contracts. Independent static review found no persistence/archive, network, native Windows, OCR runtime/model, or R7/R8 flow in the selected test path.
 
-The test import path requires the existing `jsonschema` runtime already installed by the workflow's hash-locked dependency file. The selector does not import or invoke the persistent archive, WSGI app, document decoder, OCR engine/model, Windows APIs, or network services. Its fixture includes a formula-like URL under the reserved `.invalid` domain only as literal data; the test does not make a request. The local pass is evidence for this module only; compatibility on Ubuntu 24.04 / CPython 3.13.18 remains unverified until the existing Actions workflow runs for the candidate.
+On 2026-11-10, after both selectors were added, the full explicitly allowlisted application command from `.github/workflows/ocr2-synthetic-taxonomy.yml` passed **301 tests** locally on Windows with CPython 3.13.15. The existing environment was used with no dependency installation. This is a local result, not a hosted Ubuntu Actions result, and does not replace the required PR check.
+
+The test import path requires the existing `jsonschema` runtime already installed by the workflow's hash-locked dependency file. The export selector does not import or invoke the persistent archive, WSGI app, document decoder, OCR engine/model, Windows APIs, or network services. Its fixture includes a formula-like URL under the reserved `.invalid` domain only as literal data; the test does not make a request. The review-ledger selector imports schema/catalog contracts, but exercises only synthetic in-memory review operations. Compatibility on Ubuntu 24.04 / CPython 3.13.18 remains unverified until the existing Actions workflow runs for the candidate.
 
 ## Workflow effects and preserved controls
 
 - The repository's existing workflow remains the only workflow used. Its `push`, `pull_request`, and `workflow_dispatch` triggers are unchanged.
 - Required check remains `Taxonomy registry and binding`.
 - `ubuntu-24.04`, CPython `3.13.18`, full-SHA-pinned Actions, `contents: read`, and hash-locked binary-only dependencies are unchanged.
-- The explicit allowlist is extended by this selector only; no test discovery or additional dependency installation is introduced.
+- The explicit allowlist is extended by two selectors only; no test discovery or additional dependency installation is introduced.
 - A candidate PR will invoke the existing workflow. No remote run has occurred for this local branch, and no PR, merge, release, or product acceptance is claimed here.
 
 ## Deliberately excluded
@@ -34,8 +36,8 @@ The eight synthetic archive/UI tests passed locally in this session, but are not
 
 ## Acceptance criteria
 
-1. Independent review confirms the selected tests remain serializer contracts over synthetic fixture data and do not import or invoke blocked R7/R8 functionality.
-2. The existing required check passes on the candidate PR and its log shows `test_document_export` completed seven tests; the PR run also establishes hosted-runner compatibility for the full explicit allowlist.
+1. Independent review confirms both selected suites use only synthetic fixtures/in-memory contracts and do not import or invoke blocked R7/R8 functionality.
+2. The exact final allowlist passes locally and on the candidate PR; the Actions log shows both `test_document_export` and `test_review_ledger` completed.
 3. The required-check name, permissions, triggers, runner, pinned actions, and dependency lock remain unchanged.
 
-A passing Actions run would verify only these synthetic export contracts on the hosted Linux runner. It would not establish archive persistence, live-browser downloads, OCR operation, Windows behavior, or full product acceptance.
+A passing Actions run would verify only these synthetic review-ledger and export contracts on the hosted Linux runner. It would not establish archive persistence, live-browser downloads, OCR operation, Windows behavior, or full product acceptance.

@@ -78,4 +78,5 @@ jobs:
           test_catalog_pipeline.CatalogAnalysisPipelineTests
           test_catalog_pipeline.RequiredCustomFieldValidationTests
           test_catalog_pipeline.CatalogDocumentProcessingTests
+          test_review_ledger
           test_document_export
