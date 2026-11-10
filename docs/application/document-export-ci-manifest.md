@@ -20,6 +20,8 @@ On 2026-11-10, PowerShell command `$env:PYTHONPATH='src;tests'; python -B -m uni
 
 On 2026-11-10, after both selectors were added, the full explicitly allowlisted application command from `.github/workflows/ocr2-synthetic-taxonomy.yml` passed **301 tests** locally on Windows with CPython 3.13.15. The existing environment was used with no dependency installation. This is a local result, not a hosted Ubuntu Actions result, and does not replace the required PR check.
 
+The two root taxonomy selectors were attempted locally with `python -B -m unittest -v test_taxonomy_registry test_taxonomy_binding`, but collection stopped with `ModuleNotFoundError: No module named 'jsonschema'` in the current system interpreter. No package was installed. The existing hosted workflow installs its hash-locked CI dependency before these selectors; their result on this candidate remains pending the required Actions run.
+
 The test import path requires the existing `jsonschema` runtime already installed by the workflow's hash-locked dependency file. The export selector does not import or invoke the persistent archive, WSGI app, document decoder, OCR engine/model, Windows APIs, or network services. Its fixture includes a formula-like URL under the reserved `.invalid` domain only as literal data; the test does not make a request. The review-ledger selector imports schema/catalog contracts, but exercises only synthetic in-memory review operations. Compatibility on Ubuntu 24.04 / CPython 3.13.18 remains unverified until the existing Actions workflow runs for the candidate.
 
 ## Workflow effects and preserved controls
@@ -37,7 +39,7 @@ The eight synthetic archive/UI tests passed locally in this session, but are not
 ## Acceptance criteria
 
 1. Independent review confirms both selected suites use only synthetic fixtures/in-memory contracts and do not import or invoke blocked R7/R8 functionality.
-2. The exact final allowlist passes locally and on the candidate PR; the Actions log shows both `test_document_export` and `test_review_ledger` completed.
+2. The explicitly allowlisted application suites pass locally; the complete required check, including the root taxonomy selectors, passes on the candidate PR. Its Actions log shows both `test_document_export` and `test_review_ledger` completed.
 3. The required-check name, permissions, triggers, runner, pinned actions, and dependency lock remain unchanged.
 
 A passing Actions run would verify only these synthetic review-ledger and export contracts on the hosted Linux runner. It would not establish archive persistence, live-browser downloads, OCR operation, Windows behavior, or full product acceptance.
