@@ -16,6 +16,8 @@ The selector runs the already-present public test file `application/tests/test_d
 
 From `application/` on 2026-11-10, PowerShell command `$env:PYTHONPATH='src;tests'; python -B -m unittest -v test_document_export` passed all seven tests. The in-memory synthetic fixtures verify complete-record JSON round-trip without source bytes, contract rejection, schema-required-property rejection, CSV candidate projection, formula-like literal handling, and document identity when there are no fields.
 
+Also on 2026-11-10, the full explicitly allowlisted application command from `.github/workflows/ocr2-synthetic-taxonomy.yml`, including `test_document_export`, passed **286 tests** locally on Windows with CPython 3.13.15. The run used the existing environment and did not install dependencies. This is broader local evidence for the allowlisted synthetic contracts, but it is not a hosted Ubuntu Actions result and does not replace the required PR check.
+
 The test import path requires the existing `jsonschema` runtime already installed by the workflow's hash-locked dependency file. The selector does not import or invoke the persistent archive, WSGI app, document decoder, OCR engine/model, Windows APIs, or network services. Its fixture includes a formula-like URL under the reserved `.invalid` domain only as literal data; the test does not make a request. The local pass is evidence for this module only; compatibility on Ubuntu 24.04 / CPython 3.13.18 remains unverified until the existing Actions workflow runs for the candidate.
 
 ## Workflow effects and preserved controls
@@ -33,7 +35,7 @@ The eight synthetic archive/UI tests passed locally in this session, but are not
 ## Acceptance criteria
 
 1. Independent review confirms the selected tests remain serializer contracts over synthetic fixture data and do not import or invoke blocked R7/R8 functionality.
-2. The existing required check passes on the candidate PR and its log shows `test_document_export` completed seven tests.
+2. The existing required check passes on the candidate PR and its log shows `test_document_export` completed seven tests; the PR run also establishes hosted-runner compatibility for the full explicit allowlist.
 3. The required-check name, permissions, triggers, runner, pinned actions, and dependency lock remain unchanged.
 
 A passing Actions run would verify only these synthetic export contracts on the hosted Linux runner. It would not establish archive persistence, live-browser downloads, OCR operation, Windows behavior, or full product acceptance.
