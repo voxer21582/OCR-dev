@@ -81,4 +81,5 @@ jobs:
           test_review_ledger
           test_multipage_tiff_processing_contract
           test_synthetic_ocr_metrics
+          test_security_gate
           test_document_export
