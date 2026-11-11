@@ -207,7 +207,7 @@ class LocalDocumentStoreTests(unittest.TestCase):
             self.assertTrue(any(row[1] == "documents_document_id_index_unique" and row[2] for row in indexes))
             metadata_count = connection.execute("SELECT COUNT(*) FROM store_metadata").fetchone()[0]
             self.assertEqual(metadata_count, 1)
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 3)
         finally:
             connection.close()
 
