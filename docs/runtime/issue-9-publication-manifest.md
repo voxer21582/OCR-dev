@@ -11,7 +11,7 @@
 
 | File | SHA-256 of canonical Git content (LF) | Owner | Provenance and reason |
 | --- | --- | --- | --- |
-| `docs/runtime/windows11-acceptance-plan.md` | `D93CFDE7A2770385F16508C73ADD2F8CF815374BA84A59A71E143AC9FE907851` | OCR2 development coordinator | Current public plan refreshed against the selectively migrated application and owner-approved evaluation direction recorded on [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6718473055). No code, runtime, model, local Windows identifier, test output, private dossier, or previous-project artifact is copied. |
+| `docs/runtime/windows11-acceptance-plan.md` | `39938F53FDFB15CCD89029718181AECD00E127F57E8A86144B387D264874F5FD` | OCR2 development coordinator | Current public plan refreshed against the selectively migrated application and owner-approved evaluation direction recorded on [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6718473055). It records versioned upstream model URLs and publisher-declared hashes with explicit non-verification and license-clearance caveats. No code, runtime, model, local Windows identifier, test output, private dossier, or previous-project artifact is copied. |
 
 ## Control record
 
@@ -26,7 +26,7 @@ This manifest is publication control metadata and is not part of the content-fil
 
 ## Review and verification boundary
 
-- Independent read-only review of the plan and manifest returned READY on 2026-11-11; no runtime or functional tests were run.
+- Independent read-only review of the model references and license-statement clarification returned READY on 2026-11-11; no runtime or functional tests were run.
 - `git diff --check` is required before publication. No functional tests apply to this documentation-only change; no runtime or Windows operation is performed.
 - Automated secret/DLP scanning is not included. The review is scoped to the listed files and is not a guarantee that all sensitive content can be detected.
 - The existing taxonomy and application CI do not validate Windows runtime acceptance.

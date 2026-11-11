@@ -37,6 +37,21 @@ Before acceptance testing, record one immutable candidate tuple. A missing or ch
 | Preview decoder | exact implementation/version, native components, source provenance, and license/notice inventory | Not bound to a runtime candidate |
 | Package and notices | complete dependency/model/native-component inventory, license texts, attribution, and redistribution decision tied to the tuple hashes | Open; the NSIS per-user offline installer is a direction, not an accepted package |
 
+### Upstream model references (not artifact verification)
+
+The [RapidOCR 3.10.0 `default_models.yaml`](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/python/rapidocr/default_models.yaml) source declares the following ONNX artifacts for the approved evaluation candidate. These are publisher-declared hashes copied from the versioned routing file; no model file has been downloaded or independently hashed in this work. They therefore do not close model provenance, integrity, or redistribution review.
+
+| Role | Model key | Versioned source URL | Publisher-declared SHA-256 |
+| --- | --- | --- | --- |
+| Detection | `multi_PP-OCRv6_det_small` | `https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv6/det/PP-OCRv6_det_small.onnx` | `090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f` |
+| Recognition | `multi_PP-OCRv6_rec_small` | `https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx` | `6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884` |
+
+The same versioned routing file lists `onnxruntime` as an engine for these model keys and associates `it` with the PP-OCRv6 small routes. Neither fact demonstrates successful inference or offline loading on the target Windows system. Exact artifact bytes, model-specific licensing and redistribution terms, and a configuration that prevents undeclared network acquisition remain open.
+
+### Upstream license statement (not independent clearance)
+
+The [RapidOCR v3.10.0 README](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/README.md) states that upstream model weights and converted ONNX artifacts are distributed under Apache-2.0, while attributing upstream weight copyright to Baidu and/or PaddleOCR rights holders. It points to `MODEL_LICENSES.md` for per-model sources and attribution, but that file was not retrievable at the v3.10.0 tag during this read-only check. This is an upstream statement, not independent legal review or sufficient redistribution clearance for OCR2. Resolve the version-specific attribution and notices before bundling or redistributing model artifacts.
+
 Historical inventories or candidate recipes may guide investigation but do not become the selected tuple without current artifacts and review. Do not combine old evidence, unverified hashes, or results from another OCR project.
 
 ## Required evidence gates
@@ -65,7 +80,7 @@ All evidence must identify the frozen tuple, test host and account, command or p
 
 ## Current gaps and next actions
 
-- **Candidate selection — evaluation route approved; exact tuple open:** RapidOCR 3.10.0 with PP-OCRv6 small multilingual and ONNX Runtime CPU is the approved evaluation direction. Exact package/model artifacts, source revisions, hashes, and offline configuration must be verified before freezing a tuple. PR #100 is a separate PaddleOCR feasibility assessment and does not authorize switching candidates.
+- **Candidate selection — evaluation route approved; exact tuple open:** RapidOCR 3.10.0 with PP-OCRv6 small multilingual and ONNX Runtime CPU is the approved evaluation direction. Upstream versioned model URLs and publisher-declared SHA-256 values are recorded above, but exact artifact bytes, package artifacts, model-specific redistribution terms, and offline configuration must still be verified before freezing a tuple. PR #100 is a separate PaddleOCR feasibility assessment and does not authorize switching candidates.
 - **Artifact and license closure — open:** exact current runtime/model artifacts and a complete component-level license/notice review are required.
 - **Native Windows 11 evidence — not run:** installation, identity, isolation, egress, lifecycle, and resource checks need a separately reviewed plan and applicable authorization. This plan does not authorize them.
 - **Application and approval linkage — open:** the public repository does not contain the full OCR2 app. The exact app commit and authorized technical/security approvers must be linked to the evidence before any gate can close.
