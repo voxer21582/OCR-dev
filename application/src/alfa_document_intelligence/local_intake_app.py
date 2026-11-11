@@ -19,7 +19,9 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, quote
 from wsgiref.simple_server import make_server
 
-from .chatgpt_handoff import ChatGPTHandoffError, build_chatgpt_handoff_prompt
+from .chatgpt_handoff import (
+    ChatGPTHandoffError, blocked_review_notice, build_chatgpt_handoff_prompt,
+)
 from .contracts import validate_document_record
 from .expense_reports import ExpenseReportIntakeSession, create_expense_report_intake_session
 from .ingestion import IngestionLimits, MaterializedBatch, UploadRejected, materialize_stream_batch
@@ -46,6 +48,8 @@ class _VolatileSession:
     last_activity: float
     intake: ExpenseReportIntakeSession | None = None
     chatgpt_draft: str | None = None
+    chatgpt_prompt_sha256_confirmed: str | None = None
+    chatgpt_draft_prompt_sha256: str | None = None
     review_seconds: dict[str, int] = field(default_factory=dict)
     archive_ids: dict[str, str] = field(default_factory=dict)
     archive_baselines: dict[str, str] = field(default_factory=dict)
@@ -869,28 +873,61 @@ def _apply_fiscal_state_correction(
 
 def _chatgpt_handoff_page(state: _VolatileSession) -> str:
     assert state.intake is not None
+    blocked_notice = blocked_review_notice(state.intake.bundle, state.intake.documents)
+    prompt_digest: str | None = None
     try:
         prompt = build_chatgpt_handoff_prompt(state.intake.bundle, state.intake.documents)
-        prompt_section = (
-            "<p>Questo testo usa soltanto campi confermati. L'app non lo invia: selezionalo e copialo "
-            "in ChatGPT manualmente. Non contiene i file originali né il testo OCR grezzo.</p>"
-            "<p><strong>Trasferimento esterno:</strong> incollando questo testo in ChatGPT, i dati aziendali inclusi escono da questa app locale. "
-            "Procedi solo se la tua organizzazione autorizza l'uso di ChatGPT con questi dati. L'app non invia nulla automaticamente.</p>"
-            f'<textarea readonly rows="30" cols="100">{escape(prompt)}</textarea>'
-        )
+        prompt_digest = hashlib.sha256(
+            (blocked_notice + "\0" + prompt).encode("utf-8")
+        ).hexdigest()
+        if state.chatgpt_prompt_sha256_confirmed == prompt_digest:
+            prompt_section = (
+                "<p>Questo testo usa soltanto campi confermati. L'app non lo invia: selezionalo e copialo "
+                "in ChatGPT manualmente. Non contiene i file originali né il testo OCR grezzo.</p>"
+                "<p><strong>Trasferimento esterno:</strong> incollando questo testo in ChatGPT, i dati aziendali inclusi escono da questa app locale. "
+                "Procedi solo se la tua organizzazione autorizza l'uso di ChatGPT con questi dati. L'app non invia nulla automaticamente.</p>"
+                f'<textarea readonly rows="30" cols="100">{escape(prompt)}</textarea>'
+            )
+        else:
+            prompt_section = (
+                "<p>Il testo non è ancora mostrato né copiabile. Conferma che il testo corrente "
+                "contiene solo dati sintetici o adeguatamente anonimizzati e che la tua organizzazione "
+                "ne autorizza la condivisione esterna.</p>"
+                '<form method="post" action="/chatgpt/prepare">'
+                f'<input type="hidden" name="prompt_sha256" value="{prompt_digest}">'
+                '<label><input type="checkbox" name="safe_to_share" value="1" required> '
+                "Confermo i limiti di condivisione per il testo corrente.</label>"
+                '<button type="submit">Mostra il testo da copiare</button></form>'
+            )
     except ChatGPTHandoffError as exc:
-        prompt_section = f"<p>{escape(str(exc))} Dopo la revisione potrai tornare qui e incollare la bozza.</p>"
+        prompt_section = f'<p role="alert">{escape(str(exc))} Dopo la revisione potrai tornare qui e incollare la bozza.</p>'
+    except (KeyError, TypeError, ValueError):
+        prompt_digest = None
+        prompt_section = (
+            '<p role="alert">La revisione del documento non può essere verificata. '
+            "Per sicurezza, il testo da copiare non è stato preparato.</p>"
+        )
+    draft_is_current = (
+        prompt_digest is not None
+        and state.chatgpt_draft is not None
+        and state.chatgpt_draft_prompt_sha256 == prompt_digest
+    )
     draft_section = (
         f'<section><h2>Bozza restituita — non approvata</h2><pre>{escape(state.chatgpt_draft)}</pre>'
         '<p>Controlla ogni frase sugli originali. La bozza non modifica campi estratti o verificati '
         'e non autorizza rimborsi, pagamenti o registrazioni.</p></section>'
-        if state.chatgpt_draft is not None else ""
+        if draft_is_current else (
+            '<p>La bozza precedente non è mostrata perché il testo confermato è cambiato. '
+            'Conferma il testo aggiornato prima di proseguire.</p>'
+            if state.chatgpt_draft is not None else ""
+        )
     )
     return (
         "<!doctype html><html lang=\"it\"><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
         "<title>Testo da copiare in ChatGPT</title><main><h1>ChatGPT manuale</h1>"
         "<p>La risposta sarà una bozza non verificata da controllare sugli originali.</p>"
+        + blocked_notice
         + prompt_section
         + '<form method="post" action="/chatgpt/return">'
         + '<label>Incolla qui la risposta (massimo 20.000 caratteri)'
@@ -1117,17 +1154,69 @@ def create_expense_report_app(
             document_ids = tuple(f"doc-{index + 1:03d}" for index in range(len(payloads)))
             state = _VolatileSession(session_id, batch, document_ids, now)
             return _page(environ, start_response, "200 OK", _choose_note_page(state))
+        if method == "POST" and path == "/chatgpt/prepare":
+            if state is None or state.intake is None:
+                return _page(environ, start_response, "409 Conflict", "<p>La sessione di revisione non è disponibile.</p>")
+            try:
+                confirmation = _multipart_scalar(environ, "safe_to_share")
+                expected_digest = _multipart_scalar(environ, "prompt_sha256")
+                prompt = build_chatgpt_handoff_prompt(state.intake.bundle, state.intake.documents)
+                notice = blocked_review_notice(state.intake.bundle, state.intake.documents)
+                current_digest = hashlib.sha256(
+                    (notice + "\0" + prompt).encode("utf-8")
+                ).hexdigest()
+                if confirmation != "1":
+                    raise IntakeRequestError("Conferma dei limiti di condivisione non valida")
+                if expected_digest != current_digest:
+                    return _page(
+                        environ, start_response, "409 Conflict",
+                        "<p>I dati sono cambiati dopo la visualizzazione. Ricarica e conferma il testo corrente.</p>",
+                    )
+                state.chatgpt_prompt_sha256_confirmed = current_digest
+                state.chatgpt_draft = None
+                state.chatgpt_draft_prompt_sha256 = None
+                state.last_activity = now
+            except ChatGPTHandoffError as exc:
+                return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except IntakeRequestError as exc:
+                return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except (KeyError, TypeError, ValueError):
+                return _page(
+                    environ, start_response, "409 Conflict",
+                    "<p role=\"alert\">La revisione non può essere verificata; nessun testo è stato mostrato.</p>",
+                )
+            return _page(environ, start_response, "200 OK", _chatgpt_handoff_page(state))
         if method == "POST" and path == "/chatgpt/return":
             if state is None or state.intake is None:
                 return _page(environ, start_response, "409 Conflict", "<p>La sessione di revisione non è disponibile.</p>")
             try:
+                prompt = build_chatgpt_handoff_prompt(state.intake.bundle, state.intake.documents)
+                notice = blocked_review_notice(state.intake.bundle, state.intake.documents)
+                current_digest = hashlib.sha256(
+                    (notice + "\0" + prompt).encode("utf-8")
+                ).hexdigest()
+                if state.chatgpt_prompt_sha256_confirmed != current_digest:
+                    state.chatgpt_prompt_sha256_confirmed = None
+                    return _page(
+                        environ, start_response, "409 Conflict",
+                        "<p>Conferma prima i limiti di condivisione del testo corrente.</p>",
+                    )
                 draft = _multipart_scalar(environ, "draft", max_form_bytes=128 * 1024)
                 if len(draft) > 20_000:
                     raise IntakeRequestError("La bozza supera il limite di 20.000 caratteri")
                 state.chatgpt_draft = draft
+                state.chatgpt_draft_prompt_sha256 = current_digest
                 state.last_activity = now
+            except ChatGPTHandoffError as exc:
+                return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
             except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except (KeyError, TypeError, ValueError):
+                state.chatgpt_prompt_sha256_confirmed = None
+                return _page(
+                    environ, start_response, "409 Conflict",
+                    "<p role=\"alert\">La revisione non può essere verificata; la bozza non è stata salvata.</p>",
+                )
             return _page(environ, start_response, "200 OK", _chatgpt_handoff_page(state))
         if method == "GET" and path == "/chatgpt" and state is not None and state.intake is not None:
             state.last_activity = now
