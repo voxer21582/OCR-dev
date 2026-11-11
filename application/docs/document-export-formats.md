@@ -45,7 +45,18 @@ encryption, access control, or secure deletion.
 
 ## Availability
 
-The serializers are currently a local Python capability only. They are not
-connected to a browser UI, save dialog, archive selection flow, or import path.
-No user-facing export operation is available until that integration is
-implemented and verified.
+The local archive UI exposes explicit JSON and CSV download links for archived
+records. The request handler retrieves the selected record from the configured
+`LocalDocumentStore`, serializes it with the functions above, and returns it as
+a download; it does not export an unarchived volatile session. The UI also
+states that JSON contains the complete record while CSV is a tabular projection
+and neither includes the original source bytes.
+
+This integration is visible in
+`src/alfa_document_intelligence/local_intake_app.py` in
+`_archive_list_page`, `_archive_document_page`, and the
+`GET /archive/export/{id}.{json|csv}` handler. The focused synthetic coverage
+is in `tests/test_local_document_archive_ui.py::LocalDocumentArchiveUITests.test_archive_list_open_and_json_csv_exports_keep_evidence`.
+That archive/UI test is deliberately outside the current hosted CI allowlist;
+its presence is not evidence that it passed in the current run. Windows browser
+download behavior and user acceptance remain unverified here.
