@@ -1,4 +1,6 @@
 import io
+import unittest
+from unittest.mock import patch
 from urllib.parse import urlencode
 import zipfile
 
@@ -43,55 +45,62 @@ def _upload(app):
     assert result["status"] == "200 OK"
 
 
-def test_browser_shows_manual_prompt_only_after_human_field_confirmation(monkeypatch):
-    original_create = local_intake_app.create_expense_report_intake_session
+class ManualChatGPTHandoffUITests(unittest.TestCase):
+    def test_browser_shows_manual_prompt_only_after_human_field_confirmation(self):
+        original_create = local_intake_app.create_expense_report_intake_session
 
-    def with_synthetic_candidate(*args, **kwargs):
-        session = original_create(*args, **kwargs)
-        record = session.documents["doc-001"]
-        record["pages"] = [{"page_number": 1}]
-        record["fields"]["total_amount"] = {
-            "value": "99.99",
-            "status": "uncertain",
-            "alternatives": [],
-            "evidence": [{
-                "source_sha256": record["source"]["sha256"],
-                "page_number": 1,
-                "region": {"x": 1, "y": 1, "width": 10, "height": 4},
-                "literal": "OCR raw total",
-            }],
-        }
-        return session
+        def with_synthetic_candidate(*args, **kwargs):
+            session = original_create(*args, **kwargs)
+            record = session.documents["doc-001"]
+            record["pages"] = [{"page_number": 1}]
+            record["fields"]["total_amount"] = {
+                "value": "99.99",
+                "status": "uncertain",
+                "alternatives": [],
+                "evidence": [{
+                    "source_sha256": record["source"]["sha256"],
+                    "page_number": 1,
+                    "region": {"x": 1, "y": 1, "width": 10, "height": 4},
+                    "literal": "OCR raw total",
+                }],
+            }
+            return session
 
-    monkeypatch.setattr(local_intake_app, "create_expense_report_intake_session", with_synthetic_candidate)
-    app = create_expense_report_app()
-    _upload(app)
-    assign = urlencode({"note_document_id": "doc-001"}).encode()
-    result, _ = _request(app, "POST", "/assign-note", assign, "application/x-www-form-urlencoded")
-    assert result["status"] == "200 OK"
+        with patch.object(
+            local_intake_app,
+            "create_expense_report_intake_session",
+            side_effect=with_synthetic_candidate,
+        ):
+            app = create_expense_report_app()
+            _upload(app)
+            assign = urlencode({"note_document_id": "doc-001"}).encode()
+            result, _ = _request(
+                app, "POST", "/assign-note", assign, "application/x-www-form-urlencoded"
+            )
+            self.assertEqual(result["status"], "200 OK")
 
-    result, page = _request(app, path="/chatgpt")
-    assert result["status"] == "200 OK"
-    assert b"confirm fields first" in page
-    assert b"<textarea readonly" not in page
+            result, page = _request(app, path="/chatgpt")
+            self.assertEqual(result["status"], "200 OK")
+            self.assertIn(b"confirm fields first", page)
+            self.assertNotIn(b"<textarea readonly", page)
 
-    correction = urlencode({"value": "100.00"}).encode()
-    result, _ = _request(
-        app,
-        "POST",
-        "/reviews/doc-001/fields/total_amount",
-        correction,
-        "application/x-www-form-urlencoded",
-    )
-    assert result["status"] == "200 OK"
+            correction = urlencode({"value": "100.00"}).encode()
+            result, _ = _request(
+                app,
+                "POST",
+                "/reviews/doc-001/fields/total_amount",
+                correction,
+                "application/x-www-form-urlencoded",
+            )
+            self.assertEqual(result["status"], "200 OK")
 
-    result, page = _request(app, path="/chatgpt")
-    assert result["status"] == "200 OK"
-    assert b"<textarea readonly" in page
-    assert b"100.00" in page
-    assert b"expense_note" in page
-    assert b"private-note-name.pdf" not in page
-    assert b"private-receipt-name.pdf" not in page
-    assert b"private-trip.zip" not in page
-    assert b"OCR raw total" not in page
-    assert b"non lo invia" in page
+            result, page = _request(app, path="/chatgpt")
+            self.assertEqual(result["status"], "200 OK")
+            self.assertIn(b"<textarea readonly", page)
+            self.assertIn(b"100.00", page)
+            self.assertIn(b"expense_note", page)
+            self.assertNotIn(b"private-note-name.pdf", page)
+            self.assertNotIn(b"private-receipt-name.pdf", page)
+            self.assertNotIn(b"private-trip.zip", page)
+            self.assertNotIn(b"OCR raw total", page)
+            self.assertIn(b"non lo invia", page)
