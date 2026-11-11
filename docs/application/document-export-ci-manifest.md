@@ -8,9 +8,9 @@
 
 | File | SHA-256 | Provenance and review |
 | --- | --- | --- |
-| `.github/workflows/ocr2-synthetic-taxonomy.yml` | `250AA08E9817A55A862CE7C85F66574B5C26B99D0A2FB85F820A71E8F19232D2` | Existing workflow with five explicit synthetic-contract modules added in this candidate: review ledger, multipage TIFF processing, synthetic OCR metrics, security gate, and document export. No action, trigger, permission, runner, lock, or required-check change. |
+| `.github/workflows/ocr2-synthetic-taxonomy.yml` | `FBEA29BA9663CEFC397D33658D9E3D9FD8EFA8A8A6A72B5FE452EB7C11F8036F` | Existing workflow with six explicit synthetic-contract selectors added in this candidate: review ledger, multipage TIFF processing, synthetic OCR metrics, security gate, document export, and expense-report bundles. No action, trigger, permission, runner, lock, or required-check change. |
 
-The selectors run the already-present test files `application/tests/test_document_export.py` (SHA-256 `498A181DDFB9E531DE566A0112520F4F93A371E9D5B79E7F0E167F8C2AAE69F2`), `application/tests/test_review_ledger.py` (SHA-256 `9B9AF2E5F6B6922D3ADEC1D384E786D69871EFC96DBC4F3753CDA34325C6EB37`), `application/tests/test_multipage_tiff_processing_contract.py` (SHA-256 `1B00381D967938BECCC7E24C12B9DB6ED8F05ECD31EB8C3C47E32F34D740141A`), `application/tests/test_synthetic_ocr_metrics.py` (SHA-256 `361FA5329917C49DA9A908D94209C79DE02421156FE5FF9930D2FBF1A11CB51A`), and `application/tests/test_security_gate.py` (SHA-256 `7DFCD127251FA22EDA5606517035A7772AAF9BE8ACF02EBAA041C2B24017611E`); no test file is changed by this CI-only candidate.
+The selectors run the already-present test files `application/tests/test_document_export.py` (SHA-256 `498A181DDFB9E531DE566A0112520F4F93A371E9D5B79E7F0E167F8C2AAE69F2`), `application/tests/test_review_ledger.py` (SHA-256 `9B9AF2E5F6B6922D3ADEC1D384E786D69871EFC96DBC4F3753CDA34325C6EB37`), `application/tests/test_multipage_tiff_processing_contract.py` (SHA-256 `1B00381D967938BECCC7E24C12B9DB6ED8F05ECD31EB8C3C47E32F34D740141A`), `application/tests/test_synthetic_ocr_metrics.py` (SHA-256 `361FA5329917C49DA9A908D94209C79DE02421156FE5FF9930D2FBF1A11CB51A`), `application/tests/test_security_gate.py` (SHA-256 `7DFCD127251FA22EDA5606517035A7772AAF9BE8ACF02EBAA041C2B24017611E`), and `application/tests/test_expense_reports.py` (SHA-256 `8CE1CD6ABEDD45717DD58EEC63D33C2D86FC43C0A1F600E5C018E88F878E6F35`). The last file changes only its test runner from `pytest` to standard-library `unittest`; the eight existing assertions remain explicitly selected as one module.
 
 ## Test scope and evidence
 
@@ -28,6 +28,8 @@ Reverification on 2026-11-11 used the exact application selector list from the w
 
 On 2026-11-11, PR [#101](https://github.com/voxer21582/OCR-dev/pull/101), head `837743f47f8f02b85b7ba3869ba42d84b0d3c10b`, completed the existing hosted workflow successfully in [Actions run 42977830932](https://github.com/voxer21582/OCR-dev/actions/runs/42977830932). Its log reports **22 taxonomy tests and 315 application tests passed** on Ubuntu 24.04 / CPython 3.13.18. The required check `Taxonomy registry and binding` is green. CodeQL's Python and Actions analyses also completed successfully, and the [CodeQL run](https://github.com/voxer21582/OCR-dev/runs/130381155128) reports no new alerts. This verifies the candidate branch and its explicit selectors on hosted CI; PR #101 remains a draft and has not been merged.
 
+The expense-report selector is a new candidate addition, not yet verified by a local or hosted run. It uses the checked-in `synthetic_invoice.json` fixture and in-memory document/bundle objects. Its module imports the existing contract and review-ledger validators but does not invoke OCR, decoding, archive persistence, UI, network, Windows APIs, or the R7 junction/restore probe. The test file was converted to `unittest` because the workflow intentionally does not install `pytest`; the workflow's existing hash-locked JSON Schema dependency remains sufficient. The current local Python lacks `jsonschema`, so no package was installed and this selector has not been run locally. Hosted CI on the candidate will be the first execution after this addition.
+
 The two root taxonomy selectors were attempted locally with `python -B -m unittest -v test_taxonomy_registry test_taxonomy_binding`, but collection stopped with `ModuleNotFoundError: No module named 'jsonschema'` in the current system interpreter. No package was installed. The existing hosted workflow installs its hash-locked CI dependency before these selectors; the PR #101 hosted result above verifies them on the candidate.
 
 The export test import path requires the existing `jsonschema` runtime installed by the workflow's hash-locked dependency file. The export selector does not invoke the persistent archive, WSGI app, OCR engine/model, Windows APIs, or network services. Its fixture includes a formula-like URL under the reserved `.invalid` domain only as literal data; the test makes no request. The review-ledger selector imports schema/catalog contracts but exercises only synthetic in-memory review operations. The TIFF selector imports decoder contracts, but its tested call supplies a fake decoder and fake engine. The metrics selector processes only generated token/gold data. The security-gate selector uses a fake scanner and temporary test paths; it is a gate-contract test, not malware-detection evidence. Ubuntu 24.04 / CPython 3.13.18 compatibility is verified for the candidate by Actions run 42977830932.
@@ -37,7 +39,7 @@ The export test import path requires the existing `jsonschema` runtime installed
 - The repository's existing workflow remains the only workflow used. Its `push`, `pull_request`, and `workflow_dispatch` triggers are unchanged.
 - Required check remains `Taxonomy registry and binding`.
 - `ubuntu-24.04`, CPython `3.13.18`, full-SHA-pinned Actions, `contents: read`, and hash-locked binary-only dependencies are unchanged.
-- The explicit allowlist is extended by five selectors only; no test discovery or additional dependency installation is introduced.
+- The explicit allowlist is extended by six selectors only; no test discovery or additional dependency installation is introduced.
 - PR #101 invoked the existing workflow and its required check passed. The PR remains draft and unmerged; no release or full-product acceptance is claimed.
 
 ## Deliberately excluded
@@ -46,10 +48,10 @@ The eight synthetic archive/UI tests passed locally in this session, but are not
 
 ## Acceptance criteria
 
-1. Independent review confirms the five added selectors use only synthetic fixtures/fakes and do not exercise blocked R7/R8 functionality.
-2. The explicitly allowlisted application suites pass locally; the complete required check, including the root taxonomy selectors, passes on the candidate PR. Its Actions log shows all five newly selected modules completed.
+1. Coordinator static review and independent review (READY, 2026-11-11) confirm the six added selectors use only synthetic fixtures/fakes and do not exercise blocked R7/R8 functionality. The independent review did not execute tests; the hosted run for the incremental selector remains pending.
+2. The explicitly allowlisted application suites pass locally where existing dependencies are available; the complete required check, including root taxonomy selectors, passes on the candidate PR. Its Actions log shows all six newly selected modules completed.
 3. The required-check name, permissions, triggers, runner, pinned actions, and dependency lock remain unchanged.
 
-The independent review and hosted Actions run above support the three acceptance criteria for PR #101's head. Integration into `main` and product-level acceptance remain pending; CI covers only the named synthetic contract suites.
+The independent review and hosted Actions run above apply to the previous PR #101 head and the five selectors then present. The sixth selector's independent review and hosted result are pending for the current candidate revision. Integration into `main` and product-level acceptance remain pending; CI covers only the named synthetic contract suites.
 
 A passing Actions run would verify only synthetic serializer/export, review-ledger, multipage orchestration, metrics, and fake-scanner gate contracts on the hosted Linux runner. It would not establish archive persistence, live-browser behavior, real TIFF decoding, OCR model accuracy, real malware detection, Windows behavior, or full product acceptance.
