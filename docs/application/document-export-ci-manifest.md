@@ -4,7 +4,7 @@
 **Candidate branch:** `codex/ci-document-export-20261110`
 **Base:** cached `origin/main` snapshot `90ae4f9111af5ddad9272ffc20a96acb5311a2f5`; refresh remote main before publication.
 
-**Latest update (2026-11-11):** the current candidate adds a twelfth explicit selector, `test_manual_chatgpt_handoff_ui`, for the synthetic manual-prompt UI flow. The full 344-test application allowlist passes locally; hosted verification is pending. The previous hosted code candidate `5b92b648fb816d2bb603d8cd4d19c4ddff0f9e44` passed 22 taxonomy and 343 application tests in [run 42991272285](https://github.com/voxer21582/OCR-dev/actions/runs/42991272285); CodeQL run [130424661826](https://github.com/voxer21582/OCR-dev/runs/130424661826) completed successfully with no new alerts.
+**Latest update (2026-11-11):** commit `d1fbaf9ad60ac8d2d64c99a2eb14a7d3c3005e12` adds the twelfth explicit selector, `test_manual_chatgpt_handoff_ui`, for the synthetic manual-prompt UI flow. Hosted run [42992544527](https://github.com/voxer21582/OCR-dev/actions/runs/42992544527) passed 22 taxonomy and 344 application tests; CodeQL run [130428888836](https://github.com/voxer21582/OCR-dev/runs/130428888836) completed successfully with no new alerts.
 
 ## Included change
 
@@ -19,7 +19,7 @@ The original nine selectors at candidate head `a56ba76e1e4954becd8840d08dc094c6b
 
 ## Test scope and evidence
 
-The twelfth selector, `application/tests/test_manual_chatgpt_handoff_ui.py`, passes one test locally on CPython 3.13.15. It calls the WSGI callable directly, constructs a tiny ZIP with generated PDF-signature members in memory, and leaves the archive store and document processor unset. It starts no TCP listener, reads no persistent archive, invokes no decoder/OCR runtime, and sends no prompt. The complete explicit application allowlist passed 344 tests locally. Hosted verification for this selector is pending.
+The twelfth selector, `application/tests/test_manual_chatgpt_handoff_ui.py`, passes one test locally on CPython 3.13.15. It calls the WSGI callable directly, constructs a tiny ZIP with generated PDF-signature members in memory, and leaves the archive store and document processor unset. It starts no TCP listener, reads no persistent archive, invokes no decoder/OCR runtime, and sends no prompt. The complete explicit application allowlist passed 344 tests locally and hosted in [Actions run 42992544527](https://github.com/voxer21582/OCR-dev/actions/runs/42992544527), together with 22 taxonomy tests. [CodeQL run 130428888836](https://github.com/voxer21582/OCR-dev/runs/130428888836) reports no new alerts.
 
 The tenth selector added in this revision is `application/tests/test_hashed_lock.py`. `$env:PYTHONPATH='src;tests'; python -B -m unittest -v test_hashed_lock` passed three tests locally on CPython 3.13.15. It tests only `parse_lock()` using in-memory strings; it does not read a lockfile or install/check any package. Hosted verification for this revision passed in [Actions run 42989996311](https://github.com/voxer21582/OCR-dev/actions/runs/42989996311): 22 taxonomy and 338 application tests. [CodeQL run 130420458469](https://github.com/voxer21582/OCR-dev/runs/130420458469) completed with no new alerts.
 
