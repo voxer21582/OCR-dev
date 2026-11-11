@@ -22,13 +22,23 @@ from wsgiref.simple_server import make_server
 
 from .chatgpt_handoff import ChatGPTHandoffError, build_chatgpt_handoff_prompt
 from .contracts import validate_document_record
-from .expense_reports import ExpenseReportIntakeSession, create_expense_report_intake_session
+from .expense_reports import (
+    ExpenseReportIntakeSession,
+    _document_record_from_materialized,
+    create_expense_report_intake_session,
+)
 from .ingestion import IngestionLimits, MaterializedBatch, UploadRejected, materialize_stream_batch
 from .review_ledger import append_review_event, reviewed_overlay
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
-from .local_document_store import LocalDocumentStore, StoreConcurrentUpdate, StoreError
+from .local_document_store import (
+    LocalDocumentStore,
+    StoreConcurrentUpdate,
+    StoreError,
+    StoreRejected,
+    StoreSourceConflict,
+)
 from .manual_region_review import build_human_region_evidence, encode_rgb8_png
 from .ocr_processing import (
     OCRJobProtocolError,
@@ -42,6 +52,8 @@ _MAX_UPLOAD_FILES = 20
 _MAX_URLENCODED_FIELDS = 16
 _SESSION_IDLE_SECONDS = 30 * 60
 _ACCEPT = ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.webp,.zip"
+_CASE_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:/attachments)?$")
+_CASE_CREATE_ID = re.compile(r"^case-[a-f0-9]{36}$")
 
 
 @dataclass
@@ -193,7 +205,9 @@ class IntakeRequestError(ValueError):
     """A browser request did not meet the local intake contract."""
 
 
-def _multipart_files(environ: dict[str, Any]) -> list[tuple[str, bytes]]:
+def _multipart_files_and_fields(
+    environ: dict[str, Any], *, allowed_scalar_fields: frozenset[str] = frozenset(),
+) -> tuple[list[tuple[str, bytes]], dict[str, str]]:
     content_length = environ.get("CONTENT_LENGTH", "")
     try:
         length = int(content_length)
@@ -227,6 +241,7 @@ def _multipart_files(environ: dict[str, Any]) -> list[tuple[str, bytes]]:
     if not message.is_multipart():
         raise IntakeRequestError("Corpo multipart non valido")
     files: list[tuple[str, bytes]] = []
+    scalar_fields: dict[str, str] = {}
     csrf_count = 0
     for part in message.iter_parts():
         if part.get_content_disposition() != "form-data":
@@ -234,6 +249,18 @@ def _multipart_files(environ: dict[str, Any]) -> list[tuple[str, bytes]]:
         field_name = part.get_param("name", header="content-disposition")
         if field_name == "_ocr2_csrf" and part.get_filename() is None:
             csrf_count += 1
+            continue
+        if field_name in allowed_scalar_fields and part.get_filename() is None:
+            if field_name in scalar_fields:
+                raise IntakeRequestError("Campo multipart duplicato")
+            raw_value = part.get_payload(decode=True)
+            try:
+                value = raw_value.decode("utf-8") if isinstance(raw_value, bytes) else ""
+            except UnicodeDecodeError as exc:
+                raise IntakeRequestError("Campo multipart non valido") from exc
+            if not value or len(value) > 256:
+                raise IntakeRequestError("Campo multipart non valido")
+            scalar_fields[field_name] = value
             continue
         if field_name != "files":
             raise IntakeRequestError("Sono accettati soltanto campi file denominati 'files'")
@@ -253,6 +280,11 @@ def _multipart_files(environ: dict[str, Any]) -> list[tuple[str, bytes]]:
         raise IntakeRequestError("Seleziona almeno un PDF, un'immagine o uno ZIP")
     if csrf_count > 1 or (environ.get("_opaque_origin_csrf_validated") is True and csrf_count != 1):
         raise IntakeRequestError("Richiesta locale non valida")
+    return files, scalar_fields
+
+
+def _multipart_files(environ: dict[str, Any]) -> list[tuple[str, bytes]]:
+    files, _ = _multipart_files_and_fields(environ)
     return files
 
 
@@ -343,8 +375,57 @@ def _upload_page(*, archive_enabled: bool = False) -> str:
         f'<label>Documenti <input type="file" name="files" accept="{_ACCEPT}" multiple required></label>'
         '<button type="submit">Carica e continua</button></form>'
         "<p>Dimensione massima della richiesta: 100 MiB; massimo 20 file.</p>"
-        + ('<p><a href="/archive">Apri archivio locale</a></p>' if archive_enabled else "")
+        + ('<p><a href="/archive">Apri archivio locale</a> · '
+           '<a href="/cases">Gestisci fascicoli note spese</a></p>' if archive_enabled else "")
         + "</main></html>"
+    )
+
+
+def _expense_case_index_page(cases: list[dict[str, Any]]) -> str:
+    items = []
+    for case in cases:
+        summary = _case_status_payload(case)
+        items.append(
+            f'<li><a href="/cases/{escape(summary["case_id"], quote=True)}/intake">Fascicolo '
+            f'{escape(summary["case_id"])}</a> — {summary["attachment_count"]} giustificativi, '
+            f'{escape(summary["processing_state"])}</li>'
+        )
+    listing = "<ul>" + "".join(items) + "</ul>" if items else "<p>Nessun fascicolo salvato.</p>"
+    create_id = "case-" + secrets.token_hex(18)
+    return (
+        '<!doctype html><html lang="it"><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>Fascicoli note spese</title><main><h1>Fascicoli note spese</h1>'
+        '<p>I documenti vengono archiviati localmente nel deposito cifrato. '
+        'Carica una nota definitiva per creare un fascicolo.</p>'
+        '<form method="post" action="/cases" enctype="multipart/form-data">'
+        f'<label>Nota spese definitiva <input type="file" name="files" accept="{_ACCEPT.replace(",.zip", "")}" required></label>'
+        f'<input type="hidden" name="_case_id" value="{create_id}">'
+        '<button type="submit">Crea fascicolo</button></form>'
+        '<p>Ogni fascicolo può contenere al massimo 100 giustificativi, aggiunti in lotti di 20.</p>'
+        f'{listing}<p><a href="/">Torna all’acquisizione temporanea</a></p></main></html>'
+    )
+
+
+def _expense_case_intake_page(case: dict[str, Any], *, notice: str = "", chunk_id: str | None = None) -> str:
+    summary = _case_status_payload(case)
+    safe_id = quote(summary["case_id"], safe="")
+    safe_notice = f'<p role="status">{escape(notice)}</p>' if notice else ""
+    return (
+        '<!doctype html><html lang="it"><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>Fascicolo {escape(summary["case_id"])}</title><main>'
+        f'<h1>Fascicolo {escape(summary["case_id"])}</h1>{safe_notice}'
+        f'<p>Stato: {escape(summary["processing_state"])} · Documenti: {summary["document_count"]} '
+        f'· Giustificativi inclusi: {summary["included_attachment_count"]} / 100 '
+        f'· Lotti acquisiti: {summary["accepted_chunk_count"]}</p>'
+        '<p>Questo fascicolo resta locale e cifrato. OCR e riconciliazione vengono avviati solo con un’azione esplicita.</p>'
+        f'<form method="post" action="/cases/{safe_id}/attachments" enctype="multipart/form-data">'
+        f'<input type="hidden" name="_case_revision" value="{escape(summary["case_revision"], quote=True)}">'
+        f'<input type="hidden" name="_chunk_id" value="{escape(chunk_id or secrets.token_hex(16), quote=True)}">'
+        f'<label>Giustificativi (fino a 20 documenti nel lotto) <input type="file" name="files" '
+        f'accept="{_ACCEPT}" multiple required></label><button type="submit">Aggiungi lotto</button></form>'
+        f'<p><a href="/cases">Tutti i fascicoli</a></p></main></html>'
     )
 
 
@@ -955,6 +1036,34 @@ def _chatgpt_handoff_page(state: _VolatileSession) -> str:
         + "<p><a href=\"/\">Torna al fascicolo</a></p></main></html>"
     )
 
+
+def _case_status_payload(case: dict[str, Any]) -> dict[str, Any]:
+    """Expose only safe aggregate counts and revision identifiers to status polling."""
+    processing = case.get("processing", {})
+    raw_state = processing.get("state") if isinstance(processing, dict) else None
+    allowed_states = {"not_started", "queued", "running", "paused", "stale", "failed", "cancelled", "completed"}
+    state_code = raw_state if raw_state in allowed_states else "unavailable"
+    attachments = case.get("attachments", [])
+    return {
+        "case_id": case["case_id"],
+        "case_revision": case["case_revision"],
+        "processing_state": state_code,
+        "document_count": 1 + len(attachments),
+        "attachment_count": len(attachments),
+        "included_attachment_count": sum(1 for item in attachments if item.get("included") is True),
+        "accepted_chunk_count": len(case.get("chunks", [])),
+    }
+
+
+def _case_json_response(environ: dict[str, Any], start_response: Callable, status: str, payload: dict[str, Any]):
+    return _page(
+        environ,
+        start_response,
+        status,
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        "application/json; charset=utf-8",
+    )
+
 def create_expense_report_app(
     *,
     limits: IngestionLimits = IngestionLimits(),
@@ -1068,6 +1177,161 @@ def create_expense_report_app(
             cancel_session(expired)
         method = environ.get("REQUEST_METHOD", "")
         path = environ.get("PATH_INFO", "")
+        case_route = _CASE_PATH.fullmatch(path)
+        case_intake_route = re.fullmatch(r"/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/intake", path)
+        is_case_route = path == "/cases" or case_route is not None or case_intake_route is not None
+        if is_case_route:
+            if archive_store is None:
+                return _page(environ, start_response, "503 Service Unavailable", "Archivio locale non configurato")
+            if path == "/cases":
+                if method == "GET":
+                    try:
+                        cases = archive_store.list_cases(limit=100)
+                        return _page(environ, start_response, "200 OK", _expense_case_index_page(cases))
+                    except StoreError:
+                        return _page(environ, start_response, "500 Internal Server Error", "Fascicoli non disponibili")
+                if method == "POST":
+                    if not _same_origin_loopback_post(environ):
+                        return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                    try:
+                        files, fields = _multipart_files_and_fields(
+                            environ, allowed_scalar_fields=frozenset({"_case_id"}),
+                        )
+                        if len(files) != 1:
+                            raise IntakeRequestError("Seleziona una sola nota spese definitiva")
+                        case_id = fields.get("_case_id", "")
+                        if not _CASE_CREATE_ID.fullmatch(case_id):
+                            raise IntakeRequestError("Identificatore del fascicolo non valido")
+                        batch = materialize_stream_batch(
+                            [(name, io.BytesIO(data)) for name, data in files],
+                            limits,
+                            max_batch_document_bytes=min(max_batch_document_bytes, _MAX_UPLOAD_REQUEST_BYTES),
+                        )
+                        payloads = tuple(document for upload in batch.uploads for document in upload.documents)
+                        if len(payloads) != 1:
+                            raise IntakeRequestError("La nota spese deve contenere un solo documento")
+                        document_id = "doc-" + hashlib.sha256(
+                            f"OCR2-case-statement-v1\0{case_id}".encode("utf-8")
+                        ).hexdigest()[:36]
+                        received_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                        statement = _document_record_from_materialized(
+                            payloads[0], document_id=document_id, session_id=case_id,
+                            document_family="expense_report", received_at=received_at,
+                        )
+                        manifest = {
+                            "schema_version": "0.1.0",
+                            "case_id": case_id,
+                            "statement_document_id": document_id,
+                            "statement_sha256": statement["source"]["sha256"],
+                            "attachments": [], "chunks": [], "review_events": [], "inclusion_events": [],
+                            "processing": {"state": "not_started", "cursor": None, "result_bytes": 0},
+                        }
+                        prior = archive_store.get_case(case_id)
+                        if prior is not None:
+                            prior_statement = archive_store.get(prior["statement_document_id"])
+                            if (
+                                prior["statement_document_id"] != document_id
+                                or prior["statement_sha256"] != statement["source"]["sha256"]
+                                or prior_statement is None
+                                or prior_statement.source_bytes != payloads[0].data
+                            ):
+                                return _page(environ, start_response, "409 Conflict", "Identificatore già associato a un altro fascicolo.")
+                            return _page(
+                                environ, start_response, "200 OK",
+                                f'<h1>Fascicolo già creato</h1><p>La richiesta ripetuta non ha duplicato i documenti.</p>'
+                                f'<a href="/cases/{quote(case_id, safe="")}/intake">Apri il fascicolo</a>',
+                            )
+                        saved = archive_store.create_case(manifest, statement, payloads[0].data)
+                        return _page(
+                            environ, start_response, "201 Created",
+                            f'<h1>Fascicolo creato</h1><p>Nota acquisita nel deposito cifrato locale.</p>'
+                            f'<a href="/cases/{quote(saved["case_id"], safe="")}/intake">Aggiungi giustificativi</a>',
+                        )
+                    except (IntakeRequestError, UploadRejected, ValueError):
+                        return _page(environ, start_response, "400 Bad Request", "Nota non acquisita: verifica file e formato.")
+                    except StoreRejected:
+                        return _page(environ, start_response, "400 Bad Request", "Nota non acquisita: spazio o limiti locali insufficienti.")
+                    except StoreSourceConflict:
+                        return _page(environ, start_response, "409 Conflict", "Fascicolo in conflitto; nessuna modifica applicata.")
+                    except StoreError:
+                        return _page(environ, start_response, "500 Internal Server Error", "Nota non acquisita; archivio invariato.")
+                return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+            case_id = case_route.group(1) if case_route is not None else case_intake_route.group(1)
+            is_attachments = case_route is not None and path.endswith("/attachments")
+            if case_route is not None and method == "GET" and not is_attachments:
+                try:
+                    case = archive_store.get_case(case_id)
+                except StoreError:
+                    return _page(environ, start_response, "500 Internal Server Error", "Fascicolo non disponibile")
+                if case is None:
+                    return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                return _case_json_response(environ, start_response, "200 OK", _case_status_payload(case))
+            if case_intake_route is not None and method == "GET":
+                try:
+                    case = archive_store.get_case(case_id)
+                except StoreError:
+                    return _page(environ, start_response, "500 Internal Server Error", "Fascicolo non disponibile")
+                if case is None:
+                    return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                return _page(environ, start_response, "200 OK", _expense_case_intake_page(case))
+            if is_attachments and method == "POST":
+                if not _same_origin_loopback_post(environ):
+                    return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                try:
+                    case = archive_store.get_case(case_id)
+                    if case is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    files, fields = _multipart_files_and_fields(
+                        environ, allowed_scalar_fields=frozenset({"_case_revision", "_chunk_id"}),
+                    )
+                    expected_revision = fields.get("_case_revision", "")
+                    chunk_id = fields.get("_chunk_id", "")
+                    batch = materialize_stream_batch(
+                        [(name, io.BytesIO(data)) for name, data in files],
+                        limits,
+                        max_batch_document_bytes=min(max_batch_document_bytes, _MAX_UPLOAD_REQUEST_BYTES),
+                    )
+                    payloads = tuple(document for upload in batch.uploads for document in upload.documents)
+                    if len(payloads) > 20:
+                        raise IntakeRequestError("Il lotto contiene più di 20 documenti materializzati")
+                    source_records = []
+                    received_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                    for index, payload in enumerate(payloads, start=1):
+                        stable_id = hashlib.sha256(
+                            f"OCR2-case-document-v1\0{case_id}\0{chunk_id}\0{index}".encode("utf-8")
+                        ).hexdigest()
+                        document_id = "doc-" + stable_id[:36]
+                        record = _document_record_from_materialized(
+                            payload, document_id=document_id, session_id=case_id,
+                            document_family="unknown", received_at=received_at,
+                        )
+                        source_records.append({"record": record, "source_bytes": payload.data})
+                    chunk_digest = archive_store.case_chunk_digest(source_records)
+                    saved = archive_store.append_case_chunk(
+                        case_id, expected_revision, chunk_id, chunk_digest, source_records,
+                    )
+                    return _page(
+                        environ, start_response, "200 OK",
+                        _expense_case_intake_page(saved, notice=f"Lotto acquisito: {len(payloads)} giustificativi."),
+                    )
+                except StoreConcurrentUpdate:
+                    latest = archive_store.get_case(case_id)
+                    if latest is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    return _page(environ, start_response, "409 Conflict", _expense_case_intake_page(latest, notice="Il fascicolo è cambiato; ricarica la pagina."))
+                except StoreSourceConflict:
+                    latest = archive_store.get_case(case_id)
+                    if latest is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    return _page(environ, start_response, "409 Conflict", _expense_case_intake_page(latest, notice="Il lotto non corrisponde a quello già acquisito."))
+                except (IntakeRequestError, UploadRejected, ValueError, StoreRejected):
+                    latest = archive_store.get_case(case_id)
+                    if latest is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    return _page(environ, start_response, "400 Bad Request", _expense_case_intake_page(latest, notice="Lotto rifiutato; i lotti precedenti restano salvati."))
+                except StoreError:
+                    return _page(environ, start_response, "500 Internal Server Error", "Lotto non acquisito; verifica lo stato del fascicolo.")
+            return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
         if state is not None and state.ocr_starting and path not in {"/clear", "/upload", "/assign-note"}:
             return _page(environ, start_response, "409 Conflict", "<p>L’elaborazione OCR sta per iniziare. Attendi o cancella la sessione.</p>")
         if state is not None and state.ocr_job_id is not None:

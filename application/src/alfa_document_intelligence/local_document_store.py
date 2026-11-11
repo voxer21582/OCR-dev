@@ -868,13 +868,18 @@ class LocalDocumentStore:
             document_id, source_hash = LocalDocumentStore._validate_record(record)
             if not isinstance(source_bytes, bytes) or hashlib.sha256(source_bytes).hexdigest() != source_hash:
                 raise StoreRejected("case source bytes do not match their record hash")
-            record_size = LocalDocumentStore._case_record_metadata_size(record)
+            LocalDocumentStore._case_record_metadata_size(record)
+            digest_record = copy.deepcopy(record)
+            digest_record["source"]["received_at"] = "2000-01-01T00:00:00+00:00"
+            digest_record_size = LocalDocumentStore._case_record_metadata_size(digest_record)
             summary.append({
                 "document_id": document_id,
                 "source_sha256": source_hash,
                 "byte_length": len(source_bytes),
-                "record_sha256": hashlib.sha256(LocalDocumentStore._canonical_json(record)).hexdigest(),
-                "record_payload_size": record_size,
+                # Receipt time is generated when the server first accepts a request; normalize it
+                # so an identical retry after a lost response retains its original digest.
+                "record_sha256": hashlib.sha256(LocalDocumentStore._canonical_json(digest_record)).hexdigest(),
+                "record_payload_size": digest_record_size,
             })
         return hashlib.sha256(LocalDocumentStore._canonical_json(summary)).hexdigest()
 

@@ -208,6 +208,16 @@ class ExpenseCaseStoreTests(unittest.TestCase):
             self.store.case_chunk_digest([{"record": changed_metadata, "source_bytes": source}]),
         )
 
+    def test_chunk_digest_normalizes_server_generated_receipt_time_for_safe_retry(self):
+        source = b"%PDF synthetic receipt"
+        first = _source_record("receipt-001", source, family="fiscal_receipt")
+        retry = copy.deepcopy(first)
+        retry["source"]["received_at"] = "2026-11-11T12:34:56+00:00"
+        self.assertEqual(
+            self.store.case_chunk_digest([{"record": first, "source_bytes": source}]),
+            self.store.case_chunk_digest([{"record": retry, "source_bytes": source}]),
+        )
+
     def test_failed_chunk_does_not_leave_earlier_sources_or_manifest_references(self):
         statement_bytes = b"%PDF synthetic statement fixture"
         statement = _source_record("statement-001", statement_bytes)
