@@ -1,6 +1,6 @@
 # Isolated background OCR jobs — local candidate
 
-Date: 2026-11-11. Branch: `codex/ocr-processing-jobs`. Base: `90ae4f9111af5ddad9272ffc20a96acb5311a2f5`. This candidate is locally prepared and unpublished. It follows the owner-approved design and implementation plan recorded in the local task dossier; the source checkout and original project remain untouched.
+Date: 2026-11-11. Branch: `codex/ocr-processing-jobs`. Base: `90ae4f9111af5ddad9272ffc20a96acb5311a2f5`. Candidate commit: `b12b5eb42e46830194f78352f7b52044b99d45d6`. Published as open, unmerged [PR #104](https://github.com/voxer21582/OCR-dev/pull/104). It follows the owner-approved design and implementation plan recorded in the local task dossier; the source checkout and original project remain untouched.
 
 ## Scope and provenance
 
@@ -39,7 +39,7 @@ Result: **132 tests, OK**. Raw output is retained locally at `docs/agent-work/20
 
 An earlier wider `unittest` invocation attempted to import three existing pytest-based modules and reported `ModuleNotFoundError: pytest`; those modules were omitted from the successful explicit list. No dependency was installed for this candidate test run. The 132-test command used fake/synthetic OCR only; it did not run native OCR inference or access model files. A separate local RapidOCR smoke attempt is outside this verification and has an unconfirmed result. No browser, real document, GitHub Actions run, or release was used for this candidate.
 
-`py_compile` and `git diff --check` passed for implementation files. New untracked files were compiled and covered by their direct tests; `git diff --check` alone does not inspect untracked files. Independent static review returned READY after race corrections; the reviewer did not run tests. No push or merge has been made; the candidate remains for publication review on its dedicated branch.
+`py_compile` and `git diff --check` passed for implementation files. New untracked files were compiled and covered by their direct tests; `git diff --check` alone does not inspect untracked files. Independent static review returned READY after race corrections; the reviewer did not run tests. The PR's required check `Taxonomy registry and binding` completed successfully on run [43084821415](https://github.com/voxer21582/OCR-dev/actions/runs/43084821415). That workflow does not yet run the three new OCR job test modules; its success is not feature-specific validation. PR #104 remains open and unmerged.
 
 ## Not established
 
