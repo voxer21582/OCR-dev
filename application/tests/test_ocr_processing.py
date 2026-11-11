@@ -252,7 +252,11 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
                 status = manager.snapshot(job_id)
             self.assertIsNotNone(status)
             self.assertEqual(status.phase, "failed")
-            self.assertEqual(status.error_code, "worker_failed")
+            self.assertEqual(
+                status.error_code,
+                "worker_failed",
+                f"worker exit code: {manager._job.process.exitcode}",
+            )
             self.assertIsNone(manager.result_frame("synthetic-generation", job_id))
             self.assertFalse(manager._job.process.is_alive())
         finally:
@@ -282,7 +286,11 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
             time.sleep(0.9)  # No snapshot/poll call occurs during the deadline window.
             status = manager.snapshot(job_id)
             self.assertEqual(status.phase, "failed")
-            self.assertEqual(status.error_code, "job_timeout")
+            self.assertEqual(
+                status.error_code,
+                "job_timeout",
+                f"worker exit code: {manager._job.process.exitcode}",
+            )
             self.assertIsNone(manager.result_frame("synthetic-generation-2", job_id))
             self.assertFalse(manager._job.process.is_alive())
             self.assertTrue(manager._job.input_sender.closed)
