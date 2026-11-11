@@ -79,6 +79,7 @@ jobs:
           test_catalog_pipeline.RequiredCustomFieldValidationTests
           test_catalog_pipeline.CatalogDocumentProcessingTests
           test_expense_reports
+          test_expense_report_intake_session
           test_review_ledger
           test_multipage_tiff_processing_contract
           test_synthetic_ocr_metrics
