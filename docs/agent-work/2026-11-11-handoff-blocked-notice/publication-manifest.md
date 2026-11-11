@@ -9,15 +9,15 @@
 
 | Path | Provenance and purpose | Review and verification |
 |---|---|---|
-| `application/src/alfa_document_intelligence/chatgpt_handoff.py` | Existing OCR2 public source; adds a constant, privacy-safe alert for valid blocked review ledgers. | Independent exact-diff review READY; GitHub Actions pending. |
-| `application/src/alfa_document_intelligence/local_intake_app.py` | Existing OCR2 public source; renders the alert outside the prompt and requires volatile consent bound to the current prompt and alert before showing copyable text. Stale consent and stale drafts are rejected/hidden. | Independent exact-diff review READY; GitHub Actions pending. |
-| `application/tests/test_chatgpt_handoff.py` | Existing synthetic unittest module; covers blocked/non-blocked/malformed ledger warning behavior and sentinel non-disclosure. | Independent exact-diff review READY; GitHub Actions pending. |
-| `application/tests/test_manual_chatgpt_handoff_ui.py` | Existing synthetic WSGI UI test module; covers consent, blocked warning, manual copy after consent, changed-content invalidation, and draft gating. | Independent exact-diff review READY; GitHub Actions pending. |
-| This manifest | Release scope and exclusions. | Independent exact-diff review READY; GitHub Actions pending. |
+| `application/src/alfa_document_intelligence/chatgpt_handoff.py` | Existing OCR2 public source; adds a constant, privacy-safe alert for valid blocked review ledgers. | Independent exact-diff review READY; successful GitHub Actions run pending. |
+| `application/src/alfa_document_intelligence/local_intake_app.py` | Existing OCR2 public source; renders the alert outside the prompt and requires volatile consent bound to the current prompt and alert before showing copyable text. Stale consent and stale drafts are rejected/hidden. | Independent exact-diff review READY; successful GitHub Actions run pending. |
+| `application/tests/test_chatgpt_handoff.py` | Existing synthetic unittest module; covers blocked/non-blocked/malformed ledger warning behavior and sentinel non-disclosure. | Independent exact-diff review READY; successful GitHub Actions run pending. |
+| `application/tests/test_manual_chatgpt_handoff_ui.py` | Existing synthetic WSGI UI test module; covers consent, blocked warning, manual copy after consent, changed-content invalidation, and draft gating. | Independent exact-diff review READY; successful GitHub Actions run pending. |
+| This manifest | Release scope and exclusions. | Independent exact-diff review READY; successful GitHub Actions run pending. |
 
 ## Verification scope
 
-Independent review of the exact candidate against PR #101 head returned READY before publication. Python 3.13 AST parsing passed for the four candidate Python files; the unittest modules have not been executed locally. The stacked base's existing GitHub Actions job explicitly selects both test modules; no test discovery, workflow change, dependency change, permission change, or required-check change is proposed. The expected check is `Taxonomy registry and binding`. No run for this proposed branch exists yet.
+Independent review of the exact candidate against PR #101 head returned READY before publication. Python 3.13 AST parsing passed for all four candidate Python files, including the corrected UI test. GitHub Actions run [#366](https://github.com/voxer21582/OCR-dev/actions/runs/43042602481) on the preceding candidate passed 22 taxonomy tests and ran 359 application tests, with one failure: an existing UI assertion still expected immediate prompt display. The test now follows the consent flow; a successful run for the corrected candidate is pending. The stacked base's existing workflow explicitly selects both test modules; no test discovery, workflow change, dependency change, permission change, or required-check change is proposed. The required check remains `Taxonomy registry and binding`.
 
 ## Excluded
 

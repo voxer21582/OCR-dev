@@ -97,6 +97,20 @@ class ManualChatGPTHandoffUITests(unittest.TestCase):
 
             result, page = _request(app, path="/chatgpt")
             self.assertEqual(result["status"], "200 OK")
+            self.assertNotIn(b"<textarea readonly", page)
+            self.assertNotIn(b"100.00", page)
+            self.assertIn(b"safe_to_share", page)
+            digest = re.search(rb'name="prompt_sha256" value="([a-f0-9]{64})"', page)
+            self.assertIsNotNone(digest)
+            consent = urlencode({
+                "safe_to_share": "1",
+                "prompt_sha256": digest.group(1).decode("ascii"),
+            }).encode()
+            result, page = _request(
+                app, "POST", "/chatgpt/prepare", consent,
+                "application/x-www-form-urlencoded",
+            )
+            self.assertEqual(result["status"], "200 OK")
             self.assertIn(b"<textarea readonly", page)
             self.assertIn(b"100.00", page)
             self.assertIn(b"expense_note", page)
