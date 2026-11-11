@@ -7,6 +7,7 @@ import unittest
 from alfa_document_intelligence.chatgpt_handoff import (
     ChatGPTHandoffError,
     build_chatgpt_handoff_prompt,
+    blocked_review_notice,
 )
 from alfa_document_intelligence.expense_reports import build_expense_report_bundle
 from alfa_document_intelligence.review_ledger import append_review_event
@@ -128,3 +129,53 @@ class ManualChatGPTHandoffTests(unittest.TestCase):
         }])
         self.assertNotIn("synthetic-hotel-receipt.pdf", prompt)
         self.assertNotIn("Fattura demo", prompt)
+
+
+class BlockedReviewNoticeTests(unittest.TestCase):
+    def test_blocked_review_notice_is_fixed_and_contains_no_private_values(self):
+        record = _confirm(
+            _record(), "total_amount", "PRIVATE-SYNTHETIC-AMOUNT",
+            "2026-10-15T10:00:00+02:00",
+        )
+        record = append_review_event(
+            record, actor_id="synthetic-reviewer", action="flagged",
+            timestamp="2026-10-15T10:01:00+02:00", reason_code="PRIVATE-HOLD-REASON",
+        )
+        documents = {"note-001": record}
+        bundle = build_expense_report_bundle("report-001", "note-001", [], documents)
+        before = copy.deepcopy(record)
+
+        notice = blocked_review_notice(bundle, documents)
+
+        self.assertIn('role="alert"', notice)
+        self.assertIn("Revisione bloccata", notice)
+        self.assertIn("incompleta", notice)
+        self.assertIn("non approvata", notice)
+        self.assertIn("manualmente", notice)
+        self.assertNotIn("PRIVATE-SYNTHETIC-AMOUNT", notice)
+        self.assertNotIn("PRIVATE-HOLD-REASON", notice)
+        self.assertNotIn("note-001", notice)
+        self.assertEqual(record, before)
+
+    def test_non_blocked_review_has_no_warning(self):
+        record = _confirm(
+            _record(), "total_amount", "25.00", "2026-10-15T10:00:00+02:00"
+        )
+        documents = {"note-001": record}
+        bundle = build_expense_report_bundle("report-001", "note-001", [], documents)
+
+        self.assertEqual(blocked_review_notice(bundle, documents), "")
+
+    def test_malformed_review_record_fails_closed_without_echoing_identifiers(self):
+        record = _confirm(
+            _record(), "total_amount", "PRIVATE-VALUE",
+            "2026-10-15T10:00:00+02:00",
+        )
+        documents = {"note-001": record}
+        bundle = build_expense_report_bundle("report-001", "note-001", [], documents)
+        malformed = copy.deepcopy(record)
+        malformed["review"]["events"][0]["event_hash"] = "PRIVATE-INVALID-HASH"
+
+        notice = blocked_review_notice(bundle, {"note-001": malformed})
+
+        self.assertEqual(notice, "")

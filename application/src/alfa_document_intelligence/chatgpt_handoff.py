@@ -12,6 +12,42 @@ class ChatGPTHandoffError(ValueError):
     """A bundle has no eligible human-confirmed fields for a manual handoff."""
 
 
+def blocked_review_notice(
+    bundle: Mapping[str, Any], documents: Mapping[str, dict[str, Any]],
+) -> str:
+    """Return a fixed alert when any verified document review is blocked.
+
+    The warning contains no identifiers, review reasons, or document values.
+    Invalid or missing review evidence fails closed; prompt construction then
+    rejects the same evidence before any copyable prompt is rendered.
+    """
+    note_id = bundle.get("note_document_id")
+    attachments = bundle.get("attachments")
+    if not isinstance(note_id, str) or not isinstance(attachments, list):
+        return ""
+    document_ids = [note_id]
+    for attachment in attachments:
+        if not isinstance(attachment, dict) or not isinstance(attachment.get("document_id"), str):
+            return ""
+        document_ids.append(attachment["document_id"])
+    try:
+        statuses = []
+        for document_id in document_ids:
+            record = documents[document_id]
+            verify_review_ledger(record)
+            statuses.append(record["review"]["status"])
+    except (KeyError, TypeError, ValueError):
+        return ""
+    if "blocked" in statuses:
+        return (
+            '<p role="alert"><strong>Revisione bloccata:</strong> i valori confermati '
+            "in precedenza possono ancora comparire nella bozza; la bozza è incompleta "
+            "e non approvata. Puoi comunque copiarla manualmente dopo la conferma "
+            "esplicita per il testo corrente.</p>"
+        )
+    return ""
+
+
 def _human_confirmed_fields(
     record: Mapping[str, Any], allowed_fields: frozenset[str]
 ) -> dict[str, dict[str, Any]]:
