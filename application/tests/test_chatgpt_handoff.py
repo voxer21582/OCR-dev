@@ -2,7 +2,7 @@ import copy
 import json
 from pathlib import Path
 
-import pytest
+import unittest
 
 from alfa_document_intelligence.chatgpt_handoff import (
     ChatGPTHandoffError,
@@ -47,87 +47,84 @@ def _confirm(record, field_name, value, timestamp):
     )
 
 
-def test_manual_handoff_includes_only_latest_human_confirmed_structured_fields():
-    record = _record()
-    original_ocr_name = copy.deepcopy(record["fields"]["merchant_name"])
-    record = _confirm(record, "total_amount", "25.00", "2026-10-15T10:00:00+02:00")
-    record = _confirm(record, "total_amount", "26.00", "2026-10-15T10:01:00+02:00")
-    documents = {"note-001": record}
-    bundle = build_expense_report_bundle("report-001", "note-001", [], documents)
+class ManualChatGPTHandoffTests(unittest.TestCase):
+    def test_includes_only_latest_human_confirmed_structured_fields(self):
+        record = _record()
+        original_ocr_name = copy.deepcopy(record["fields"]["merchant_name"])
+        record = _confirm(record, "total_amount", "25.00", "2026-10-15T10:00:00+02:00")
+        record = _confirm(record, "total_amount", "26.00", "2026-10-15T10:01:00+02:00")
+        documents = {"note-001": record}
+        bundle = build_expense_report_bundle("report-001", "note-001", [], documents)
 
-    prompt = build_chatgpt_handoff_prompt(bundle, documents)
+        prompt = build_chatgpt_handoff_prompt(bundle, documents)
 
-    assert "riscrivere in italiano" in prompt
-    assert '"role": "expense_note"' in prompt
-    assert '"total_amount"' in prompt
-    assert '"value": "26.00"' in prompt
-    assert "25.00" not in prompt
-    assert "merchant_name" not in prompt
-    assert "Fattura demo" not in prompt
-    assert "synthetic-invoice.pdf" not in prompt
-    assert record["fields"]["merchant_name"] == original_ocr_name
-    assert record["fields"]["total_amount"]["value"] != "26.00"
+        self.assertIn("riscrivere in italiano", prompt)
+        self.assertIn('"role": "expense_note"', prompt)
+        self.assertIn('"total_amount"', prompt)
+        self.assertIn('"value": "26.00"', prompt)
+        self.assertNotIn("25.00", prompt)
+        self.assertNotIn("merchant_name", prompt)
+        self.assertNotIn("Fattura demo", prompt)
+        self.assertNotIn("synthetic-invoice.pdf", prompt)
+        self.assertEqual(record["fields"]["merchant_name"], original_ocr_name)
+        self.assertNotEqual(record["fields"]["total_amount"]["value"], "26.00")
 
+    def test_excludes_confirmed_identifiers_and_irrelevant_fields(self):
+        record = _record()
+        record["fields"]["vat_registration_number"] = copy.deepcopy(record["fields"]["total_amount"])
+        record["fields"]["payment_reference"] = copy.deepcopy(record["fields"]["total_amount"])
+        record = _confirm(record, "total_amount", "26.00", "2026-10-15T10:00:00+02:00")
+        record = _confirm(record, "vat_registration_number", "IT12345678901", "2026-10-15T10:01:00+02:00")
+        record = _confirm(record, "payment_reference", "TX-SECRET-123", "2026-10-15T10:02:00+02:00")
+        documents = {"note-001": record}
+        bundle = build_expense_report_bundle("report-001", "note-001", [], documents)
 
+        prompt = build_chatgpt_handoff_prompt(bundle, documents)
 
-def test_manual_handoff_excludes_confirmed_identifiers_and_irrelevant_fields():
-    record = _record()
-    record["fields"]["vat_registration_number"] = copy.deepcopy(record["fields"]["total_amount"])
-    record["fields"]["payment_reference"] = copy.deepcopy(record["fields"]["total_amount"])
-    record = _confirm(record, "total_amount", "26.00", "2026-10-15T10:00:00+02:00")
-    record = _confirm(record, "vat_registration_number", "IT12345678901", "2026-10-15T10:01:00+02:00")
-    record = _confirm(record, "payment_reference", "TX-SECRET-123", "2026-10-15T10:02:00+02:00")
-    documents = {"note-001": record}
-    bundle = build_expense_report_bundle("report-001", "note-001", [], documents)
+        self.assertIn('"total_amount"', prompt)
+        self.assertNotIn("IT12345678901", prompt)
+        self.assertNotIn("TX-SECRET-123", prompt)
+        self.assertNotIn("vat_registration_number", prompt)
+        self.assertNotIn("payment_reference", prompt)
 
-    prompt = build_chatgpt_handoff_prompt(bundle, documents)
+    def test_requires_at_least_one_reviewed_field(self):
+        record = _record()
+        documents = {"note-001": record}
+        bundle = build_expense_report_bundle("report-001", "note-001", [], documents)
 
-    assert '"total_amount"' in prompt
-    assert "IT12345678901" not in prompt
-    assert "TX-SECRET-123" not in prompt
-    assert "vat_registration_number" not in prompt
-    assert "payment_reference" not in prompt
+        with self.assertRaisesRegex(ChatGPTHandoffError, "confirm fields"):
+            build_chatgpt_handoff_prompt(bundle, documents)
 
+    def test_rejects_bundle_tampering_before_serializing_values(self):
+        record = _confirm(_record(), "total_amount", "26.00", "2026-10-15T10:00:00+02:00")
+        documents = {"note-001": record}
+        bundle = build_expense_report_bundle("report-001", "note-001", [], documents)
+        bundle["note_source_sha256"] = "0" * 64
 
-def test_manual_handoff_requires_at_least_one_reviewed_field():
-    record = _record()
-    documents = {"note-001": record}
-    bundle = build_expense_report_bundle("report-001", "note-001", [], documents)
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            build_chatgpt_handoff_prompt(bundle, documents)
 
-    with pytest.raises(ChatGPTHandoffError, match="confirm fields"):
-        build_chatgpt_handoff_prompt(bundle, documents)
+    def test_includes_confirmed_attachment_values_and_page_evidence_only(self):
+        note = _record()
+        attachment = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        attachment["document_id"] = "receipt-001"
+        attachment["source"]["original_filename"] = "synthetic-hotel-receipt.pdf"
+        attachment = _confirm(
+            attachment, "merchant_name", "Albergo Demo", "2026-10-15T10:02:00+02:00"
+        )
+        documents = {"note-001": note, "receipt-001": attachment}
+        bundle = build_expense_report_bundle(
+            "report-001", "note-001", ["receipt-001"], documents
+        )
 
+        prompt = build_chatgpt_handoff_prompt(bundle, documents)
+        payload = json.loads(prompt.split("DATI CONFERMATI:", 1)[1])
 
-def test_manual_handoff_rejects_bundle_tampering_before_serializing_values():
-    record = _confirm(_record(), "total_amount", "26.00", "2026-10-15T10:00:00+02:00")
-    documents = {"note-001": record}
-    bundle = build_expense_report_bundle("report-001", "note-001", [], documents)
-    bundle["note_source_sha256"] = "0" * 64
-
-    with pytest.raises(ValueError, match="does not match"):
-        build_chatgpt_handoff_prompt(bundle, documents)
-
-def test_manual_handoff_includes_confirmed_attachment_values_and_page_evidence_only():
-    note = _record()
-    attachment = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    attachment["document_id"] = "receipt-001"
-    attachment["source"]["original_filename"] = "synthetic-hotel-receipt.pdf"
-    attachment = _confirm(
-        attachment, "merchant_name", "Albergo Demo", "2026-10-15T10:02:00+02:00"
-    )
-    documents = {"note-001": note, "receipt-001": attachment}
-    bundle = build_expense_report_bundle(
-        "report-001", "note-001", ["receipt-001"], documents
-    )
-
-    prompt = build_chatgpt_handoff_prompt(bundle, documents)
-    payload = json.loads(prompt.split("DATI CONFERMATI:", 1)[1])
-
-    assert payload == [{
-        "role": "supporting_document_1",
-        "verified_fields": {
-            "merchant_name": {"value": "Albergo Demo", "evidence_pages": [1]}
-        },
-    }]
-    assert "synthetic-hotel-receipt.pdf" not in prompt
-    assert "Fattura demo" not in prompt
+        self.assertEqual(payload, [{
+            "role": "supporting_document_1",
+            "verified_fields": {
+                "merchant_name": {"value": "Albergo Demo", "evidence_pages": [1]}
+            },
+        }])
+        self.assertNotIn("synthetic-hotel-receipt.pdf", prompt)
+        self.assertNotIn("Fattura demo", prompt)

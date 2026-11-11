@@ -83,6 +83,7 @@ jobs:
           test_materialized_upload_batch
           test_fingerprints
           test_hashed_lock
+          test_chatgpt_handoff
           test_review_ledger
           test_multipage_tiff_processing_contract
           test_synthetic_ocr_metrics
