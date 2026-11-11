@@ -2,6 +2,14 @@
 
 Updated: 2026-11-09
 
+## Background OCR job candidate (2026-11-11; not published)
+
+An isolated candidate on `codex/ocr-processing-jobs` implements a bounded spawned OCR worker, privacy-safe aggregate progress, cancellation, generation-bound one-shot result publication, optional local WSGI routes, and an explicit `--ocr-engine rapidocr-v6` opt-in. The launcher default remains `disabled`; no worker, package, or model is created or loaded unless that flag is selected and a later job is submitted. The fixed factory checks RapidOCR version and the two pinned local model hashes inside the isolated worker. RapidOCR remains the chosen direction for issue #9; A4 PaddleOCR/medium research is separate.
+
+The final explicit synthetic unittest command passed **132 tests** on 2026-11-11, including protocol/worker lifecycle, WSGI generation races, launcher default/opt-in wiring, document-progress contracts, adapter contracts, and fake runtime-factory checks. It uses fake OCR engines and generated documents only; it does not run native OCR or verify a real local model install. An independent static code review is READY after identifying and closing concurrent-start and duplicate-publication races; the reviewer did not rerun tests. The exact command, output hash, implementation scope, and limits are in the [background-job manifest](../docs/application/background-ocr-jobs-manifest.md). A broader initial command could not import three pytest-based modules because `pytest` is absent; no packages were installed. The successful run explicitly excluded those pytest modules.
+
+This candidate remains local and unpublished. No GitHub Actions run, PR, merge, real-document run, native OCR result, or Windows 11 product acceptance is claimed for this candidate. A separate RapidOCR runtime smoke in the sibling local staging directory has an unconfirmed result and is not counted as passing evidence. No files in the original/source worktree or R7/R8 components were changed. The provisional worker memory and payload caps are engineering bounds, not proof of native engine RSS or workload fit. The owner-approved change still needs later publication review and formal acceptance.
+
 ## Accepted manual handoff correction (2026-11-09)
 
 The accepted implementation retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.
