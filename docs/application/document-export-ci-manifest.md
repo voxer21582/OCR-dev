@@ -1,6 +1,6 @@
 # Synthetic application contracts — CI manifest
 
-**Prepared:** 2026-11-10
+**Prepared:** 2026-11-10; evidence updated 2026-11-11
 **Candidate branch:** `codex/ci-document-export-20261110`
 **Base:** cached `origin/main` snapshot `90ae4f9111af5ddad9272ffc20a96acb5311a2f5`; refresh remote main before publication.
 
@@ -24,11 +24,13 @@ On 2026-11-10, PowerShell command `$env:PYTHONPATH='src;tests'; python -B -m uni
 
 On 2026-11-10, after the five selectors in this candidate were added, the full explicitly allowlisted application command from `.github/workflows/ocr2-synthetic-taxonomy.yml` passed **315 tests** locally on Windows with CPython 3.13.15. The existing environment was used with no dependency installation. This is a local result, not a hosted Ubuntu Actions result, and does not replace the required PR check.
 
-Reverification on 2026-11-11 used the exact application selector list from the workflow and CPython 3.13.15: **315 tests passed** (`Ran 315 tests in 0.874s`, `OK`). The workflow SHA-256 remained `250AA08E9817A55A862CE7C85F66574B5C26B99D0A2FB85F820A71E8F19232D2`. The two root taxonomy selectors were not part of this run: `jsonschema` is absent from the selected system interpreter, and no package was installed. This is still local evidence only; no new hosted Actions run is claimed.
+Reverification on 2026-11-11 used the exact application selector list from the workflow and CPython 3.13.15: **315 tests passed** (`Ran 315 tests in 0.874s`, `OK`). The workflow SHA-256 remained `250AA08E9817A55A862CE7C85F66574B5C26B99D0A2FB85F820A71E8F19232D2`. The two root taxonomy selectors were not part of this local run: `jsonschema` is absent from the selected system interpreter, and no package was installed.
 
-The two root taxonomy selectors were attempted locally with `python -B -m unittest -v test_taxonomy_registry test_taxonomy_binding`, but collection stopped with `ModuleNotFoundError: No module named 'jsonschema'` in the current system interpreter. No package was installed. The existing hosted workflow installs its hash-locked CI dependency before these selectors; their result on this candidate remains pending the required Actions run.
+On 2026-11-11, PR [#101](https://github.com/voxer21582/OCR-dev/pull/101), head `837743f47f8f02b85b7ba3869ba42d84b0d3c10b`, completed the existing hosted workflow successfully in [Actions run 42977830932](https://github.com/voxer21582/OCR-dev/actions/runs/42977830932). Its log reports **22 taxonomy tests and 315 application tests passed** on Ubuntu 24.04 / CPython 3.13.18. The required check `Taxonomy registry and binding` is green. CodeQL's Python and Actions analyses also completed successfully, and the [CodeQL run](https://github.com/voxer21582/OCR-dev/runs/130381155128) reports no new alerts. This verifies the candidate branch and its explicit selectors on hosted CI; PR #101 remains a draft and has not been merged.
 
-The export test import path requires the existing `jsonschema` runtime installed by the workflow's hash-locked dependency file. The export selector does not invoke the persistent archive, WSGI app, OCR engine/model, Windows APIs, or network services. Its fixture includes a formula-like URL under the reserved `.invalid` domain only as literal data; the test makes no request. The review-ledger selector imports schema/catalog contracts but exercises only synthetic in-memory review operations. The TIFF selector imports decoder contracts, but its tested call supplies a fake decoder and fake engine. The metrics selector processes only generated token/gold data. The security-gate selector uses a fake scanner and temporary test paths; it is a gate-contract test, not malware-detection evidence. Compatibility on Ubuntu 24.04 / CPython 3.13.18 remains unverified until the existing Actions workflow runs for the candidate.
+The two root taxonomy selectors were attempted locally with `python -B -m unittest -v test_taxonomy_registry test_taxonomy_binding`, but collection stopped with `ModuleNotFoundError: No module named 'jsonschema'` in the current system interpreter. No package was installed. The existing hosted workflow installs its hash-locked CI dependency before these selectors; the PR #101 hosted result above verifies them on the candidate.
+
+The export test import path requires the existing `jsonschema` runtime installed by the workflow's hash-locked dependency file. The export selector does not invoke the persistent archive, WSGI app, OCR engine/model, Windows APIs, or network services. Its fixture includes a formula-like URL under the reserved `.invalid` domain only as literal data; the test makes no request. The review-ledger selector imports schema/catalog contracts but exercises only synthetic in-memory review operations. The TIFF selector imports decoder contracts, but its tested call supplies a fake decoder and fake engine. The metrics selector processes only generated token/gold data. The security-gate selector uses a fake scanner and temporary test paths; it is a gate-contract test, not malware-detection evidence. Ubuntu 24.04 / CPython 3.13.18 compatibility is verified for the candidate by Actions run 42977830932.
 
 ## Workflow effects and preserved controls
 
@@ -36,7 +38,7 @@ The export test import path requires the existing `jsonschema` runtime installed
 - Required check remains `Taxonomy registry and binding`.
 - `ubuntu-24.04`, CPython `3.13.18`, full-SHA-pinned Actions, `contents: read`, and hash-locked binary-only dependencies are unchanged.
 - The explicit allowlist is extended by five selectors only; no test discovery or additional dependency installation is introduced.
-- A candidate PR will invoke the existing workflow. No remote run has occurred for this local branch, and no PR, merge, release, or product acceptance is claimed here.
+- PR #101 invoked the existing workflow and its required check passed. The PR remains draft and unmerged; no release or full-product acceptance is claimed.
 
 ## Deliberately excluded
 
@@ -47,5 +49,7 @@ The eight synthetic archive/UI tests passed locally in this session, but are not
 1. Independent review confirms the five added selectors use only synthetic fixtures/fakes and do not exercise blocked R7/R8 functionality.
 2. The explicitly allowlisted application suites pass locally; the complete required check, including the root taxonomy selectors, passes on the candidate PR. Its Actions log shows all five newly selected modules completed.
 3. The required-check name, permissions, triggers, runner, pinned actions, and dependency lock remain unchanged.
+
+The independent review and hosted Actions run above support the three acceptance criteria for PR #101's head. Integration into `main` and product-level acceptance remain pending; CI covers only the named synthetic contract suites.
 
 A passing Actions run would verify only synthetic serializer/export, review-ledger, multipage orchestration, metrics, and fake-scanner gate contracts on the hosted Linux runner. It would not establish archive persistence, live-browser behavior, real TIFF decoding, OCR model accuracy, real malware detection, Windows behavior, or full product acceptance.
