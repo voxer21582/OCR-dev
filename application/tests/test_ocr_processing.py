@@ -21,7 +21,9 @@ def valid_limits() -> dict[str, int | float]:
     return {
         "job_timeout_seconds": 60.0,
         "cleanup_grace_seconds": 2.0,
-        "child_memory_limit_bytes": 256 * 1024 * 1024,
+        # Leave room for CPython and the test module to initialize on POSIX
+        # before the worker reaches the engine; production uses the same cap.
+        "child_memory_limit_bytes": 2 * 1024 * 1024 * 1024 - 1,
         "max_input_frame_bytes": 1024 * 1024,
         "max_status_frame_bytes": 4096,
         "max_result_frame_bytes": 1024 * 1024,
