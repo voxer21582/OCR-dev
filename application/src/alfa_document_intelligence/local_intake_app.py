@@ -14,6 +14,7 @@ import io
 import json
 import re
 import secrets
+import threading
 import time
 from typing import Any, Callable
 from urllib.parse import parse_qs, quote
@@ -29,6 +30,11 @@ from .document_export import export_document_csv, export_document_json
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
 from .local_document_store import LocalDocumentStore, StoreConcurrentUpdate, StoreError
 from .manual_region_review import build_human_region_evidence, encode_rgb8_png
+from .ocr_processing import (
+    OCRJobProtocolError,
+    OCRProcessingManager,
+    decode_frame,
+)
 
 
 _MAX_UPLOAD_REQUEST_BYTES = 100 * 1024 * 1024
@@ -51,6 +57,11 @@ class _VolatileSession:
     archive_baselines: dict[str, str] = field(default_factory=dict)
     archive_loaded_document_id: str | None = None
     archive_only: bool = False
+    generation_id: str = field(default_factory=lambda: secrets.token_hex(24))
+    ocr_job_id: str | None = None
+    ocr_starting: bool = False
+    ocr_publish_failed: bool = False
+    ocr_result_published: bool = False
 
 
 _ARCHIVE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -396,6 +407,50 @@ def _bundle_page(state: _VolatileSession, *, archive_enabled: bool = False) -> s
         '<p><a href="/chatgpt">Prepara testo da copiare in ChatGPT</a></p>'
         '<form method="post" action="/clear"><button type="submit">Chiudi e cancella la sessione</button></form>'
         "</main></html>"
+    )
+
+
+def _ocr_job_page(
+    job_id: str, status: Any, *, archive_enabled: bool = False,
+    publish_failed: bool = False,
+) -> str:
+    labels = {
+        "queued": "In coda",
+        "starting_engine": "Avvio del motore",
+        "processing": "Elaborazione in corso",
+        "cancelling": "Annullamento in corso",
+        "succeeded": "Elaborazione completata",
+        "failed": "Elaborazione non riuscita",
+        "cancelled": "Elaborazione annullata",
+    }
+    phase = labels.get(getattr(status, "phase", ""), "Stato non disponibile")
+    if publish_failed:
+        phase = "Risultato rifiutato: cancella la sessione e ricarica i documenti"
+    completed = getattr(status, "completed_documents", 0)
+    total = getattr(status, "total_documents", 0)
+    page = getattr(status, "current_page", 0)
+    pages = getattr(status, "total_pages", 0)
+    if phase == "Elaborazione completata":
+        actions = '<p><a href="/">Apri i documenti elaborati</a></p>'
+    elif publish_failed or phase in {"Elaborazione non riuscita", "Elaborazione annullata"}:
+        actions = '<form method="post" action="/clear"><button type="submit">Chiudi e cancella la sessione</button></form>'
+    else:
+        actions = (
+            f'<form method="post" action="/ocr/jobs/{quote(job_id, safe="")}/cancel">'
+            '<button type="submit">Annulla elaborazione</button></form>'
+        )
+    archive_link = '<p><a href="/archive">Apri archivio locale</a></p>' if archive_enabled else ""
+    return (
+        '<!doctype html><html lang="it"><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        + ('<meta http-equiv="refresh" content="2">' if phase in {
+            "In coda", "Avvio del motore", "Elaborazione in corso", "Annullamento in corso",
+        } else "")
+        + '<title>Elaborazione OCR</title><main><h1>Elaborazione OCR</h1>'
+        f'<p>Stato: {escape(phase)}.</p>'
+        f'<p>Documenti: {completed} / {total} · Pagine: {page} / {pages}</p>'
+        f'<p><a href="/ocr/jobs/{quote(job_id, safe="")}">Aggiorna stato</a></p>'
+        f'{actions}{archive_link}</main></html>'
     )
 
 
@@ -908,15 +963,97 @@ def create_expense_report_app(
     clock: Callable[[], float] = time.monotonic,
     document_processor: Callable[[dict[str, Any], bytes], dict[str, Any]] | None = None,
     archive_store: LocalDocumentStore | None = None,
+    ocr_processing_manager: OCRProcessingManager | None = None,
+    custom_family_catalog: Any | None = None,
 ) -> Callable:
     """Create a loopback WSGI app with an idle-expiring session and optional explicit archive."""
     if not isinstance(idle_timeout_seconds, int) or isinstance(idle_timeout_seconds, bool) or idle_timeout_seconds <= 0:
         raise ValueError("idle_timeout_seconds must be a positive integer")
+    if ocr_processing_manager is not None and document_processor is not None:
+        raise ValueError("choose either a synchronous document processor or an OCR job manager")
     state: _VolatileSession | None = None
     csrf_token = secrets.token_urlsafe(32)
+    state_lock = threading.RLock()
+    app_closed = False
+
+    def cancel_session(current: _VolatileSession | None) -> None:
+        if current is not None and current.ocr_job_id is not None and ocr_processing_manager is not None:
+            with state_lock:
+                ocr_processing_manager.mark_cancelled(current.generation_id)
+
+    def reject_result(current: _VolatileSession) -> bool:
+        with state_lock:
+            if state is current:
+                current.ocr_publish_failed = True
+        return False
+
+    def publish_completed_result(current: _VolatileSession) -> bool:
+        """Validate worker output outside the state lock, then atomically bind it to its generation."""
+        if (ocr_processing_manager is None or current.intake is None
+                or current.ocr_job_id is None):
+            return False
+        if current.ocr_result_published:
+            return True
+        job_id = current.ocr_job_id
+        snapshot = ocr_processing_manager.snapshot(job_id)
+        if snapshot is None or snapshot.phase != "succeeded":
+            return False
+        frame = ocr_processing_manager.result_frame(current.generation_id, job_id)
+        if frame is None:
+            return reject_result(current)
+        try:
+            envelope = decode_frame(
+                frame, max_bytes=100 * 1024 * 1024, expected_kind="result",
+            )
+            payload = envelope["payload"]
+            if (not isinstance(payload, dict) or payload.get("job_id") != job_id
+                    or payload.get("generation_id") != current.generation_id):
+                return reject_result(current)
+            documents = payload.get("documents")
+            if not isinstance(documents, dict) or set(documents) != set(current.intake.documents):
+                return reject_result(current)
+            validated: dict[str, dict[str, Any]] = {}
+            for document_id, candidate in documents.items():
+                original = current.intake.documents[document_id]
+                source = candidate.get("source") if isinstance(candidate, dict) else None
+                processing = candidate.get("processing") if isinstance(candidate, dict) else None
+                ocr = processing.get("ocr") if isinstance(processing, dict) else None
+                if (not isinstance(candidate, dict) or candidate.get("document_id") != document_id
+                        or not isinstance(source, dict)
+                        or source.get("sha256") != original["source"]["sha256"]
+                        or not isinstance(ocr, dict) or ocr.get("status") != "completed"
+                        or validate_document_record(candidate)):
+                    return reject_result(current)
+                validated[document_id] = candidate
+        except (AttributeError, OCRJobProtocolError, KeyError, TypeError, ValueError):
+            return reject_result(current)
+        digest = hashlib.sha256(frame).hexdigest()
+        with state_lock:
+            if state is not current or current.generation_id != snapshot.generation_id:
+                return False
+            if current.ocr_result_published:
+                return True
+            if not ocr_processing_manager.publish_if_current(current.generation_id, job_id, digest):
+                current.ocr_publish_failed = True
+                return False
+            current.intake = replace(current.intake, documents=validated)
+            current.last_activity = clock()
+            current.ocr_result_published = True
+            return True
+
+    def manager_status(current: _VolatileSession, job_id: str):
+        if ocr_processing_manager is None or current.ocr_job_id != job_id:
+            return None
+        status = ocr_processing_manager.snapshot(job_id)
+        if status is not None and status.generation_id != current.generation_id:
+            return None
+        return status
 
     def app(environ: dict[str, Any], start_response: Callable) -> list[bytes]:
         nonlocal state
+        with state_lock:
+            if app_closed:
+                return _page(environ, start_response, "503 Service Unavailable", "Servizio locale in arresto")
         environ["_ocr2_csrf_token"] = csrf_token
         if _loopback_host_parts(environ.get("HTTP_HOST", "")) is None:
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
@@ -924,9 +1061,80 @@ def create_expense_report_app(
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
         now = clock()
         if state is not None and now - state.last_activity > idle_timeout_seconds:
-            state = None
+            expired = state
+            with state_lock:
+                if state is expired:
+                    state = None
+            cancel_session(expired)
         method = environ.get("REQUEST_METHOD", "")
         path = environ.get("PATH_INFO", "")
+        if state is not None and state.ocr_starting and path not in {"/clear", "/upload", "/assign-note"}:
+            return _page(environ, start_response, "409 Conflict", "<p>L’elaborazione OCR sta per iniziare. Attendi o cancella la sessione.</p>")
+        if state is not None and state.ocr_job_id is not None:
+            status = manager_status(state, state.ocr_job_id)
+            is_cancel_request = re.fullmatch(
+                r"/ocr/jobs/[0-9a-fA-F-]{1,64}/cancel", path,
+            ) is not None
+            if (status is not None and status.phase == "succeeded"
+                    and path not in {"/clear", "/upload"} and not is_cancel_request):
+                publish_completed_result(state)
+            if state is not None and state.ocr_publish_failed and path not in {"/clear", "/upload"}:
+                status = manager_status(state, state.ocr_job_id or "")
+                if status is not None:
+                    return _page(environ, start_response, "409 Conflict", _ocr_job_page(
+                        status.job_id, status, archive_enabled=archive_store is not None,
+                        publish_failed=True,
+                    ))
+        job_path = re.fullmatch(r"/ocr/jobs/([0-9a-fA-F-]{1,64})(?:/(cancel))?", path)
+        if job_path is not None:
+            if state is None or job_path.group(1) != state.ocr_job_id:
+                return _page(environ, start_response, "404 Not Found", "Elaborazione non disponibile")
+            job_id = job_path.group(1)
+            status = manager_status(state, job_id)
+            if status is None:
+                return _page(environ, start_response, "404 Not Found", "Elaborazione non disponibile")
+            if job_path.group(2) == "cancel":
+                if method != "POST":
+                    return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                if status.phase not in {"failed", "cancelled"} and not state.ocr_result_published:
+                    cancel_session(state)
+                status = manager_status(state, job_id) or status
+                return _page(environ, start_response, "200 OK", _ocr_job_page(
+                    job_id, status, archive_enabled=archive_store is not None,
+                    publish_failed=state.ocr_publish_failed,
+                ))
+            if method != "GET":
+                return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+            if status.phase == "succeeded":
+                publish_completed_result(state)
+                status = manager_status(state, job_id) or status
+            return _page(environ, start_response, "200 OK", _ocr_job_page(
+                job_id, status, archive_enabled=archive_store is not None,
+                publish_failed=state.ocr_publish_failed,
+            ))
+        if state is not None and state.ocr_job_id is not None:
+            status = manager_status(state, state.ocr_job_id)
+            if status is None and path not in {"/clear", "/upload"}:
+                return _page(environ, start_response, "409 Conflict", "<p>Stato dell’elaborazione non verificabile. Cancella la sessione prima di continuare.</p>")
+            pending = status is not None and status.phase not in {"succeeded", "failed", "cancelled"}
+            terminal_unavailable = (
+                status is not None and status.phase in {"failed", "cancelled"}
+                and path not in {"/clear", "/upload"}
+                and not path.startswith("/ocr/jobs/")
+            )
+            if terminal_unavailable:
+                return _page(environ, start_response, "409 Conflict", _ocr_job_page(
+                    status.job_id, status, archive_enabled=archive_store is not None,
+                ))
+            mutating_review = (
+                path.startswith("/reviews/") or path.startswith("/chatgpt")
+                or path.startswith("/archive/save/")
+                or path.startswith("/archive/open/")
+                or path.startswith("/archive/delete/")
+                or path == "/archive/return"
+            )
+            if pending and mutating_review:
+                return _page(environ, start_response, "409 Conflict", "<p>Elaborazione OCR in corso: attendi o annulla prima di rivedere o modificare i documenti.</p>")
         if archive_store is not None and method == "GET" and path == "/archive":
             raw_query = environ.get("QUERY_STRING", "")
             try:
@@ -975,10 +1183,12 @@ def create_expense_report_app(
                         if stored is None:
                             return _page(environ, start_response, "404 Not Found", "Documento non trovato")
                         if state is None:
-                            state = _VolatileSession(
+                            replacement = _VolatileSession(
                                 secrets.token_hex(18), MaterializedBatch((), (), ()), (), now,
                                 archive_only=True,
                             )
+                            with state_lock:
+                                state = replacement
                         elif state.intake is None:
                             return _page(environ, start_response, "409 Conflict",
                                          "<p>Completa o annulla prima la selezione dei documenti correnti.</p>")
@@ -1067,7 +1277,10 @@ def create_expense_report_app(
                 state.archive_loaded_document_id = None
                 state.last_activity = now
                 if state.archive_only or not state.document_ids:
-                    state = None
+                    previous = state
+                    with state_lock:
+                        state = None
+                    cancel_session(previous)
             if state is None:
                 return _page(environ, start_response, "200 OK", _upload_page(archive_enabled=True))
             if state.intake is None:
@@ -1113,9 +1326,14 @@ def create_expense_report_app(
             payloads = tuple(document for upload in batch.uploads for document in upload.documents)
             if len(payloads) > _MAX_UPLOAD_FILES * 100:
                 return _page(environ, start_response, "400 Bad Request", "<p>Numero di documenti estratti superato</p>")
+            cancel_session(state)
             session_id = secrets.token_hex(18)
             document_ids = tuple(f"doc-{index + 1:03d}" for index in range(len(payloads)))
-            state = _VolatileSession(session_id, batch, document_ids, now)
+            replacement = _VolatileSession(session_id, batch, document_ids, now)
+            previous = state
+            with state_lock:
+                state = replacement
+            cancel_session(previous)
             return _page(environ, start_response, "200 OK", _choose_note_page(state))
         if method == "POST" and path == "/chatgpt/return":
             if state is None or state.intake is None:
@@ -1133,18 +1351,56 @@ def create_expense_report_app(
             state.last_activity = now
             return _page(environ, start_response, "200 OK", _chatgpt_handoff_page(state))
         if method == "POST" and path == "/assign-note":
-            if state is None or state.intake is not None:
+            session = state
+            if session is None or session.intake is not None or session.ocr_starting:
                 return _page(environ, start_response, "409 Conflict", "<p>La sessione di caricamento non è disponibile.</p>")
             try:
                 note_id = _multipart_scalar(environ, "note_document_id")
                 intake = create_expense_report_intake_session(
-                    state.batch,
-                    expense_report_id=f"report-{state.session_id}",
+                    session.batch,
+                    expense_report_id=f"report-{session.session_id}",
                     note_document_id=note_id,
-                    document_ids=state.document_ids,
-                    session_id=state.session_id,
+                    document_ids=session.document_ids,
+                    session_id=session.session_id,
                     received_at=datetime.now(timezone.utc).isoformat(),
                 )
+                if ocr_processing_manager is not None:
+                    with state_lock:
+                        if (app_closed or state is not session or session.ocr_starting
+                                or session.intake is not None):
+                            return _page(environ, start_response, "409 Conflict", "<p>La sessione è stata sostituita prima dell’avvio OCR.</p>")
+                        session.ocr_starting = True
+                    try:
+                        job_id = ocr_processing_manager.start(
+                            session.generation_id,
+                            intake,
+                            decode_limits=DecodeLimits(),
+                            custom_family_catalog=custom_family_catalog,
+                        )
+                    except BaseException:
+                        with state_lock:
+                            if state is session:
+                                session.ocr_starting = False
+                        raise
+                    with state_lock:
+                        still_current = not app_closed and state is session
+                        if still_current:
+                            session.intake = intake
+                            session.ocr_job_id = job_id
+                            session.ocr_starting = False
+                            session.last_activity = now
+                    if not still_current:
+                        ocr_processing_manager.mark_cancelled(session.generation_id)
+                        return _page(environ, start_response, "409 Conflict", "<p>La sessione è stata sostituita; l’elaborazione associata è stata annullata.</p>")
+                    job_status = ocr_processing_manager.snapshot(job_id)
+                    if job_status is None or job_status.generation_id != session.generation_id:
+                        cancel_session(session)
+                        return _page(environ, start_response, "409 Conflict", "<p>Stato del nuovo job non disponibile; sessione annullata.</p>")
+                    return _page(environ, start_response, "200 OK", _ocr_job_page(
+                        job_id,
+                        job_status,
+                        archive_enabled=archive_store is not None,
+                    ))
                 if document_processor is not None:
                     processed_documents: dict[str, dict[str, Any]] = {}
                     for document_id, record in intake.documents.items():
@@ -1166,12 +1422,23 @@ def create_expense_report_app(
                         processed_documents[document_id] = processed
                     intake = replace(intake, documents=processed_documents)
                 state.intake = intake
+            except RuntimeError:
+                with state_lock:
+                    if state is session:
+                        session.ocr_starting = False
+                return _page(environ, start_response, "409 Conflict", "<p>Un'elaborazione precedente è ancora in chiusura. Attendi prima di avviarne un'altra.</p>")
             except (IntakeRequestError, ValueError) as exc:
+                with state_lock:
+                    if state is session:
+                        session.ocr_starting = False
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p><p><a href=\"/\">Riprova</a></p>")
             state.last_activity = now
             return _page(environ, start_response, "200 OK", _bundle_page(state, archive_enabled=archive_store is not None))
         if method == "POST" and path == "/clear":
-            state = None
+            previous = state
+            with state_lock:
+                state = None
+            cancel_session(previous)
             return _page(environ, start_response, "200 OK", _upload_page(archive_enabled=archive_store is not None))
         preview_match = re.fullmatch(r"/reviews/([^/]+)/pages/([1-9][0-9]{0,4})\.png", path)
         if method == "GET" and preview_match is not None:
@@ -1388,6 +1655,17 @@ def create_expense_report_app(
             return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito", "text/plain; charset=utf-8")
         return _page(environ, start_response, "404 Not Found", "Risorsa non trovata", "text/plain; charset=utf-8")
 
+    def close() -> None:
+        nonlocal app_closed, state
+        with state_lock:
+            app_closed = True
+            current = state
+            state = None
+        cancel_session(current)
+        if ocr_processing_manager is not None:
+            ocr_processing_manager.close()
+
+    app.close = close
     return app
 
 
@@ -1442,6 +1720,8 @@ def serve_expense_report_local(
     max_batch_document_bytes: int = 100 * 1024 * 1024,
     document_processor: Callable[[dict[str, Any], bytes], dict[str, Any]] | None = None,
     archive_store: LocalDocumentStore | None = None,
+    ocr_processing_manager: OCRProcessingManager | None = None,
+    custom_family_catalog: Any | None = None,
 ):
     """Create a local HTTP server bound exclusively to IPv4 loopback."""
     if not isinstance(port, int) or isinstance(port, bool) or not 0 <= port <= 65535:
@@ -1451,5 +1731,9 @@ def serve_expense_report_local(
         max_batch_document_bytes=max_batch_document_bytes,
         document_processor=document_processor,
         archive_store=archive_store,
+        ocr_processing_manager=ocr_processing_manager,
+        custom_family_catalog=custom_family_catalog,
     )
-    return make_server("127.0.0.1", port, app)
+    server = make_server("127.0.0.1", port, app)
+    server.ocr2_close = app.close
+    return server
