@@ -1,8 +1,8 @@
 # Expense reconciliation candidate evidence
 
-Date: 2026-11-11
+Date: 2026-11-12
 
-State: local development candidate; not published, merged, or product-accepted.
+State: published for review in open draft PR #106; not merged or product-accepted.
 
 ## Implemented in the isolated branch
 
@@ -36,4 +36,4 @@ The tests cover extraction-to-reconciliation paths for amount/currency/date conf
 - Windows runtime/model availability, install/upgrade behavior, CPU/memory use, 100-document performance, and a real-note comparison on the reference PC remain unverified.
 - This candidate is not a fiscal review, reimbursement decision, payment authorization, or accounting posting. Every suggested match needs human review.
 - Do not use this candidate for a live expense report until the owner verifies the local OCR runtime and compares its output with a real final note inside the local app.
-- The work remains isolated on `codex/expense-reconciliation`; it has not been pushed or merged. R7/R8 and their stop/no-retry restrictions were not touched.
+- The branch `codex/expense-reconciliation` is public and reviewable in [PR #106](https://github.com/voxer21582/OCR-dev/pull/106); it has not been merged. Its latest GitHub Actions run passed 279 pre-existing synthetic contracts, but the explicit selector did not include these expense-case modules. The separate [PR #105](https://github.com/voxer21582/OCR-dev/pull/105) worker-test CI currently fails two Linux startup tests; its required check has not been established green. R7/R8 and their stop/no-retry restrictions were not touched.
