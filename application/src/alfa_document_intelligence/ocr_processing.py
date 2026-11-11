@@ -15,6 +15,7 @@ import math
 import multiprocessing
 import os
 import re
+import sys
 import threading
 import time
 import uuid
@@ -795,11 +796,13 @@ class OCRProcessingManager:
         message_count = 0
         result: bytes | None = None
         terminal: dict[str, object] | None = None
+        stage = "startup"
         try:
             if job.cancelled.is_set():
                 self._stop_process(job)
                 self._set_terminal(job, "cancelled", None)
                 return
+            stage = "send_input"
             job.input_sender.send_bytes(job.input_frame)
             job.input_frame = b""
             job.input_sender.close()
@@ -813,18 +816,23 @@ class OCRProcessingManager:
                     self._stop_process(job)
                     self._set_terminal(job, "failed", "job_timeout")
                     return
+                stage = "wait_for_output"
                 if job.output_receiver.poll(min(0.05, remaining)):
+                    stage = "receive_frame"
                     frame = job.output_receiver.recv_bytes(
                         maxlength=max(self._limits.max_status_frame_bytes, self._limits.max_result_frame_bytes),
                     )
                     message_count += 1
                     if message_count > self._limits.max_ipc_messages:
                         raise OCRJobProtocolError("worker message count limit exceeded")
+                    stage = "classify_frame"
                     kind = _peek_canonical_kind(frame)
+                    stage = f"decode_{kind}"
                     kind_limit = self._limits.max_status_frame_bytes if kind == "status" else self._limits.max_result_frame_bytes
                     if len(frame) > kind_limit:
                         raise OCRJobProtocolError("worker message exceeds its kind limit")
                     envelope = decode_frame(frame, max_bytes=kind_limit, expected_kind=kind)
+                    stage = f"validate_{kind}"
                     payload = envelope["payload"]
                     if kind == "status":
                         if payload["job_id"] != job.job_id:
@@ -864,7 +872,20 @@ class OCRProcessingManager:
                     if job.output_receiver.poll():
                         continue
                     raise RuntimeError("worker exited without a terminal frame")
-        except BaseException:
+        except BaseException as exc:
+            if os.environ.get("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS") == "1":
+                try:
+                    alive = int(job.process.is_alive())
+                    exitcode = job.process.exitcode
+                except (OSError, ValueError):
+                    alive = -1
+                    exitcode = None
+                sys.stderr.write(
+                    "OCR2_SYNTHETIC_WORKER_DIAGNOSTIC "
+                    f"stage={stage} exception={type(exc).__name__} "
+                    f"worker_alive={alive} worker_exitcode={exitcode}\n"
+                )
+                sys.stderr.flush()
             if job.cancelled.is_set():
                 self._set_terminal(job, "cancelled", None)
             else:

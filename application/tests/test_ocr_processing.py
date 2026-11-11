@@ -241,6 +241,8 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
         manager = OCRProcessingManager(
             "tests.test_ocr_processing:synthetic_factory_raises", limits,
         )
+        previous_diagnostics = os.environ.get("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS")
+        os.environ["OCR2_SYNTHETIC_WORKER_DIAGNOSTICS"] = "1"
         try:
             job_id = manager.start("synthetic-generation", intake, decode_limits=DecodeLimits())
             deadline = time.monotonic() + 10
@@ -260,7 +262,13 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
             self.assertIsNone(manager.result_frame("synthetic-generation", job_id))
             self.assertFalse(manager._job.process.is_alive())
         finally:
-            manager.close()
+            try:
+                manager.close()
+            finally:
+                if previous_diagnostics is None:
+                    os.environ.pop("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS", None)
+                else:
+                    os.environ["OCR2_SYNTHETIC_WORKER_DIAGNOSTICS"] = previous_diagnostics
 
     def test_deadline_terminates_worker_without_status_polling(self):
         from io import BytesIO
@@ -281,6 +289,8 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
         manager = OCRProcessingManager(
             "tests.test_ocr_processing:synthetic_factory_sleeps", OCRProcessLimits(**values),
         )
+        previous_diagnostics = os.environ.get("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS")
+        os.environ["OCR2_SYNTHETIC_WORKER_DIAGNOSTICS"] = "1"
         try:
             job_id = manager.start("synthetic-generation-2", intake, decode_limits=DecodeLimits())
             time.sleep(0.9)  # No snapshot/poll call occurs during the deadline window.
@@ -296,7 +306,13 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
             self.assertTrue(manager._job.input_sender.closed)
             self.assertTrue(manager._job.output_receiver.closed)
         finally:
-            manager.close()
+            try:
+                manager.close()
+            finally:
+                if previous_diagnostics is None:
+                    os.environ.pop("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS", None)
+                else:
+                    os.environ["OCR2_SYNTHETIC_WORKER_DIAGNOSTICS"] = previous_diagnostics
 
     def test_cancellation_reaps_child_and_invalidates_generation(self):
         from io import BytesIO
