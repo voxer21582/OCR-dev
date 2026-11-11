@@ -4,7 +4,7 @@
 **Candidate branch:** `codex/ci-document-export-20261110`
 **Base:** cached `origin/main` snapshot `90ae4f9111af5ddad9272ffc20a96acb5311a2f5`; refresh remote main before publication.
 
-**Latest update (2026-11-11):** this branch adds a tenth explicit selector, `test_hashed_lock`, for the pure hash-lock parser. Its three tests pass locally on CPython 3.13.15. Hosted verification for this selector is pending; the latest hosted run before this addition, on head `a320839b0cb7856562b01bed375f0347e471727a`, passed 22 taxonomy and 335 application tests and CodeQL with no new alerts.
+**Latest update (2026-11-11):** commit `261fc83e31a06ad2bf2368d183f57fabcfd8b509` adds the tenth explicit selector, `test_hashed_lock`, for the pure hash-lock parser. The hosted run [42989996311](https://github.com/voxer21582/OCR-dev/actions/runs/42989996311) passed 22 taxonomy and 338 application tests; CodeQL run [130420458469](https://github.com/voxer21582/OCR-dev/runs/130420458469) completed successfully with no new alerts.
 
 ## Included change
 
@@ -17,7 +17,7 @@ The original nine selectors at candidate head `a56ba76e1e4954becd8840d08dc094c6b
 
 ## Test scope and evidence
 
-The tenth selector added in this revision is `application/tests/test_hashed_lock.py`. `$env:PYTHONPATH='src;tests'; python -B -m unittest -v test_hashed_lock` passed three tests locally on CPython 3.13.15. It tests only `parse_lock()` using in-memory strings; it does not read a lockfile or install/check any package. The full hosted selector list and CodeQL have not yet run at this revision. If Actions passes, the expected application count increases from 335 to 338; this count remains provisional until the hosted log confirms it.
+The tenth selector added in this revision is `application/tests/test_hashed_lock.py`. `$env:PYTHONPATH='src;tests'; python -B -m unittest -v test_hashed_lock` passed three tests locally on CPython 3.13.15. It tests only `parse_lock()` using in-memory strings; it does not read a lockfile or install/check any package. Hosted verification for this revision passed in [Actions run 42989996311](https://github.com/voxer21582/OCR-dev/actions/runs/42989996311): 22 taxonomy and 338 application tests. [CodeQL run 130420458469](https://github.com/voxer21582/OCR-dev/runs/130420458469) completed with no new alerts.
 
 From `application/` on 2026-11-10, PowerShell command `$env:PYTHONPATH='src;tests'; python -B -m unittest -v test_document_export` passed all seven export tests. The in-memory synthetic fixtures verify complete-record JSON round-trip without source bytes, contract rejection, schema-required-property rejection, CSV candidate projection, formula-like literal handling, and document identity when there are no fields.
 
