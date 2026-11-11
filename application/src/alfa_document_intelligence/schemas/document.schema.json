@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:alfa:document-intelligence:document-schema:0.2.0",
+  "$id": "urn:alfa:document-intelligence:document-schema:0.3.0",
   "title": "Alfa expense document and evidence record",
   "description": "Evidence-bound extraction record. JSON numbers are excluded from field values; represent monetary and measured values as decimal strings.",
   "type": "object",
@@ -23,7 +23,8 @@
     "schema_version": {
       "enum": [
         "0.1.0",
-        "0.2.0"
+        "0.2.0",
+        "0.3.0"
       ]
     },
     "document_id": {
@@ -84,6 +85,14 @@
       "additionalProperties": {
         "$ref": "#/$defs/fieldCandidate"
       }
+    },
+    "expense_lines": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/$defs/expenseLine"
+      },
+      "description": "Evidence-bound OCR line proposals for an expense statement. They are not confirmed accounting entries."
     },
     "validation_findings": {
       "type": "array",
@@ -518,6 +527,19 @@
           }
         }
       ]
+    },
+    "expenseLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_id", "description", "amount", "currency", "date", "merchant"],
+      "properties": {
+        "line_id": {"type": "string", "pattern": "^line-p[0-9]{4}-[0-9]{5}$"},
+        "description": {"$ref": "#/$defs/fieldCandidate"},
+        "amount": {"$ref": "#/$defs/fieldCandidate"},
+        "currency": {"$ref": "#/$defs/fieldCandidate"},
+        "date": {"$ref": "#/$defs/fieldCandidate"},
+        "merchant": {"$ref": "#/$defs/fieldCandidate"}
+      }
     },
     "fiscalDocumentState": {
       "type": "object",

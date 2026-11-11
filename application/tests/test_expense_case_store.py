@@ -375,6 +375,7 @@ class ExpenseCaseStoreTests(unittest.TestCase):
         }
         saved = self.store.commit_case_processing_chunk(
             case["case_id"], case["case_revision"], "ocr-1", [updated_record], next_manifest,
+            {"receipt-001": self.store.record_revision_sha256(self.store.get("receipt-001").record)},
         )
         self.assertEqual(self.store.get("receipt-001").record["language"], "en")
         self.assertEqual(saved["processing"]["state"], "completed")
@@ -393,9 +394,45 @@ class ExpenseCaseStoreTests(unittest.TestCase):
         next_manifest = copy.deepcopy(case)
         next_manifest["processing"] = {"state": "completed", "cursor": "1", "result_bytes": 0, "committed_chunks": []}
         with self.assertRaises(StoreRejected):
-            self.store.commit_case_processing_chunk(case["case_id"], case["case_revision"], "ocr-1", [invalid_record], next_manifest)
+            self.store.commit_case_processing_chunk(
+                case["case_id"], case["case_revision"], "ocr-1", [invalid_record], next_manifest,
+                {"receipt-001": self.store.record_revision_sha256(self.store.get("receipt-001").record)},
+            )
         self.assertEqual(self.store.get_case(case["case_id"]), case)
         self.assertNotEqual(self.store.get("receipt-001").record["source"]["sha256"], "not-a-digest")
+
+    def test_processing_chunk_rejects_concurrent_same_source_record_edit(self):
+        statement_bytes = b"%PDF synthetic statement fixture"
+        statement = _source_record("statement-race", statement_bytes)
+        case = self.store.create_case(_case(statement), statement, statement_bytes)
+        source = b"%PDF synthetic receipt"
+        receipt = _source_record("receipt-race", source, family="fiscal_receipt")
+        chunk = [{"record": receipt, "source_bytes": source}]
+        case = self.store.append_case_chunk(
+            case["case_id"], case["case_revision"], "upload-race",
+            self.store.case_chunk_digest(chunk), chunk,
+        )
+        original = self.store.get("receipt-race").record
+        expected = self.store.record_revision_sha256(original)
+        worker_output = copy.deepcopy(original)
+        worker_output["language"] = "it"
+
+        manual_edit = copy.deepcopy(original)
+        manual_edit["language"] = "en"
+        self.store.save(manual_edit, source, expected_record_sha256=expected)
+
+        next_manifest = copy.deepcopy(case)
+        next_manifest["processing"] = {
+            "state": "completed", "cursor": "1", "result_bytes": 0,
+            "committed_chunks": [],
+        }
+        with self.assertRaises(StoreConcurrentUpdate):
+            self.store.commit_case_processing_chunk(
+                case["case_id"], case["case_revision"], "ocr-race", [worker_output], next_manifest,
+                {"receipt-race": expected},
+            )
+        self.assertEqual(self.store.get("receipt-race").record["language"], "en")
+        self.assertEqual(self.store.get_case(case["case_id"]), case)
 
 
 if __name__ == "__main__":

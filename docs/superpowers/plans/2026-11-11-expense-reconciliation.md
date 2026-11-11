@@ -102,8 +102,10 @@
 
 - [ ] Add fake-engine synthetic tests for size-derived chunking, progress totals, cancellation, restart/resume cursor, per-chunk atomic persistence, worker failure isolation, duplicate status polling, end-of-case digest binding, page/pixel quota exact and one-over behavior (pixel count per decoded `width_px * height_px` before adapter invocation), no partial output persistence on overflow, and explicit source-preserving attachment exclusion.
 - [ ] Run explicit `test_expense_case_processing` selectors; confirm RED.
-- [ ] Implement the coordinator with no new dependency, external process, network access, or default OCR activation.
-- [ ] Run the coordinator module plus `test_ocr_processing` and `test_ocr_job_ui`; confirm pass.
+- [x] Implement the coordinator with no new dependency, external process, network access, or default OCR activation. A separate read-only review found three correctness races; all were fixed and the fresh review returned READY.
+- [x] Run the coordinator module plus `test_ocr_processing` and `test_ocr_job_ui`; confirm pass. The expanded explicit local selection passed 128 synthetic unittest cases on 2026-11-11, and `compileall` plus `git diff --check` passed.
+
+Task 4 coverage note (2026-11-11): tests now exercise encoded-size grouping, exact/one-over page and decoded-pixel bounds before adapter invocation, successful atomic commits, later-group failure and cursor resume, cancellation before output, cancellation racing publication, persisted page progress on resume, completed-case idempotent resume, stale case revision rejection, and concurrent same-source record-edit preservation. Not covered yet: browser-level progress behavior, every include/exclude combination, native decoder/runtime behavior, actual OCR quality, and a real-document demonstration. The whole task is not considered product-accepted.
 
 ### Task 5: Reconciliation review UI and local export
 
@@ -117,10 +119,12 @@
 - `POST /cases/{case_id}/reconciliation/review` records one explicit human action bound to current case revision and source hashes.
 - `GET /cases/{case_id}/export` is a local-only download initiated explicitly by the user; CSV/JSON exports separate machine suggestions from confirmed human decisions and include evidence references.
 
-- [ ] Add synthetic UI tests for every review outcome, source-page navigation, stale revision/source-hash rejection, duplicate review event replay, attachment include/exclude confirmation and history, safe HTML escaping, explicit export, no approval/payment language, and isolation from `/chatgpt` handoff.
-- [ ] Run explicit `test_expense_reconciliation_ui`; confirm RED.
-- [ ] Implement review, attachment include/exclude, and export routes and a small responsive Italian UI in the existing style; no external script, stylesheet, analytics, or network request.
-- [ ] Run the UI module and the existing explicit UI/review/export tests; confirm pass.
+- [x] Add synthetic UI tests for every review outcome, source-page navigation, stale revision/source-hash rejection, duplicate review event replay, attachment include/exclude confirmation and history, safe HTML escaping, explicit export, no approval/payment language, and isolation from `/chatgpt` handoff.
+- [x] Run explicit `test_expense_reconciliation_ui`; the route selectors were first observed failing with 404 and passed after implementation.
+- [x] Implement review, attachment include/exclude, and local JSON export routes plus the Italian UI; no external script, stylesheet, analytics, or network request. JSON is the selected candidate export format because it preserves nested evidence and review history; spreadsheet export remains outside this scope.
+- [x] Run the UI module and explicit reconciliation/store/processing/application suites; final local selection passed 256 synthetic unittest cases, with `compileall` and `git diff --check` passing.
+
+Task 5 limits (2026-11-11): route tests use synthetic records and mock the image decoder for page-preview routing. They do not prove native PDF/image decoding, browser rendering/accessibility, real OCR accuracy, or workload performance. The export contains source-bound evidence only and is user-initiated/local; no live note was used.
 
 ### Task 6: Document and CI integration
 
@@ -130,8 +134,8 @@
 - Modify: `.github/workflows/ocr2-synthetic-taxonomy.yml` only through a separate CI change after PR #105 is repaired/merged or replaced.
 - Create: `application/docs/expense-reconciliation-manifest.md`
 
-- [ ] Record the exact local commands, synthetic-only suite, artifacts and limitations; do not include real document names, contents, hashes, screenshots, or derived values.
-- [ ] Run the existing repository public-data guard and `git diff --check`.
+- [x] Record the exact local commands, synthetic-only suite, artifacts and limitations in the application manifest, README, and current-state record; no live document details or derived values are included.
+- [x] Run the repository public-data guard in the explicit local suite and `git diff --check` after documentation updates.
 - [ ] Add only explicit new test-module selectors to CI; keep `Taxonomy registry and binding`, permissions, pinned Actions, runner, dependency lock, and R7/R8 exclusions intact.
 - [ ] Verify the PR workflow triggers and all affected checks; no merge or release.
 

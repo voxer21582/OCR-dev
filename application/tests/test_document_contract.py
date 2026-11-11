@@ -223,7 +223,7 @@ class DocumentContractTests(unittest.TestCase):
 
     def test_schema_is_draft_2020_12_and_defines_evidence_binding(self):
         self.assertEqual(self.schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
-        self.assertEqual(self.schema["properties"]["schema_version"]["enum"], ["0.1.0", "0.2.0"])
+        self.assertEqual(self.schema["properties"]["schema_version"]["enum"], ["0.1.0", "0.2.0", "0.3.0"])
         evidence = self.schema["$defs"]["evidence"]
         self.assertIn("source_sha256", evidence["required"])
         self.assertIn("page_number", evidence["required"])

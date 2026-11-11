@@ -197,7 +197,7 @@ class CatalogAnalysisPipelineTests(unittest.TestCase):
     def test_no_custom_match_keeps_legacy_schema(self):
         for catalog in (None, _catalog(), _catalog(_family())):
             result = analyze_ocr_results(_document(), [_page('Nothing relevant')], custom_family_catalog=catalog).document
-            self.assertEqual(result['schema_version'], '0.1.0')
+            self.assertEqual(result['schema_version'], '0.3.0')
             self.assertNotIn('document_family_definitions', result)
             self.assertEqual(result['validation_findings'], [])
     def test_incompatible_or_invalid_snapshots_fail_closed(self):
@@ -297,7 +297,7 @@ class CatalogDocumentProcessingTests(unittest.TestCase):
         return result
     def test_catalog_reaches_semantics_and_required_validation(self):
         result = self._run(['RICEVUTA TAXI'], catalog=_catalog(_family(required=True), version='2'))
-        self.assertEqual(result['schema_version'], '0.2.0')
+        self.assertEqual(result['schema_version'], '0.3.0')
         self.assertEqual(result['fields'][FIELD_NAME]['status'], 'absent')
         self.assertEqual(result['validation_findings'][0]['message_code'], 'required_custom_field_missing')
         present = self._run(['RICEVUTA TAXI', 'Partenza: Roma'], catalog=_catalog(_family(required=True), version='2'))
@@ -311,7 +311,7 @@ class CatalogDocumentProcessingTests(unittest.TestCase):
         self.assertEqual(result['document_family_definitions'], [_catalog(_family()).snapshot_for(FAMILY_ID)])
     def test_omitted_catalog_preserves_processing_behavior(self):
         result = self._run(['RICEVUTA TAXI'])
-        self.assertEqual(result['schema_version'], '0.1.0')
+        self.assertEqual(result['schema_version'], '0.3.0')
         self.assertNotIn('document_family_definitions', result)
         self.assertEqual(result['processing']['semantic_extraction']['status'], 'completed')
     def test_catalog_conflict_returns_semantic_failure_copy(self):

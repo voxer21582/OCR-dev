@@ -32,6 +32,14 @@ from .review_ledger import append_review_event, reviewed_overlay
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
+from .expense_case_processing import ExpenseCaseProcessingManager, ExpenseCaseJobStatus
+from .expense_reconciliation import (
+    ReconciliationError,
+    append_line_review,
+    build_reconciliation,
+    case_source_set_revision,
+    validate_reconciliation,
+)
 from .local_document_store import (
     LocalDocumentStore,
     StoreConcurrentUpdate,
@@ -53,6 +61,18 @@ _MAX_URLENCODED_FIELDS = 16
 _SESSION_IDLE_SECONDS = 30 * 60
 _ACCEPT = ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.webp,.zip"
 _CASE_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:/attachments)?$")
+_CASE_RECONCILIATION_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/reconciliation$")
+_CASE_REVIEW_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/reconciliation/review$")
+_CASE_EXPORT_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/export$")
+_CASE_INCLUSION_PATH = re.compile(
+    r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/attachments/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/inclusion$"
+)
+_CASE_PAGE_PATH = re.compile(
+    r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/documents/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/pages/([1-9][0-9]{0,4})\.png$"
+)
+_CASE_WORK_ROUTE = re.compile(
+    r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/(process|jobs/([0-9a-f]{32})(?:/(cancel))?)$"
+)
 _CASE_CREATE_ID = re.compile(r"^case-[a-f0-9]{36}$")
 
 
@@ -407,10 +427,56 @@ def _expense_case_index_page(cases: list[dict[str, Any]]) -> str:
     )
 
 
-def _expense_case_intake_page(case: dict[str, Any], *, notice: str = "", chunk_id: str | None = None) -> str:
+def _expense_case_intake_page(
+    case: dict[str, Any], *, notice: str = "", chunk_id: str | None = None,
+    processing_enabled: bool = False,
+) -> str:
     summary = _case_status_payload(case)
     safe_id = quote(summary["case_id"], safe="")
     safe_notice = f'<p role="status">{escape(notice)}</p>' if notice else ""
+    process_form = (
+        f'<form method="post" action="/cases/{safe_id}/process">'
+        f'<input type="hidden" name="_case_revision" value="{escape(summary["case_revision"], quote=True)}">'
+        '<button type="submit">Avvia OCR locale dei documenti inclusi</button></form>'
+        if processing_enabled else ""
+    )
+    attachment_forms = []
+    for index, attachment in enumerate(case.get("attachments", []), start=1):
+        document_id = attachment.get("document_id", "")
+        included = attachment.get("included") is True
+        attachment_forms.append(
+            f'<li>Giustificativo {index} — {"incluso" if included else "escluso"} '
+            f'<form method="post" action="/cases/{safe_id}/attachments/{quote(document_id, safe="")}/inclusion">'
+            f'<input type="hidden" name="_case_revision" value="{escape(summary["case_revision"], quote=True)}">'
+            f'<input type="hidden" name="_included" value="{"false" if included else "true"}">'
+            f'<input type="hidden" name="_event_id" value="{secrets.token_hex(16)}">'
+            '<label>Motivo <input name="_reason" maxlength="2000" required></label>'
+            f'<button type="submit">{"Escludi dal prossimo OCR" if included else "Reincludi nel prossimo OCR"}</button></form></li>'
+        )
+    attachment_section = (
+        '<h2>Giustificativi acquisiti</h2><ul>' + "".join(attachment_forms) + "</ul>"
+        if attachment_forms else ""
+    )
+    inclusion_events = case.get("inclusion_events", [])
+    inclusion_history = ""
+    if inclusion_events:
+        history_items = []
+        attachment_order = {
+            item.get("document_id"): index
+            for index, item in enumerate(case.get("attachments", []), start=1)
+        }
+        for event in inclusion_events:
+            action = "incluso" if event.get("included") is True else "escluso"
+            ordinal = attachment_order.get(event.get("document_id"), "documento non disponibile")
+            history_items.append(
+                f'<li>Giustificativo {ordinal}: {action} — motivo: '
+                f'{escape(str(event.get("reason", "")))}</li>'
+            )
+        inclusion_history = '<details><summary>Cronologia inclusione ed esclusione</summary><ul>' + "".join(history_items) + "</ul></details>"
+    reconciliation_link = (
+        f'<p><a href="/cases/{safe_id}/reconciliation">Confronta righe OCR con i giustificativi</a></p>'
+        if case.get("processing", {}).get("state") == "completed" else ""
+    )
     return (
         '<!doctype html><html lang="it"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -420,12 +486,40 @@ def _expense_case_intake_page(case: dict[str, Any], *, notice: str = "", chunk_i
         f'· Giustificativi inclusi: {summary["included_attachment_count"]} / 100 '
         f'· Lotti acquisiti: {summary["accepted_chunk_count"]}</p>'
         '<p>Questo fascicolo resta locale e cifrato. OCR e riconciliazione vengono avviati solo con un’azione esplicita.</p>'
-        f'<form method="post" action="/cases/{safe_id}/attachments" enctype="multipart/form-data">'
+        + attachment_section + inclusion_history + reconciliation_link
+        + f'<form method="post" action="/cases/{safe_id}/attachments" enctype="multipart/form-data">'
         f'<input type="hidden" name="_case_revision" value="{escape(summary["case_revision"], quote=True)}">'
         f'<input type="hidden" name="_chunk_id" value="{escape(chunk_id or secrets.token_hex(16), quote=True)}">'
         f'<label>Giustificativi (fino a 20 documenti nel lotto) <input type="file" name="files" '
         f'accept="{_ACCEPT}" multiple required></label><button type="submit">Aggiungi lotto</button></form>'
-        f'<p><a href="/cases">Tutti i fascicoli</a></p></main></html>'
+        + process_form
+        + f'<p><a href="/cases">Tutti i fascicoli</a></p></main></html>'
+    )
+
+
+def _expense_case_job_page(status: ExpenseCaseJobStatus) -> str:
+    labels = {
+        "queued": "In coda", "processing": "Elaborazione locale in corso",
+        "cancelling": "Annullamento in corso", "succeeded": "OCR completato",
+        "failed": "Elaborazione non riuscita", "cancelled": "Elaborazione annullata",
+    }
+    active = status.phase in {"queued", "processing", "cancelling"}
+    refresh = '<meta http-equiv="refresh" content="2">' if active else ""
+    job_id = quote(status.job_id, safe="")
+    case_id = quote(status.case_id, safe="")
+    cancel = (
+        f'<form method="post" action="/cases/{case_id}/jobs/{job_id}/cancel">'
+        '<button type="submit">Annulla elaborazione</button></form>' if active else ""
+    )
+    error = f'<p>Codice: {escape(status.error_code)}</p>' if status.error_code else ""
+    return (
+        '<!doctype html><html lang="it"><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        + refresh + '<title>Elaborazione fascicolo</title><main><h1>Elaborazione OCR locale</h1>'
+        f'<p>Stato: {escape(labels.get(status.phase, "Non disponibile"))}</p>'
+        f'<p>Documenti: {status.completed_documents} / {status.total_documents} · Pagine: {status.completed_pages}</p>'
+        + error + cancel
+        + f'<p><a href="/cases/{case_id}/intake">Torna al fascicolo</a></p></main></html>'
     )
 
 
@@ -1041,7 +1135,7 @@ def _case_status_payload(case: dict[str, Any]) -> dict[str, Any]:
     """Expose only safe aggregate counts and revision identifiers to status polling."""
     processing = case.get("processing", {})
     raw_state = processing.get("state") if isinstance(processing, dict) else None
-    allowed_states = {"not_started", "queued", "running", "paused", "stale", "failed", "cancelled", "completed"}
+    allowed_states = {"not_started", "queued", "running", "processing", "paused", "stale", "failed", "cancelled", "completed"}
     state_code = raw_state if raw_state in allowed_states else "unavailable"
     attachments = case.get("attachments", [])
     return {
@@ -1053,6 +1147,203 @@ def _case_status_payload(case: dict[str, Any]) -> dict[str, Any]:
         "included_attachment_count": sum(1 for item in attachments if item.get("included") is True),
         "accepted_chunk_count": len(case.get("chunks", [])),
     }
+
+
+def _build_case_reconciliation(archive_store: LocalDocumentStore, case: dict[str, Any]):
+    processing = case.get("processing")
+    if not isinstance(processing, dict) or processing.get("state") != "completed":
+        return None, {}, {}
+    statement_id = case.get("statement_document_id")
+    statement = archive_store.get(statement_id)
+    if statement is None:
+        raise StoreError("case statement disappeared from local archive")
+    if statement.record.get("source", {}).get("sha256") != case.get("statement_sha256"):
+        raise StoreError("case statement source binding changed")
+    if not statement.record.get("expense_lines"):
+        return None, {}, {}
+    documents = {statement_id: statement.record}
+    labels = {statement_id: statement.record.get("source", {}).get("original_filename", "Nota spese")}
+    attachments = [item for item in case.get("attachments", []) if item.get("included") is True]
+    for item in attachments:
+        stored = archive_store.get(item["document_id"])
+        if stored is None:
+            raise StoreError("case attachment disappeared from local archive")
+        if stored.record.get("source", {}).get("sha256") != item.get("source_sha256"):
+            raise StoreError("case attachment source binding changed")
+        documents[item["document_id"]] = stored.record
+        labels[item["document_id"]] = stored.record.get("source", {}).get("original_filename", "Giustificativo")
+    reconciliation = build_reconciliation(
+        case["case_id"], statement_id, statement.record["source"]["sha256"],
+        statement.record["expense_lines"], attachments, documents,
+        source_set_revision=case_source_set_revision(
+            statement_id, case["statement_sha256"], case.get("chunks", []),
+            case.get("inclusion_events", []),
+        ),
+    )
+    reconciliation["review_events"] = deepcopy(case.get("review_events", []))
+    latest = {}
+    for event in reconciliation["review_events"]:
+        if event.get("case_revision") == reconciliation["case_revision"]:
+            latest[event["line_id"]] = event
+    for line in reconciliation["lines"]:
+        event = latest.get(line["line_id"])
+        if event is not None:
+            line["status"] = event["action"]
+            line["current_review_event_id"] = event["event_id"]
+    validate_reconciliation(reconciliation, documents)
+    return reconciliation, documents, labels
+
+
+def _candidate_display(candidate: dict[str, Any]) -> str:
+    if candidate.get("status") == "observed":
+        return str(candidate.get("value", ""))
+    alternatives = candidate.get("alternatives", [])
+    values = [str(item.get("value", "")) for item in alternatives if isinstance(item, dict)]
+    if values:
+        return "Da verificare: " + " · ".join(values[:8])
+    return "Non rilevato" if candidate.get("status") in {"absent", "not_applicable"} else "Incerto o non leggibile"
+
+
+def _expense_case_reconciliation_page(
+    case: dict[str, Any], reconciliation: dict[str, Any], documents: dict[str, dict[str, Any]],
+    labels: dict[str, str], *, page: int = 0, notice: str = "",
+) -> str:
+    page_size = 50
+    lines = reconciliation["lines"]
+    page_count = max(1, (len(lines) + page_size - 1) // page_size)
+    page = min(max(0, page), page_count - 1)
+    safe_case_id = quote(case["case_id"], safe="")
+    safe_notice = f'<p role="status">{escape(notice)}</p>' if notice else ""
+    rows = []
+    finding_labels = {
+        "missing_support": "Supporto non trovato",
+        "uncertain_statement_fields": "Valori della nota incerti",
+        "amount_conflict": "Importo discordante",
+        "currency_conflict": "Valuta discordante",
+        "date_conflict": "Data discordante",
+        "ambiguous_candidates": "Più candidati equivalenti",
+        "possible_duplicate_claim": "Possibile riga duplicata",
+    }
+    for line in lines[page * page_size:(page + 1) * page_size]:
+        fields = line["fields"]
+        description = _candidate_display(fields.get("description", {}))
+        amount = _candidate_display(fields.get("amount", {}))
+        currency = _candidate_display(fields.get("currency", {}))
+        when = _candidate_display(fields.get("date", {}))
+        suggestions = []
+        for suggestion in line["suggestions"][:5]:
+            document_id = suggestion["document_id"]
+            record = documents[document_id]
+            candidates = record.get("fields", {})
+            merchant = candidates.get("merchant_name", {})
+            receipt_amount = candidates.get("total_amount", candidates.get("amount_due", {}))
+            receipt_date = candidates.get("transaction_date", candidates.get("issue_date", {}))
+            reasons = ", ".join(escape(reason.replace("_", " ")) for reason in suggestion["reasons"])
+            supporting_evidence = next((
+                evidence for candidate in suggestion.get("supporting_fields", {}).values()
+                if isinstance(candidate, dict) for evidence in candidate.get("evidence", [])
+                if isinstance(evidence, dict) and isinstance(evidence.get("page_number"), int)
+            ), None)
+            source_link = ""
+            if supporting_evidence is not None:
+                page_href = (
+                    f"/cases/{safe_case_id}/documents/{quote(document_id, safe='')}"
+                    f"/pages/{supporting_evidence['page_number']}.png"
+                )
+                source_link = f'<a href="{escape(page_href, quote=True)}">Apri pagina prova</a> · '
+            suggestions.append(
+                '<label><input type="checkbox" name="_candidate_document_id" value="'
+                + escape(document_id, quote=True) + '"> '
+                + f'{escape(labels.get(document_id, "Giustificativo"))} — '
+                + f'{escape(_candidate_display(merchant))} · {escape(_candidate_display(receipt_amount))} · '
+                + f'{escape(_candidate_display(receipt_date))} · {reasons}</label> '
+                + source_link
+            )
+        evidence = []
+        for field in fields.values():
+            if not isinstance(field, dict):
+                continue
+            for item in field.get("evidence", []):
+                if isinstance(item, dict) and item.get("literal"):
+                    source_document_id = next((
+                        document_id for document_id, record in documents.items()
+                        if record.get("source", {}).get("sha256") == item.get("source_sha256")
+                    ), None)
+                    source_link = ""
+                    if source_document_id is not None and isinstance(item.get("page_number"), int):
+                        page_href = (
+                            f"/cases/{safe_case_id}/documents/{quote(source_document_id, safe='')}"
+                            f"/pages/{item['page_number']}.png"
+                        )
+                        source_link = f'<a href="{escape(page_href, quote=True)}">Apri pagina originale</a>'
+                    evidence.append(
+                        f'<details><summary>Prova: pagina {item.get("page_number")}</summary>'
+                        f'<blockquote>{escape(item["literal"])}</blockquote>{source_link}</details>'
+                    )
+                    break
+            if evidence:
+                break
+        candidate_html = "".join(suggestions) if suggestions else "<p>Nessun giustificativo candidato.</p>"
+        findings_html = ""
+        if line.get("findings"):
+            findings_html = "<ul>" + "".join(
+                f'<li>{escape(finding_labels.get(item, item.replace("_", " ")))}</li>'
+                for item in line["findings"]
+            ) + "</ul>"
+        rows.append(
+            '<article class="expense-line"><h2>' + escape(description) + '</h2>'
+            + f'<p>Importo: <strong>{escape(amount)} {escape(currency)}</strong> · Data: {escape(when)}</p>'
+            + f'<p>Esito revisione: {escape(line["status"].replace("_", " "))}</p>'
+            + findings_html
+            + "".join(evidence)
+            + f'<form method="post" action="/cases/{safe_case_id}/reconciliation/review">'
+            + f'<input type="hidden" name="_reconciliation_revision" value="{escape(reconciliation["case_revision"], quote=True)}">'
+            + f'<input type="hidden" name="_line_id" value="{escape(line["line_id"], quote=True)}">'
+            + f'<input type="hidden" name="_line_evidence_sha256" value="{escape(line["evidence_sha256"], quote=True)}">'
+            + f'<input type="hidden" name="_event_id" value="{secrets.token_hex(16)}">'
+            + candidate_html
+            + '<label>Nota di revisione (obbligatoria per l’esclusione) <input name="_reviewer_note" maxlength="2000"></label>'
+            + '<button name="_action" value="confirmed">Conferma abbinamento selezionato</button>'
+            + '<button name="_action" value="rejected">Rifiuta i candidati</button>'
+            + '<button name="_action" value="ambiguous">Segna come ambiguo</button>'
+            + '<button name="_action" value="missing_support">Segna supporto mancante</button>'
+            + '<button name="_action" value="possible_duplicate">Segna possibile duplicato</button>'
+            + '<button name="_action" value="excluded_with_reason">Escludi con motivazione</button>'
+            + '</form></article>'
+        )
+    navigation = []
+    if page > 0:
+        navigation.append(f'<a href="/cases/{safe_case_id}/reconciliation?page={page - 1}">Pagina precedente</a>')
+    if page + 1 < page_count:
+        navigation.append(f'<a href="/cases/{safe_case_id}/reconciliation?page={page + 1}">Pagina successiva</a>')
+    duplicate_groups = reconciliation.get("duplicate_source_groups", [])
+    duplicate_count = len(duplicate_groups)
+    duplicate_notice = f'<h2>Fonti duplicate: {duplicate_count} gruppi</h2>'
+    if duplicate_groups:
+        duplicate_notice += "<ul>" + "".join(
+            "<li>" + " · ".join(
+                escape(labels.get(document_id, document_id)) for document_id in group["document_ids"]
+            ) + "</li>" for group in duplicate_groups
+        ) + "</ul>"
+    unused = reconciliation.get("unused_document_ids", [])
+    unused_notice = '<h2>Giustificativi non abbinati</h2>'
+    unused_notice += (
+        "<ul>" + "".join(
+            f'<li>{escape(labels.get(document_id, document_id))}</li>' for document_id in unused
+        ) + "</ul>" if unused else "<p>Tutti i giustificativi hanno almeno una proposta associata.</p>"
+    )
+    return (
+        '<!doctype html><html lang="it"><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>Confronto nota spese</title><main><h1>Confronto con la nota definitiva</h1>'
+        + '<p>Le righe e gli abbinamenti sono proposte OCR con prove locali. Nessun abbinamento è confermato automaticamente.</p>'
+        + '<p>Le modifiche restano nel deposito cifrato locale. Le decisioni vengono registrate nella cronologia.</p>'
+        + safe_notice + duplicate_notice + unused_notice
+        + f'<p>Righe {page * page_size + 1 if lines else 0}–{min((page + 1) * page_size, len(lines))} di {len(lines)} · pagina {page + 1} / {page_count}</p>'
+        + "".join(rows) + "".join(navigation)
+        + f'<p><a href="/cases/{safe_case_id}/export">Esporta confronto locale (JSON)</a> · '
+        + f'<a href="/cases/{safe_case_id}/intake">Torna al fascicolo</a></p></main></html>'
+    )
 
 
 def _case_json_response(environ: dict[str, Any], start_response: Callable, status: str, payload: dict[str, Any]):
@@ -1073,6 +1364,7 @@ def create_expense_report_app(
     document_processor: Callable[[dict[str, Any], bytes], dict[str, Any]] | None = None,
     archive_store: LocalDocumentStore | None = None,
     ocr_processing_manager: OCRProcessingManager | None = None,
+    expense_case_processing_manager: ExpenseCaseProcessingManager | None = None,
     custom_family_catalog: Any | None = None,
 ) -> Callable:
     """Create a loopback WSGI app with an idle-expiring session and optional explicit archive."""
@@ -1178,8 +1470,20 @@ def create_expense_report_app(
         method = environ.get("REQUEST_METHOD", "")
         path = environ.get("PATH_INFO", "")
         case_route = _CASE_PATH.fullmatch(path)
+        case_reconciliation_route = _CASE_RECONCILIATION_PATH.fullmatch(path)
+        case_review_route = _CASE_REVIEW_PATH.fullmatch(path)
+        case_export_route = _CASE_EXPORT_PATH.fullmatch(path)
+        case_inclusion_route = _CASE_INCLUSION_PATH.fullmatch(path)
+        case_page_route = _CASE_PAGE_PATH.fullmatch(path)
         case_intake_route = re.fullmatch(r"/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/intake", path)
-        is_case_route = path == "/cases" or case_route is not None or case_intake_route is not None
+        case_work_route = _CASE_WORK_ROUTE.fullmatch(path)
+        is_case_route = (
+            path == "/cases" or case_route is not None
+            or case_intake_route is not None or case_work_route is not None
+            or case_reconciliation_route is not None or case_review_route is not None
+            or case_export_route is not None or case_inclusion_route is not None
+            or case_page_route is not None
+        )
         if is_case_route:
             if archive_store is None:
                 return _page(environ, start_response, "503 Service Unavailable", "Archivio locale non configurato")
@@ -1256,6 +1560,261 @@ def create_expense_report_app(
                     except StoreError:
                         return _page(environ, start_response, "500 Internal Server Error", "Nota non acquisita; archivio invariato.")
                 return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+            if any((case_reconciliation_route, case_review_route, case_export_route, case_inclusion_route, case_page_route)):
+                route_match = (
+                    case_reconciliation_route or case_review_route or case_export_route
+                    or case_inclusion_route or case_page_route
+                )
+                case_id = route_match.group(1)
+                try:
+                    case = archive_store.get_case(case_id)
+                    if case is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    if case_inclusion_route is not None:
+                        if method != "POST":
+                            return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                        if not _same_origin_loopback_post(environ):
+                            return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                        try:
+                            fields = _multipart_form_values(environ, max_form_bytes=8192)
+                            if set(fields) != {"_case_revision", "_included", "_reason", "_event_id"} or any(
+                                len(fields.get(name, [])) != 1 for name in fields
+                            ):
+                                raise IntakeRequestError("Dati inclusione non validi")
+                            expected_revision, included_value, reason, event_id = (
+                                fields[name][0] for name in ("_case_revision", "_included", "_reason", "_event_id")
+                            )
+                            if expected_revision != case["case_revision"] or included_value not in {"true", "false"}:
+                                return _page(environ, start_response, "409 Conflict", "Fascicolo aggiornato; ricarica prima della modifica.")
+                            if not reason.strip() or len(reason) > 2000:
+                                raise IntakeRequestError("Il motivo è obbligatorio")
+                            document_id = case_inclusion_route.group(2)
+                            attachment = next((
+                                item for item in case.get("attachments", [])
+                                if item.get("document_id") == document_id
+                            ), None)
+                            if attachment is None:
+                                return _page(environ, start_response, "404 Not Found", "Giustificativo non trovato")
+                            saved_case = archive_store.append_attachment_inclusion_event(
+                                case_id, expected_revision, document_id, attachment["source_sha256"],
+                                included_value == "true", reason.strip(), event_id,
+                            )
+                            label = "Giustificativo incluso nel prossimo OCR" if included_value == "true" else "Giustificativo escluso dal prossimo OCR"
+                            return _page(
+                                environ, start_response, "200 OK",
+                                _expense_case_intake_page(
+                                    saved_case,
+                                    notice=f"{label}. Il documento resta conservato nel fascicolo cifrato.",
+                                    processing_enabled=expense_case_processing_manager is not None,
+                                ),
+                            )
+                        except IntakeRequestError:
+                            return _page(environ, start_response, "400 Bad Request", "Modifica non salvata; verifica i dati.")
+                        except (StoreConcurrentUpdate, StoreRejected):
+                            return _page(environ, start_response, "409 Conflict", "Modifica non salvata; il fascicolo è cambiato.")
+                        except StoreError:
+                            return _page(environ, start_response, "500 Internal Server Error", "Modifica non salvata; archivio invariato.")
+                    if case_page_route is not None:
+                        if method != "GET":
+                            return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                        document_id, raw_page = case_page_route.group(2), case_page_route.group(3)
+                        if document_id == case.get("statement_document_id"):
+                            expected_source_hash = case.get("statement_sha256")
+                        else:
+                            reference = next((
+                                item for item in case.get("attachments", [])
+                                if item.get("document_id") == document_id
+                            ), None)
+                            expected_source_hash = reference.get("source_sha256") if reference is not None else None
+                        is_member = expected_source_hash is not None
+                        stored = archive_store.get(document_id) if is_member else None
+                        if (
+                            stored is None
+                            or stored.record.get("source", {}).get("sha256") != expected_source_hash
+                        ):
+                            return _page(environ, start_response, "404 Not Found", "Pagina non disponibile")
+                        try:
+                            page_png = _source_page_png(stored.record, stored.source_bytes, int(raw_page))
+                        except (DocumentDecodeError, ValueError, OverflowError):
+                            return _page(environ, start_response, "422 Unprocessable Content", "Pagina non disponibile per la revisione")
+                        headers = [
+                            ("Content-Type", "image/png"),
+                            ("Content-Length", str(len(page_png))),
+                            ("Cache-Control", "no-store"),
+                            ("X-Content-Type-Options", "nosniff"),
+                            ("Content-Security-Policy", "default-src 'none'; sandbox"),
+                            ("Referrer-Policy", "no-referrer"),
+                        ]
+                        start_response("200 OK", headers)
+                        return [page_png]
+                    reconciliation, documents, labels = _build_case_reconciliation(archive_store, case)
+                    if reconciliation is None:
+                        return _page(
+                            environ, start_response, "409 Conflict",
+                            '<h1>Confronto non disponibile</h1><p>Elabora localmente la nota spese prima del confronto.</p>'
+                            f'<p><a href="/cases/{quote(case_id, safe="")}/intake">Torna al fascicolo</a></p>',
+                        )
+                    if case_review_route is not None:
+                        if method != "POST":
+                            return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                        if not _same_origin_loopback_post(environ):
+                            return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                        try:
+                            fields = _multipart_form_values(environ, max_form_bytes=8192)
+                            allowed = {
+                                "_reconciliation_revision", "_line_id", "_line_evidence_sha256",
+                                "_event_id", "_action", "_reviewer_note", "_candidate_document_id",
+                            }
+                            if set(fields) - allowed or any(
+                                len(fields.get(name, [])) != 1 for name in (
+                                    "_reconciliation_revision", "_line_id", "_line_evidence_sha256",
+                                    "_event_id", "_action", "_reviewer_note",
+                                )
+                            ) or len(fields.get("_candidate_document_id", [])) > 5:
+                                raise IntakeRequestError("Dati della revisione non validi")
+                            expected_revision = fields["_reconciliation_revision"][0]
+                            if expected_revision != reconciliation["case_revision"]:
+                                return _page(environ, start_response, "409 Conflict", "Confronto aggiornato; ricarica prima di salvare la revisione.")
+                            line_id = fields["_line_id"][0]
+                            line = next((item for item in reconciliation["lines"] if item["line_id"] == line_id), None)
+                            if line is None:
+                                raise IntakeRequestError("Riga non disponibile")
+                            selected_ids = fields.get("_candidate_document_id", [])
+                            if len(set(selected_ids)) != len(selected_ids):
+                                raise IntakeRequestError("Giustificativi selezionati duplicati")
+                            allowed_suggestions = {item["document_id"] for item in line["suggestions"]}
+                            if any(document_id not in allowed_suggestions for document_id in selected_ids):
+                                raise IntakeRequestError("Giustificativo non proposto per questa riga")
+                            sources = [
+                                {"document_id": document_id, "source_sha256": next(
+                                    item["source_sha256"] for item in reconciliation["attachments"]
+                                    if item["document_id"] == document_id
+                                )}
+                                for document_id in selected_ids
+                            ]
+                            note = fields["_reviewer_note"][0] or None
+                            updated = append_line_review(
+                                reconciliation,
+                                expected_case_revision=expected_revision,
+                                line_id=line_id,
+                                expected_line_evidence_sha256=fields["_line_evidence_sha256"][0],
+                                action=fields["_action"][0],
+                                candidate_sources=sources,
+                                event_id=fields["_event_id"][0],
+                                reviewer_note=note,
+                            )
+                            if len(updated["review_events"]) == len(case.get("review_events", [])):
+                                notice = "Questa revisione era già stata salvata."
+                            else:
+                                case["review_events"] = updated["review_events"]
+                                archive_store.save_case(case, expected_revision=case["case_revision"])
+                                notice = "Decisione salvata nella cronologia locale."
+                            case = archive_store.get_case(case_id)
+                            reconciliation, documents, labels = _build_case_reconciliation(archive_store, case)
+                            return _page(
+                                environ, start_response, "200 OK",
+                                _expense_case_reconciliation_page(case, reconciliation, documents, labels, notice=notice),
+                            )
+                        except IntakeRequestError:
+                            return _page(environ, start_response, "400 Bad Request", "Revisione non salvata; verifica i dati e ricarica il confronto.")
+                        except ReconciliationError:
+                            return _page(environ, start_response, "409 Conflict", "Revisione non salvata: le prove o il fascicolo sono cambiati.")
+                        except StoreConcurrentUpdate:
+                            return _page(environ, start_response, "409 Conflict", "Fascicolo modificato da un’altra operazione; ricarica il confronto.")
+                        except StoreError:
+                            return _page(environ, start_response, "500 Internal Server Error", "Revisione non salvata; archivio invariato.")
+                    if method != "GET":
+                        return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                    if case_export_route is not None:
+                        payload = {
+                            "export_schema_version": "1.0.0",
+                            "case_id": case_id,
+                            "statement": reconciliation["statement"],
+                            "case_revision": reconciliation["case_revision"],
+                            "attachments": reconciliation["attachments"],
+                            "lines": reconciliation["lines"],
+                            "unused_document_ids": reconciliation["unused_document_ids"],
+                            "duplicate_source_groups": reconciliation["duplicate_source_groups"],
+                            "possible_duplicate_claim_groups": reconciliation["possible_duplicate_claim_groups"],
+                            "review_events": reconciliation["review_events"],
+                        }
+                        return _page(
+                            environ, start_response, "200 OK",
+                            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                            "application/json; charset=utf-8",
+                            download_filename="expense-reconciliation.json",
+                        )
+                    raw_query = environ.get("QUERY_STRING", "")
+                    if len(raw_query) > 128:
+                        return _page(environ, start_response, "400 Bad Request", "Pagina non valida")
+                    try:
+                        page_values = parse_qs(raw_query, keep_blank_values=True, max_num_fields=2)
+                    except ValueError:
+                        return _page(environ, start_response, "400 Bad Request", "Pagina non valida")
+                    raw_page = page_values.get("page", ["0"])
+                    page = int(raw_page[0]) if len(raw_page) == 1 and raw_page[0].isdigit() else 0
+                    return _page(
+                        environ, start_response, "200 OK",
+                        _expense_case_reconciliation_page(case, reconciliation, documents, labels, page=page),
+                    )
+                except StoreError:
+                    return _page(environ, start_response, "500 Internal Server Error", "Fascicolo non disponibile")
+            if case_work_route is not None:
+                case_id = case_work_route.group(1)
+                route_action = case_work_route.group(2)
+                job_id = case_work_route.group(3)
+                is_cancel = case_work_route.group(4) == "cancel"
+                if expense_case_processing_manager is None:
+                    return _page(environ, start_response, "503 Service Unavailable", "OCR locale del fascicolo non configurato")
+                if route_action == "process":
+                    if method != "POST":
+                        return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                    if not _same_origin_loopback_post(environ):
+                        return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                    try:
+                        fields = _multipart_form_values(environ, max_form_bytes=4096)
+                        if set(fields) != {"_case_revision"} or len(fields["_case_revision"]) != 1:
+                            raise IntakeRequestError("Revisione del fascicolo non valida")
+                        case = archive_store.get_case(case_id)
+                        if case is None:
+                            return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                        worker_job_id = expense_case_processing_manager.start(
+                            case_id, fields["_case_revision"][0],
+                        )
+                        status = expense_case_processing_manager.snapshot(worker_job_id)
+                        if status is None:
+                            return _page(environ, start_response, "503 Service Unavailable", "Stato OCR non disponibile")
+                        return _page(environ, start_response, "202 Accepted", _expense_case_job_page(status))
+                    except IntakeRequestError:
+                        return _page(environ, start_response, "400 Bad Request", "Richiesta OCR non valida")
+                    except ValueError as exc:
+                        code = str(exc)
+                        if code == "case_missing":
+                            return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                        if code == "case_changed":
+                            return _page(environ, start_response, "409 Conflict", "Il fascicolo è cambiato; ricarica la pagina.")
+                        return _page(environ, start_response, "409 Conflict", "Elaborazione non avviata; fascicolo invariato.")
+                    except RuntimeError:
+                        return _page(environ, start_response, "409 Conflict", "Un’elaborazione locale è già in corso.")
+                    except StoreError:
+                        return _page(environ, start_response, "500 Internal Server Error", "Fascicolo non disponibile")
+                if is_cancel:
+                    if method != "POST":
+                        return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                    if not _same_origin_loopback_post(environ):
+                        return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                    status = expense_case_processing_manager.snapshot(job_id or "")
+                    if status is None or status.case_id != case_id:
+                        return _page(environ, start_response, "404 Not Found", "Elaborazione non disponibile")
+                    expense_case_processing_manager.cancel(job_id or "")
+                    status = expense_case_processing_manager.snapshot(job_id or "") or status
+                    return _page(environ, start_response, "200 OK", _expense_case_job_page(status))
+                if method != "GET":
+                    return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                status = expense_case_processing_manager.snapshot(job_id or "")
+                if status is None or status.case_id != case_id:
+                    return _page(environ, start_response, "404 Not Found", "Elaborazione non disponibile")
+                return _page(environ, start_response, "200 OK", _expense_case_job_page(status))
             case_id = case_route.group(1) if case_route is not None else case_intake_route.group(1)
             is_attachments = case_route is not None and path.endswith("/attachments")
             if case_route is not None and method == "GET" and not is_attachments:
@@ -1273,7 +1832,12 @@ def create_expense_report_app(
                     return _page(environ, start_response, "500 Internal Server Error", "Fascicolo non disponibile")
                 if case is None:
                     return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
-                return _page(environ, start_response, "200 OK", _expense_case_intake_page(case))
+                return _page(
+                    environ, start_response, "200 OK",
+                    _expense_case_intake_page(
+                        case, processing_enabled=expense_case_processing_manager is not None,
+                    ),
+                )
             if is_attachments and method == "POST":
                 if not _same_origin_loopback_post(environ):
                     return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
@@ -1926,6 +2490,8 @@ def create_expense_report_app(
             current = state
             state = None
         cancel_session(current)
+        if expense_case_processing_manager is not None:
+            expense_case_processing_manager.close()
         if ocr_processing_manager is not None:
             ocr_processing_manager.close()
 
@@ -1985,6 +2551,7 @@ def serve_expense_report_local(
     document_processor: Callable[[dict[str, Any], bytes], dict[str, Any]] | None = None,
     archive_store: LocalDocumentStore | None = None,
     ocr_processing_manager: OCRProcessingManager | None = None,
+    expense_case_processing_manager: ExpenseCaseProcessingManager | None = None,
     custom_family_catalog: Any | None = None,
 ):
     """Create a local HTTP server bound exclusively to IPv4 loopback."""
@@ -1996,6 +2563,7 @@ def serve_expense_report_local(
         document_processor=document_processor,
         archive_store=archive_store,
         ocr_processing_manager=ocr_processing_manager,
+        expense_case_processing_manager=expense_case_processing_manager,
         custom_family_catalog=custom_family_catalog,
     )
     server = make_server("127.0.0.1", port, app)

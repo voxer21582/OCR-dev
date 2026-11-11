@@ -8,6 +8,7 @@ from pathlib import Path
 
 from alfa_document_intelligence.local_document_store import LocalDocumentStore
 from alfa_document_intelligence.local_intake_app import create_expense_report_app
+from alfa_document_intelligence.expense_case_processing import ExpenseCaseJobStatus
 from test_local_document_store import SyntheticProtector
 
 
@@ -116,6 +117,58 @@ class ExpenseCaseIntakeRouteTests(unittest.TestCase):
             self.app, "POST", f"/cases/{case_id}/attachments", changed, changed_type,
         )
         self.assertEqual(status, "409 Conflict")
+
+    def test_processing_is_explicitly_opt_in_and_status_route_exposes_only_aggregates(self):
+        case_id = "case-" + "e" * 36
+        body, content_type = _multipart([("private-statement.pdf", NOTE)], fields={"_case_id": case_id})
+        status, _, _ = _request(self.app, "POST", "/cases", body, content_type)
+        self.assertEqual(status, "201 Created")
+        case = self.store.get_case(case_id)
+        intake_page = _request(self.app, path=f"/cases/{case_id}/intake")[2]
+        self.assertNotIn(b"/process", intake_page)
+
+        class ProcessingManager:
+            def __init__(self):
+                self.status = None
+
+            def start(self, requested_case_id, revision):
+                self.status = ExpenseCaseJobStatus(
+                    "a" * 32, requested_case_id, "queued", 0, 1, 0, None,
+                )
+                self.revision = revision
+                return self.status.job_id
+
+            def snapshot(self, job_id):
+                return self.status if self.status and self.status.job_id == job_id else None
+
+            def cancel(self, job_id):
+                self.status = ExpenseCaseJobStatus(
+                    self.status.job_id, self.status.case_id, "cancelled", 0, 1, 0, None,
+                )
+
+            def close(self):
+                pass
+
+        manager = ProcessingManager()
+        app = create_expense_report_app(archive_store=self.store, expense_case_processing_manager=manager)
+        self.addCleanup(app.close)
+        intake_page = _request(app, path=f"/cases/{case_id}/intake")[2]
+        self.assertIn(b"Avvia OCR locale", intake_page)
+        form = f"_case_revision={case['case_revision']}".encode("ascii")
+        status, _, started = _request(
+            app, "POST", f"/cases/{case_id}/process", form,
+            "application/x-www-form-urlencoded",
+        )
+        self.assertEqual(status, "202 Accepted")
+        self.assertIn(b"Documenti: 0 / 1", started)
+        job_id = manager.status.job_id
+        status, _, job_page = _request(app, path=f"/cases/{case_id}/jobs/{job_id}")
+        self.assertEqual(status, "200 OK")
+        self.assertNotIn(b"private-statement.pdf", job_page)
+        self.assertNotIn(b"sha256", job_page.lower())
+        status, _, cancelled = _request(app, "POST", f"/cases/{case_id}/jobs/{job_id}/cancel")
+        self.assertEqual(status, "200 OK")
+        self.assertIn(b"Elaborazione annullata", cancelled)
 
     def test_case_mutations_reject_wrong_origin_before_consuming_request(self):
         body, content_type = _multipart([("nota.pdf", NOTE)])

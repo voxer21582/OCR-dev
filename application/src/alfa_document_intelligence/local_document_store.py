@@ -486,6 +486,11 @@ class LocalDocumentStore:
         ).encode("utf-8")
 
     @classmethod
+    def record_revision_sha256(cls, record: dict) -> str:
+        """Return the canonical digest used to guard concurrent record edits."""
+        return hashlib.sha256(cls._canonical_json(record)).hexdigest()
+
+    @classmethod
     def _case_revision(cls, case: dict) -> str:
         payload = copy.deepcopy(case)
         payload.pop("case_revision", None)
@@ -787,6 +792,7 @@ class LocalDocumentStore:
         ownership = {}
         actual_bytes = 0
         actual_metadata_bytes = 0
+        actual_processed_bytes = 0
         for document_index, binding_payload in rows:
             binding = self._decode_case_reference(binding_payload)
             ref = expected[document_index]
@@ -807,18 +813,20 @@ class LocalDocumentStore:
                 raise StoreIntegrityError("case source hash does not match the archived document")
             if not isinstance(source_payload, bytes) or not source_payload:
                 raise StoreIntegrityError("case source ciphertext is missing")
-            metadata_size = len(self._canonical_json({
-                "format_version": 1, "record": record, "saved_at": saved_at,
-            }))
+            metadata_size = self._case_record_metadata_size(record)
             if metadata_size > _MAX_CASE_RECORD_METADATA_BYTES:
                 raise StoreIntegrityError("case document metadata exceeds its configured limit")
             actual_metadata_bytes += metadata_size
+            if record.get("processing", {}).get("ocr", {}).get("status") == "completed":
+                actual_processed_bytes += len(self._canonical_json(record))
             actual_bytes += record["source"]["byte_length"]
             ownership[doc_id] = binding["case_owned"]
         if actual_bytes != case.get("retained_source_bytes"):
             raise StoreIntegrityError("case retained-source byte count does not match archived documents")
         if actual_metadata_bytes > _MAX_CASE_TOTAL_METADATA_BYTES:
             raise StoreIntegrityError("case retained metadata exceeds its configured limit")
+        if actual_processed_bytes > case.get("processing", {}).get("result_bytes", 0):
+            raise StoreIntegrityError("case OCR output exceeds its committed result-byte accounting")
         return ownership
 
     def _verify_case_index_integrity(self) -> None:
@@ -894,6 +902,9 @@ class LocalDocumentStore:
         if not isinstance(source, dict):
             raise StoreRejected("case document source metadata must be an object")
         source["storage_ref"] = f"local-archive://{document_id}"
+        # Large line proposals produced by OCR count against the separate
+        # cumulative processing-result budget, not the upload metadata quota.
+        archived_record.pop("expense_lines", None)
         envelope = {
             "format_version": 1,
             "record": archived_record,
@@ -922,6 +933,8 @@ class LocalDocumentStore:
         document_id, source_hash = self._validate_record(statement_record)
         if statement_record.get("document_family") != "expense_report":
             raise StoreRejected("case statement document must have expense_report family")
+        if "expense_lines" in statement_record:
+            raise StoreRejected("new case statements cannot include precomputed OCR line proposals")
         statement_digest = case.get("statement_sha256")
         if (
             case.get("statement_document_id") != document_id
@@ -1118,6 +1131,12 @@ class LocalDocumentStore:
             raise StoreRejected("chunk digest does not match the uploaded source records")
         if not source_records or len(source_records) > _MAX_CASE_CHUNK_DOCUMENTS:
             raise StoreRejected("case chunk must contain from 1 to 20 documents")
+        if any(
+            isinstance(item, dict) and isinstance(item.get("record"), dict)
+            and "expense_lines" in item["record"]
+            for item in source_records
+        ):
+            raise StoreRejected("new case attachments cannot include precomputed OCR line proposals")
         if not isinstance(expected_revision, str) or not _SHA256.fullmatch(expected_revision):
             raise StoreRejected("expected_revision must be a SHA-256 digest")
         current_case = self.get_case(case_id)
@@ -1278,6 +1297,7 @@ class LocalDocumentStore:
     def commit_case_processing_chunk(
         self, case_id: str, expected_revision: str, chunk_id: str,
         updated_records: list[dict], next_manifest: dict,
+        expected_record_sha256: dict[str, str],
     ) -> dict:
         if not isinstance(chunk_id, str) or not _STORE_ID.fullmatch(chunk_id):
             raise StoreRejected("processing chunk ID must be opaque")
@@ -1287,6 +1307,11 @@ class LocalDocumentStore:
             raise StoreRejected("processing chunk must contain updated document records")
         if not isinstance(next_manifest, dict):
             raise StoreRejected("next case manifest must be an object")
+        if not isinstance(expected_record_sha256, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str) or not _SHA256.fullmatch(value)
+            for key, value in expected_record_sha256.items()
+        ):
+            raise StoreRejected("expected record revisions must be a document-to-SHA-256 mapping")
         record_digests = []
         prepared = []
         for record in updated_records:
@@ -1347,6 +1372,8 @@ class LocalDocumentStore:
                 }
                 if len({document_id for document_id, _, _ in prepared}) != len(prepared):
                     raise StoreRejected("processing output document IDs must be unique")
+                if set(expected_record_sha256) != {document_id for document_id, _, _ in prepared}:
+                    raise StoreRejected("processing outputs must bind every expected source record revision")
                 for document_id, source_hash, protected_record in prepared:
                     if document_id not in processable_ids:
                         raise StoreRejected("processing output document is not currently included in this case")
@@ -1355,6 +1382,9 @@ class LocalDocumentStore:
                         raise StoreIntegrityError("processing output document is missing from the archive")
                     entry_id, document_index, _, source_payload = doc_row
                     existing_record, _ = self._decode_record(doc_row[2])
+                    current_record_sha256 = self.record_revision_sha256(existing_record)
+                    if current_record_sha256 != expected_record_sha256[document_id].lower():
+                        raise StoreConcurrentUpdate("saved document record changed during case processing")
                     existing_hash = existing_record["source"]["sha256"].lower()
                     if existing_hash != source_hash:
                         raise StoreSourceConflict("processing output source hash changed")
@@ -1549,6 +1579,8 @@ class LocalDocumentStore:
                         ).encode("utf-8")
                         if hashlib.sha256(current).hexdigest() != expected_record_sha256.lower():
                             raise StoreConcurrentUpdate("saved document changed since it was read")
+                    if existing_record.get("expense_lines") != archived_record.get("expense_lines"):
+                        raise StoreRejected("OCR line proposals can only be replaced by a case processing commit")
                 if expected_record_sha256 is not None and not found_existing:
                     raise StoreConcurrentUpdate("saved document no longer exists")
                 if entry_id is None:

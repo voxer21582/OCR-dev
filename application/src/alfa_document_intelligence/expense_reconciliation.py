@@ -37,12 +37,56 @@ def _canonical_digest(value: Any) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def _revision_digest(case_id: str, statement: dict[str, str], attachments: list[dict[str, str]], lines: list[dict[str, str]]) -> str:
+def _revision_digest(
+    case_id: str, statement: dict[str, str], attachments: list[dict[str, str]],
+    lines: list[dict[str, str]], source_set_revision: str,
+) -> str:
     return _canonical_digest({
         "case_id": case_id,
         "statement": statement,
         "attachments": attachments,
         "lines": lines,
+        "source_set_revision": source_set_revision,
+    })
+
+
+def case_source_set_revision(
+    statement_id: str, statement_hash: str, chunks: list[dict], inclusion_events: list[dict],
+) -> str:
+    """Digest immutable upload and inclusion history without binding review events."""
+    statement = {
+        "document_id": _valid_id(statement_id, "statement document ID"),
+        "source_sha256": _valid_hash(statement_hash, "statement source hash"),
+    }
+    if not isinstance(chunks, list) or not isinstance(inclusion_events, list):
+        raise ReconciliationError("source-set history is invalid")
+    normalized_chunks = []
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            raise ReconciliationError("source-set chunk is invalid")
+        chunk_id = _valid_id(chunk.get("chunk_id"), "source-set chunk ID")
+        chunk_hash = _valid_hash(chunk.get("chunk_digest"), "source-set chunk digest")
+        document_ids = chunk.get("document_ids")
+        if not isinstance(document_ids, list):
+            raise ReconciliationError("source-set chunk documents are invalid")
+        normalized_chunks.append({
+            "chunk_id": chunk_id,
+            "chunk_digest": chunk_hash,
+            "document_ids": [_valid_id(value, "source-set document ID") for value in document_ids],
+        })
+    normalized_events = []
+    for sequence, event in enumerate(inclusion_events, start=1):
+        if not isinstance(event, dict) or event.get("sequence") != sequence:
+            raise ReconciliationError("source-set inclusion history is invalid")
+        digest = _valid_hash(event.get("event_sha256"), "source-set inclusion event digest")
+        body = {key: value for key, value in event.items() if key not in {"sequence", "event_sha256"}}
+        if _canonical_digest(body) != digest:
+            raise ReconciliationError("source-set inclusion event digest is invalid")
+        normalized_events.append({"sequence": sequence, "event_sha256": digest})
+    return _canonical_digest({
+        "statement": statement,
+        "chunks": normalized_chunks,
+        "inclusion_events": normalized_events,
     })
 
 
@@ -174,6 +218,25 @@ def _candidate_value(candidate: dict[str, Any]) -> Any:
     return candidate.get("value")
 
 
+def _candidate_possible_values(candidate: dict[str, Any], normalize) -> list[tuple[Any, dict[str, Any], bool]]:
+    """Return normalized observations and alternatives, marking non-final values uncertain."""
+    if not isinstance(candidate, dict):
+        return []
+    if candidate.get("status") == "observed":
+        value = normalize(_candidate_value(candidate))
+        return [(value, candidate, False)] if value is not None else []
+    if candidate.get("status") != "uncertain":
+        return []
+    result = []
+    for alternative in candidate.get("alternatives", []):
+        if not isinstance(alternative, dict) or alternative.get("status") not in {"observed", "uncertain"}:
+            continue
+        value = normalize(alternative.get("value"))
+        if value is not None:
+            result.append((value, candidate, True))
+    return result
+
+
 def _amount(value: Any) -> Decimal | None:
     if not isinstance(value, str):
         return None
@@ -246,11 +309,14 @@ def build_reconciliation(
     statement_lines: list[dict],
     attachments: list[dict],
     documents: Mapping[str, dict],
+    *,
+    source_set_revision: str,
 ) -> dict:
     """Build deterministic ranked candidate suggestions with source bindings."""
     case_id = _valid_id(case_id, "case ID")
     statement_id = _valid_id(statement_id, "statement document ID")
     statement_hash = _valid_hash(statement_hash, "statement source hash")
+    source_set_revision = _valid_hash(source_set_revision, "source-set revision")
     if not isinstance(statement_lines, list) or not statement_lines:
         raise ReconciliationError("statement lines must be a non-empty array")
     if not isinstance(attachments, list) or not isinstance(documents, Mapping):
@@ -287,12 +353,16 @@ def build_reconciliation(
         selected.append((attachment_bindings[-1], record))
 
     statement_binding = {"document_id": statement_id, "source_sha256": statement_hash}
-    case_revision = _revision_digest(case_id, statement_binding, attachment_bindings, line_bindings)
+    case_revision = _revision_digest(
+        case_id, statement_binding, attachment_bindings, line_bindings, source_set_revision,
+    )
     line_results = []
     suggested_document_ids: set[str] = set()
     for line, line_binding in zip(statement_lines, line_bindings, strict=True):
         line_amount = _amount(_candidate_value(line.get("amount", {})))
         line_currency = _currency(_candidate_value(line.get("currency", {})))
+        possible_line_amounts = _candidate_possible_values(line.get("amount", {}), _amount)
+        possible_line_currencies = _candidate_possible_values(line.get("currency", {}), _currency)
         line_date = _date(_candidate_value(line.get("date", {})))
         line_merchant = _merchant(_candidate_value(line.get("merchant", {})))
         uncertain = any(
@@ -309,16 +379,49 @@ def build_reconciliation(
                 record, ("transaction_date", "issue_date", "invoice_date", "document_date"), _date
             )
             merchant_name, merchant_candidate, doc_merchant = _first_observed_field(record, ("merchant_name",), _merchant)
+            match_amount_name = amount_name or next((
+                name for name in ("total_amount", "amount_due")
+                if _candidate_possible_values(record.get("fields", {}).get(name, {}), _amount)
+            ), None)
+            match_currency_name = currency_name or next((
+                name for name in ("currency",)
+                if _candidate_possible_values(record.get("fields", {}).get(name, {}), _currency)
+            ), None)
             reasons = []
             matched_fields = {}
             amount_equal = line_amount is not None and doc_amount is not None and line_amount == doc_amount
             currency_equal = line_currency is not None and doc_currency is not None and line_currency == doc_currency
             date_equal = line_date is not None and doc_date is not None and line_date == doc_date
             merchant_equal = line_merchant is not None and doc_merchant is not None and line_merchant == doc_merchant
-            if amount_equal and currency_equal:
-                reasons.append("amount_and_currency_match")
-                matched_fields[amount_name] = deepcopy(amount_candidate)
-                matched_fields[currency_name] = deepcopy(currency_candidate)
+            # Missing merchant data weakens these signals but does not erase
+            # amount/date/currency evidence. A known disagreement still blocks
+            # the conflict signal; every result remains a review suggestion.
+            merchant_compatible = (
+                line_merchant is None or doc_merchant is None or merchant_equal
+            )
+            possible_doc_amounts = _candidate_possible_values(
+                record.get("fields", {}).get(match_amount_name, {}) if match_amount_name else {}, _amount,
+            )
+            possible_doc_currencies = _candidate_possible_values(
+                record.get("fields", {}).get(match_currency_name, {}) if match_currency_name else {}, _currency,
+            )
+            amount_pair = next((
+                (line_value, doc_value)
+                for line_value in possible_line_amounts for doc_value in possible_doc_amounts
+                if line_value[0] == doc_value[0]
+            ), None)
+            currency_pair = next((
+                (line_value, doc_value)
+                for line_value in possible_line_currencies for doc_value in possible_doc_currencies
+                if line_value[0] == doc_value[0]
+            ), None)
+            if amount_pair is not None and currency_pair is not None:
+                is_possible = any(item[2] for pair in (amount_pair, currency_pair) for item in pair)
+                reasons.append(
+                    "possible_amount_and_currency_match" if is_possible else "amount_and_currency_match"
+                )
+                matched_fields[match_amount_name] = deepcopy(amount_pair[0][1] if amount_pair[0][2] else amount_pair[1][1])
+                matched_fields[match_currency_name] = deepcopy(currency_pair[0][1] if currency_pair[0][2] else currency_pair[1][1])
             if date_equal:
                 reasons.append("date_match")
                 matched_fields[date_name] = deepcopy(date_candidate)
@@ -326,24 +429,25 @@ def build_reconciliation(
                 reasons.append("merchant_match")
                 matched_fields[merchant_name] = deepcopy(merchant_candidate)
             if line_amount is not None and doc_amount is not None and line_amount != doc_amount:
-                if date_equal and merchant_equal and line_currency is not None and line_currency == doc_currency:
+                if date_equal and merchant_compatible and line_currency is not None and line_currency == doc_currency:
                     amount_conflicts.append(binding["document_id"])
                     reasons.append("amount_conflict")
                     matched_fields[amount_name] = deepcopy(amount_candidate)
                     matched_fields[currency_name] = deepcopy(currency_candidate)
-            if amount_equal and date_equal and merchant_equal and line_currency is not None and doc_currency is not None and line_currency != doc_currency:
+            if amount_equal and date_equal and merchant_compatible and line_currency is not None and doc_currency is not None and line_currency != doc_currency:
                 reasons.append("currency_conflict")
                 matched_fields[amount_name] = deepcopy(amount_candidate)
                 matched_fields[currency_name] = deepcopy(currency_candidate)
                 matched_fields[date_name] = deepcopy(date_candidate)
                 if merchant_name:
                     matched_fields[merchant_name] = deepcopy(merchant_candidate)
-            if amount_equal and currency_equal and merchant_equal and line_date is not None and doc_date is not None and line_date != doc_date:
+            if amount_equal and currency_equal and merchant_compatible and line_date is not None and doc_date is not None and line_date != doc_date:
                 reasons.append("date_conflict")
                 matched_fields[amount_name] = deepcopy(amount_candidate)
                 matched_fields[currency_name] = deepcopy(currency_candidate)
                 matched_fields[date_name] = deepcopy(date_candidate)
-                matched_fields[merchant_name] = deepcopy(merchant_candidate)
+                if merchant_name is not None:
+                    matched_fields[merchant_name] = deepcopy(merchant_candidate)
             if reasons:
                 suggestions.append({
                     "document_id": binding["document_id"],
@@ -387,7 +491,10 @@ def build_reconciliation(
             _date(_candidate_value(line.get("date", {}))),
             _merchant(_candidate_value(line.get("merchant", {}))),
         )
-        if all(value is not None for value in signature):
+        # The extractor intentionally does not guess a merchant. Amount, date,
+        # currency, and (when available) merchant form a conservative duplicate
+        # key; absent merchants still allow a possible-duplicate warning.
+        if all(value is not None for value in signature[:3]):
             claim_groups.setdefault(signature, []).append(line["line_id"])
     possible_duplicate_groups = []
     for signature, line_ids in claim_groups.items():
@@ -414,6 +521,7 @@ def build_reconciliation(
         "reconciliation_version": "0.1.0",
         "case_id": case_id,
         "case_revision": case_revision,
+        "source_set_revision": source_set_revision,
         "statement": statement_binding,
         "attachments": attachment_bindings,
         "lines": line_results,
@@ -447,6 +555,7 @@ def validate_reconciliation(reconciliation: dict, documents: Mapping[str, dict])
         if _validate_document(document_id, documents.get(document_id)) != digest:
             raise ReconciliationError("attachment source binding changed")
     lines = reconciliation.get("lines")
+    source_set_revision = _valid_hash(reconciliation.get("source_set_revision"), "source-set revision")
     if not isinstance(lines, list):
         raise ReconciliationError("reconciliation lines are invalid")
     line_ids = set()
@@ -470,6 +579,7 @@ def validate_reconciliation(reconciliation: dict, documents: Mapping[str, dict])
         {"document_id": statement_id, "source_sha256": statement_hash},
         [{"document_id": item["document_id"], "source_sha256": item["source_sha256"]} for item in bindings],
         revision_lines,
+        source_set_revision,
     ) != reconciliation.get("case_revision"):
         raise ReconciliationError("case revision digest does not match its source bindings")
     events = reconciliation.get("review_events")
@@ -511,6 +621,7 @@ def validate_reconciliation(reconciliation: dict, documents: Mapping[str, dict])
         [{"line_id": item["line_id"], **item["fields"]} for item in lines],
         [{"document_id": item["document_id"], "included": True} for item in bindings],
         documents,
+        source_set_revision=source_set_revision,
     )
     current_payload = {key: value for key, value in reconciliation.items() if key != "review_events"}
     rebuilt_payload = {key: value for key, value in rebuilt.items() if key != "review_events"}
@@ -636,6 +747,7 @@ def append_line_review(
         line_bindings.append(binding)
     expected_revision = _revision_digest(
         result["case_id"], result["statement"], result.get("attachments", []), line_bindings,
+        _valid_hash(result.get("source_set_revision"), "source-set revision"),
     )
     if expected_revision != result.get("case_revision"):
         raise ReconciliationError("case revision digest does not match its source bindings")
