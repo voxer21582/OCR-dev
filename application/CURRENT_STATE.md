@@ -2,6 +2,10 @@
 
 Updated: 2026-11-09
 
+## Keyboard region preview candidate (2026-11-12; not published)
+
+Manual source-region coordinates now share the normalized overlay renderer with pointer selection. Keyboard edits refresh the SVG preview and polite live status; partial, out-of-range, and zero-area coordinates clear the preview with a fixed explanation. Changing source page clears the old coordinates and preview. Four synthetic DOM-contract tests passed with `python -m unittest application.tests.test_region_review_keyboard -v`; the test extracts the literal inline script with Python AST and executes it in Node's in-memory VM against test-defined DOM doubles. `py_compile` and `git diff --check` passed. Independent review confirmed the logic and recommended skipping this class when Node is absent; that change is applied. No browser, OCR, archive/store module, real documents, or R7/R8 tests were used. Browser/accessibility behavior remains unverified, and this selector is not yet in the public CI allowlist. The change is local on `codex/r6-keyboard-region-ui`, stacked on the CI-only candidate for PR #109; it is not published or merged.
+
 ## Background OCR job candidate (2026-11-11; not published)
 
 An isolated candidate on `codex/ocr-processing-jobs` implements a bounded spawned OCR worker, privacy-safe aggregate progress, cancellation, generation-bound one-shot result publication, optional local WSGI routes, and an explicit `--ocr-engine rapidocr-v6` opt-in. The launcher default remains `disabled`; no worker, package, or model is created or loaded unless that flag is selected and a later job is submitted. The fixed factory checks RapidOCR version and the two pinned local model hashes inside the isolated worker. RapidOCR remains the chosen direction for issue #9; A4 PaddleOCR/medium research is separate.
