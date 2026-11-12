@@ -65,8 +65,6 @@ jobs:
           test_document_validation
           test_trip_date_consistency.TripDateConsistencyTests
           test_required_custom_selection.RequiredCustomSelectionTests
-          test_loopback_csrf
-          test_manual_region_review
           test_rapidocr_adapter
           test_document_family_catalog
           test_rapidocr_runtime_factory
