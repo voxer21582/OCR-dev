@@ -549,28 +549,49 @@ def _ocr_worker_entry(input_receiver, output_sender, start_gate, factory_ref: st
     terminal_phase = "failed"
     error_code: str | None = "worker_failed"
     stage = "wait_start_gate"
+    diagnostics_enabled = os.environ.get("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS") == "1"
+
+    def diagnostic(marker: bytes) -> None:
+        if diagnostics_enabled:
+            try:
+                os.write(2, marker)
+            except OSError:
+                pass
+
     try:
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=wait_start_gate_begin\\n")
         stage = "wait_start_gate"
         start_gate.wait()
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=wait_start_gate_done\\n")
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=apply_os_limits_begin\\n")
         stage = "apply_os_limits"
         _apply_worker_os_limits(limits)
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=apply_os_limits_done\\n")
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=receive_input_frame_begin\\n")
         stage = "receive_input_frame"
         raw = input_receiver.recv_bytes(maxlength=limits.max_input_frame_bytes)
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=receive_input_frame_done\\n")
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=decode_input_frame_begin\\n")
         stage = "decode_and_validate_input_frame"
         envelope = _decode_with_kind(raw, limits.max_input_frame_bytes)
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=decode_input_frame_done\\n")
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=validate_input_kind_begin\\n")
         stage = "validate_input_kind"
         if envelope["kind"] != "input":
             raise OCRJobProtocolError("expected input frame")
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=validate_input_kind_done\\n")
         stage = "extract_input_payload"
         input_payload = envelope["payload"]
         job_id = input_payload["job_id"]
         generation_id = input_payload["generation_id"]
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=send_starting_status_begin\\n")
         stage = "send_starting_status"
         _send_worker_frame(output_sender, "status", {
             "job_id": job_id, "phase": "starting_engine",
             "completed_documents": 0, "total_documents": len(input_payload["documents"]),
             "current_page": 0, "total_pages": 0, "error_code": None,
         }, limits, message_count)
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=send_starting_status_done\\n")
 
         # Imports, catalog reconstruction, and factory construction are delayed
         # until the parent has attached the child to its OS resource boundary.
@@ -617,12 +638,7 @@ def _ocr_worker_entry(input_receiver, output_sender, start_gate, factory_ref: st
         terminal_phase = "succeeded"
         error_code = None
     except BaseException as exc:
-        if os.environ.get("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS") == "1":
-            sys.stderr.write(
-                "OCR2_SYNTHETIC_WORKER_BOOTSTRAP_DIAGNOSTIC "
-                f"stage={stage} exception={type(exc).__name__}\\n"
-            )
-            sys.stderr.flush()
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=worker_exception\\n")
         if isinstance(exc, _PageOutputLimitError):
             error_code = "page_output_limit"
         elif isinstance(exc, OCRJobProtocolError):
