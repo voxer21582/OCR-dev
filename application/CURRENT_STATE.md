@@ -2,6 +2,14 @@
 
 Updated: 2026-11-12
 
+## Current verification boundary — 2026-11-12
+
+The 263-test result and module list below are historical only. That run included `test_local_document_store`, `test_ocr_processing`, `test_ocr_job_ui`, and `test_ocr_launcher_contract`; do not rerun that historical suite while the current R7/R8 stop/no-retry restriction applies. A past pass is not authorization. PR #115 contains a separate extraction-validator correction with synthetic coverage only; its CI does not exercise storage, worker lifecycle, R7/R8, or product acceptance. Check the exact current allowlist and authorization before any test replay.
+
+## Expense-line validator correction — PR #115 (2026-11-12)
+
+A static review of the extraction/reconciliation slice found malformed line IDs and alternative evidence could escape validation. The correction is on stacked draft [PR #115](https://github.com/voxer21582/OCR-dev/pull/115), based on CI PR #114 and application PR #106. It guards unhashable line IDs and page numbers, rejects booleans as page numbers, and applies primary evidence constraints to alternatives. GitHub Actions on head `d907efd5dedb5d6eadfa9f848973660b82b028e6` passed 22 taxonomy plus 292 application synthetic tests; independent static review of the two changed files is READY. This is not merged into main, does not test storage/worker/R7/R8, and does not establish OCR accuracy or product acceptance.
+
 ## Expense reconciliation candidate — PR #106 (2026-11-12)
 
 The public branch `codex/expense-reconciliation` is visible in open draft [PR #106](https://github.com/voxer21582/OCR-dev/pull/106); its code is reviewable but not merged or product-accepted. It contains one encrypted local case for a final expense statement plus up to 100 supporting documents uploaded in chunks of at most 20. It includes resumable local OCR processing with case-wide page/pixel/result limits, token-derived statement-line proposals (schema 0.3.0), evidence-bound deterministic suggestions, an Italian review screen, append-only human decisions, reasoned include/exclude history, same-case source-page previews, and an explicit local JSON export. Uncertain amount/currency alternatives can produce only a labelled possible match; no machine suggestion is confirmed automatically. Changed or stale processing results cannot be reconciled until reprocessed. OCR remains opt-in via `--ocr-engine rapidocr-v6`; the default stays disabled.
