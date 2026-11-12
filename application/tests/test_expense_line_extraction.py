@@ -1,4 +1,5 @@
 """Synthetic evidence-bound tests for OCR statement-line proposals."""
+import copy
 import hashlib
 import unittest
 
@@ -131,7 +132,8 @@ class ExpenseLineExtractionTests(unittest.TestCase):
         for label, mutate, page_numbers in mutations:
             with self.subTest(label=label):
                 lines = self._uncertain_amount_line()
-                evidence = lines[0]["amount"]["alternatives"][0]["evidence"][0]
+                evidence = copy.deepcopy(lines[0]["amount"]["evidence"][0])
+                lines[0]["amount"]["alternatives"][0]["evidence"] = [evidence]
                 mutate(evidence)
 
                 issues = validate_expense_lines(lines, self.digest, page_numbers)
