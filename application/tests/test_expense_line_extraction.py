@@ -140,5 +140,35 @@ class ExpenseLineExtractionTests(unittest.TestCase):
 
                 self.assertTrue(issues, f"malformed {label} alternative evidence was accepted")
 
+    def test_unhashable_primary_page_number_returns_validation_issue(self):
+        lines = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "Taxi 12,34", .1, .1, .5, .15)])
+        ])
+        lines[0]["amount"]["evidence"][0]["page_number"] = []
+
+        issues = validate_expense_lines(lines, self.digest, {1})
+
+        self.assertTrue(any("source and an inventoried page" in issue for issue in issues))
+
+    def test_boolean_primary_page_number_is_not_treated_as_page_one(self):
+        lines = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "Taxi 12,34", .1, .1, .5, .15)])
+        ])
+        lines[0]["amount"]["evidence"][0]["page_number"] = True
+
+        issues = validate_expense_lines(lines, self.digest, {1})
+
+        self.assertTrue(any("source and an inventoried page" in issue for issue in issues))
+
+    def test_unhashable_alternative_page_number_returns_validation_issue(self):
+        lines = self._uncertain_amount_line()
+        evidence = copy.deepcopy(lines[0]["amount"]["evidence"][0])
+        lines[0]["amount"]["alternatives"][0]["evidence"] = [evidence]
+        evidence["page_number"] = []
+
+        issues = validate_expense_lines(lines, self.digest, {1})
+
+        self.assertTrue(any("alternative evidence is not source-bound" in issue for issue in issues))
+
 if __name__ == "__main__":
     unittest.main()
