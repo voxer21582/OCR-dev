@@ -63,6 +63,7 @@ jobs:
           test_semantic_proposals
           test_analysis_pipeline
           test_document_validation
+          test_document_export
           test_rapidocr_adapter
           test_document_family_catalog
           test_catalog_alias_delimiters.CatalogAliasDelimiterTests
