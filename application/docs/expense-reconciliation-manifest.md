@@ -4,6 +4,10 @@ Date: 2026-11-12
 
 State: published for review in open draft PR #106; not merged or product-accepted.
 
+## Current stop/no-retry clarification — 2026-11-12
+
+The 263-test command and count below are historical evidence only. That command includes `test_local_document_store`, `test_ocr_processing`, `test_ocr_job_ui`, and `test_ocr_launcher_contract`, plus other local storage/worker paths. The current R7/R8 stop/no-retry restriction takes precedence: do not rerun the archived command or infer authorization from its historical pass. The currently reviewed synthetic CI allowlist is explicit in [PR #114](https://github.com/voxer21582/OCR-dev/pull/114); it covers selected extraction/reconciliation tests but does not verify storage or worker lifecycle. Before any local test replay, verify the current authorization and exact selector.
+
 ## Implemented in the isolated branch
 
 - One encrypted local case binds one final expense statement and up to 100 supporting documents. Attachments are uploaded in bounded batches of at most 20, with the existing per-request byte limit and resumable chunk identity.
