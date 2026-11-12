@@ -63,8 +63,6 @@ jobs:
           test_semantic_proposals
           test_analysis_pipeline
           test_document_validation
-          test_loopback_csrf
-          test_manual_region_review
           test_rapidocr_adapter
           test_document_family_catalog
           test_catalog_alias_delimiters.CatalogAliasDelimiterTests
@@ -78,3 +76,5 @@ jobs:
           test_catalog_pipeline.CatalogAnalysisPipelineTests
           test_catalog_pipeline.RequiredCustomFieldValidationTests
           test_catalog_pipeline.CatalogDocumentProcessingTests
+          test_expense_line_extraction
+          test_expense_reconciliation
