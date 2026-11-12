@@ -64,6 +64,7 @@ _CASE_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:/attachm
 _CASE_RECONCILIATION_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/reconciliation$")
 _CASE_REVIEW_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/reconciliation/review$")
 _CASE_EXPORT_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/export$")
+_CASE_DELETE_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/delete$")
 _CASE_INCLUSION_PATH = re.compile(
     r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/attachments/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/inclusion$"
 )
@@ -493,7 +494,27 @@ def _expense_case_intake_page(
         f'<label>Giustificativi (fino a 20 documenti nel lotto) <input type="file" name="files" '
         f'accept="{_ACCEPT}" multiple required></label><button type="submit">Aggiungi lotto</button></form>'
         + process_form
+        + f'<p><a href="/cases/{safe_id}/delete">Elimina fascicolo</a></p>'
         + f'<p><a href="/cases">Tutti i fascicoli</a></p></main></html>'
+    )
+
+
+def _expense_case_delete_page(case: dict[str, Any]) -> str:
+    summary = _case_status_payload(case)
+    safe_id = escape(summary["case_id"], quote=True)
+    safe_path_id = quote(summary["case_id"], safe="")
+    return (
+        '<!doctype html><html lang="it"><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1"><main>'
+        '<h1>Eliminazione permanente</h1>'
+        f'<p>Il fascicolo {safe_id} contiene {summary["document_count"]} documenti.</p>'
+        '<p>Questa azione elimina il fascicolo e i documenti non condivisi. Non può essere annullata.</p>'
+        f'<form method="post" action="/cases/{safe_path_id}/delete">'
+        f'<input type="hidden" name="_case_revision" value="{escape(summary["case_revision"], quote=True)}">'
+        f'<label>Digita l’identificativo esatto del fascicolo <input name="_confirmation" maxlength="128" required></label>'
+        '<button type="submit">Elimina fascicolo</button></form>'
+        f'<p><a href="/cases/{safe_path_id}/intake">Annulla e torna al fascicolo</a></p>'
+        '</main></html>'
     )
 
 
@@ -1473,6 +1494,7 @@ def create_expense_report_app(
         case_reconciliation_route = _CASE_RECONCILIATION_PATH.fullmatch(path)
         case_review_route = _CASE_REVIEW_PATH.fullmatch(path)
         case_export_route = _CASE_EXPORT_PATH.fullmatch(path)
+        case_delete_route = _CASE_DELETE_PATH.fullmatch(path)
         case_inclusion_route = _CASE_INCLUSION_PATH.fullmatch(path)
         case_page_route = _CASE_PAGE_PATH.fullmatch(path)
         case_intake_route = re.fullmatch(r"/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/intake", path)
@@ -1481,7 +1503,7 @@ def create_expense_report_app(
             path == "/cases" or case_route is not None
             or case_intake_route is not None or case_work_route is not None
             or case_reconciliation_route is not None or case_review_route is not None
-            or case_export_route is not None or case_inclusion_route is not None
+            or case_export_route is not None or case_delete_route is not None or case_inclusion_route is not None
             or case_page_route is not None
         )
         if is_case_route:
@@ -1560,6 +1582,53 @@ def create_expense_report_app(
                     except StoreError:
                         return _page(environ, start_response, "500 Internal Server Error", "Nota non acquisita; archivio invariato.")
                 return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+            if case_delete_route is not None:
+                case_id = case_delete_route.group(1)
+                if method == "GET":
+                    try:
+                        case = archive_store.get_case(case_id)
+                    except StoreError:
+                        return _page(environ, start_response, "500 Internal Server Error", "Fascicolo non disponibile")
+                    if case is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    return _page(environ, start_response, "200 OK", _expense_case_delete_page(case))
+                if method != "POST":
+                    return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                if not _same_origin_loopback_post(environ):
+                    return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                try:
+                    fields = _multipart_form_values(environ, max_form_bytes=4096)
+                    if set(fields) != {"_case_revision", "_confirmation"} or any(
+                        len(fields.get(name, [])) != 1 for name in fields
+                    ):
+                        raise IntakeRequestError("Conferma di eliminazione non valida")
+                    expected_revision = fields["_case_revision"][0]
+                    confirmation = fields["_confirmation"][0]
+                    if confirmation != case_id:
+                        return _page(environ, start_response, "400 Bad Request", "Conferma non valida; fascicolo invariato.")
+                    case = archive_store.get_case(case_id)
+                    if case is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    if case["case_revision"] != expected_revision:
+                        return _page(environ, start_response, "409 Conflict", "Fascicolo aggiornato; ricarica la conferma.")
+                    deleted = archive_store.delete_case(
+                        case_id,
+                        expected_revision=expected_revision,
+                        reject_processing_states=frozenset({"queued", "running", "processing", "cancelling", "paused"}),
+                    )
+                    if not deleted:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    return _page(
+                        environ, start_response, "200 OK",
+                        '<h1>Fascicolo eliminato</h1><p>I contenuti non più condivisi sono stati rimossi dall’archivio locale.</p>'
+                        '<p><a href="/cases">Torna ai fascicoli</a></p>',
+                    )
+                except IntakeRequestError:
+                    return _page(environ, start_response, "400 Bad Request", "Conferma non valida; fascicolo invariato.")
+                except StoreConcurrentUpdate:
+                    return _page(environ, start_response, "409 Conflict", "Fascicolo aggiornato o in elaborazione; ricarica e riprova.")
+                except StoreError:
+                    return _page(environ, start_response, "500 Internal Server Error", "Eliminazione non completata; archivio invariato.")
             if any((case_reconciliation_route, case_review_route, case_export_route, case_inclusion_route, case_page_route)):
                 route_match = (
                     case_reconciliation_route or case_review_route or case_export_route
