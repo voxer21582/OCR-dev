@@ -1,14 +1,20 @@
 # Document Intelligence current state
 
-Updated: 2026-11-09
+Updated: 2026-11-12
 
-## Background OCR job candidate (2026-11-11; not published)
+## Owner-recorded Windows runtime smoke (2026-11-12; synthetic only)
 
-An isolated candidate on `codex/ocr-processing-jobs` implements a bounded spawned OCR worker, privacy-safe aggregate progress, cancellation, generation-bound one-shot result publication, optional local WSGI routes, and an explicit `--ocr-engine rapidocr-v6` opt-in. The launcher default remains `disabled`; no worker, package, or model is created or loaded unless that flag is selected and a later job is submitted. The fixed factory checks RapidOCR version and the two pinned local model hashes inside the isolated worker. RapidOCR remains the chosen direction for issue #9; A4 PaddleOCR/medium research is separate.
+The owner recorded one bounded attempt-02 in [issue #9 comment 6818743640](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6818743640): RapidOCR 3.10.0 / ONNX Runtime 1.31.1 processed one generated PNG page on the Windows 11 reference PC; the expected candidate was reported once, worker exit code was 0, worker/supervisor closed, and aggregate time was 5.849 seconds. Attempt-01 remains UNCONFIRMED and was not repeated. No real expense document or OCR text was published.
+
+This is a narrow owner-recorded smoke result, not a reproducible public test artifact or independent product acceptance. It does not establish extraction accuracy, CER/WER thresholds, PDF/JPEG end-to-end support, full dependency closure, installer/upgrade/rollback behavior, offline egress, license clearance, or compatibility on other PCs. Local wheel/model inventories and the draft CycloneDX file were not published; the CycloneDX candidate was not validated against its schema. Issue #9 remains open, and the separate A4 PaddleOCR/medium research remains independent.
+
+## Background OCR worker (integrated 2026-11-11; acceptance open)
+
+The implementation merged via PR [#104](https://github.com/voxer21582/OCR-dev/pull/104), originally developed on `codex/ocr-processing-jobs`, provides a bounded spawned OCR worker, privacy-safe aggregate progress, cancellation, generation-bound one-shot result publication, optional local WSGI routes, and an explicit `--ocr-engine rapidocr-v6` opt-in. The launcher default remains `disabled`; no worker, package, or model is created or loaded unless that flag is selected and a later job is submitted. The fixed factory checks RapidOCR version and the two pinned local model hashes inside the isolated worker. RapidOCR remains the chosen direction for issue #9; A4 PaddleOCR/medium research is separate.
 
 The final explicit synthetic unittest command passed **132 tests** on 2026-11-11, including protocol/worker lifecycle, WSGI generation races, launcher default/opt-in wiring, document-progress contracts, adapter contracts, and fake runtime-factory checks. It uses fake OCR engines and generated documents only; it does not run native OCR or verify a real local model install. An independent static code review is READY after identifying and closing concurrent-start and duplicate-publication races; the reviewer did not rerun tests. The exact command, output hash, implementation scope, and limits are in the [background-job manifest](../docs/application/background-ocr-jobs-manifest.md). A broader initial command could not import three pytest-based modules because `pytest` is absent; no packages were installed. The successful run explicitly excluded those pytest modules.
 
-This candidate is published on branch `codex/ocr-processing-jobs` in open PR [#104](https://github.com/voxer21582/OCR-dev/pull/104); it is not merged. Its required GitHub check passed, but the current explicit workflow does not include the three new OCR job test modules, so that result does not validate this feature. No real-document run, accepted native OCR result, or Windows 11 product acceptance is claimed for this candidate. A separate RapidOCR runtime smoke in the sibling local staging directory has an unconfirmed result and is not counted as passing evidence. No files in the original/source worktree or R7/R8 components were changed. The provisional worker memory and payload caps are engineering bounds, not proof of native engine RSS or workload fit. Formal product acceptance remains open.
+PR [#104](https://github.com/voxer21582/OCR-dev/pull/104) was merged on 2026-11-11 at `4271447da4505571ca9087264e18c4a15592b1c8`; current `main` at this update is `4a2206a6b6c53f784277a45e195552dc33e66ed5`. The PR-head required check passed in [run 43085508008](https://github.com/voxer21582/OCR-dev/actions/runs/43085508008). The current workflow still does not explicitly select the three OCR-job test modules, so neither that PR check nor the later allowlisted runs validate worker lifecycle behavior. No real-document run, accepted native OCR result, or Windows 11 product acceptance follows from the merge. Attempt-01 of the separate RapidOCR smoke remains UNCONFIRMED and was not repeated; the owner-recorded attempt-02 result is summarized below. No R7/R8 component was changed or tested. The provisional worker memory and payload caps are engineering bounds, not proof of native engine RSS or workload fit. Formal product acceptance remains open.
 
 ## Accepted manual handoff correction (2026-11-09)
 
@@ -17,6 +23,8 @@ The accepted implementation retains the latest replacement review event per allo
 The allowlist and a `flagged` event do not constitute approval. A blocked review remains blocked, but the prompt does not necessarily display that state. No API call is made. PRs #61/#62 were merged by owner approval; main `e5cc34232702a164e24e0a6e4e2e959d43b29c63` passed 270 synthetic tests in [run 42536807942](https://github.com/voxer21582/OCR-dev/actions/runs/42536807942). No R7/R8 work is claimed.
 
 ## Verified
+
+Evidence below describes the scope and checkout/commit where it was recorded; historical entries are not a current-main acceptance claim unless explicitly tied to the current workflow or commit above.
 
 - This isolated TIFF-inventory candidate follows Classic TIFF directories beyond the initial prefix within a cumulative per-document metadata-read budget. It preserves upload/archive bounds and rejects duplicate dimension tags. The explicit synthetic regression run passed 43 tests after security-review additions; the [TIFF manifest](../docs/application/tiff-sparse-metadata-manifest.md) records memory changes, evidence and limits. No native TIFF decoder, browser or real document was used, and raster decoding is not verified.
 
@@ -43,15 +51,17 @@ The allowlist and a `flagged` event do not constitute approval. A blocked review
 - Manual region correction is bound to the source hash/page, does not run OCR, and does not write to the archive. R7/R8 were not touched.
 - `rapidocr_adapter.py` is dependency-lazy and accepts an already configured engine; no RapidOCR package/model was installed or downloaded, and no production OCR result is claimed.
 
-## Not verified
+## Not verified / product acceptance open
 
-- The catalog tests remain proposed by the separate CI PR #55. This product contribution preserves the main progress selector; it does not add test discovery.
-- The callback is a processor prerequisite, not a background-job implementation. No worker, UI, launcher, installer, production OCR runtime/model, real-document behavior or release is accepted here.
+- The current workflow on `main` uses an explicit allowlist with no test discovery; the four catalog-pipeline test classes from merged PR [#55](https://github.com/voxer21582/OCR-dev/pull/55) are additions to that list, not the whole suite. It excludes `test_ocr_processing`, `test_ocr_job_ui`, and `test_ocr_launcher_contract`; the four store-dependent selectors are also absent. The green required check in run [43286394566](https://github.com/voxer21582/OCR-dev/actions/runs/43286394566) verifies only its allowlisted tests, not worker lifecycle behavior.
+- The optional page-count callback is part of document processing but does not itself establish background-job acceptance. The bounded worker and optional RapidOCR launcher path are integrated by PR #104, with OCR disabled by default, but their dedicated tests are not in CI. Native OCR acceptance, install/update/rollback, browser workflow, real-document behavior and release remain unverified.
 - Catalog findings remain warning/indeterminate and depend on observed family-title alternatives. A manually selected family without those alternatives is not covered by this required-field behavior. No automatic catalog migration, semantic confirmation, fiscal classification or administrative approval is introduced.
 - Public migration remains selective; source ownership, privacy, licenses and scope require per-file review.
 
-## Next steps
+## Current next steps (checked 2026-11-12)
 
-1. Reconcile PR #54 and CI PR #55 with the accepted main, preserving all reviewed source/test files and both explicit selector sets. The owner approved the conditional merge sequence; merge only after the refreshed checks pass.
-2. Continue bounded worker-protocol preparation independently; no background worker is included here and native/runtime acceptance remains separate.
-3. Preserve the original checkout and all R7/R8 stop/no-retry restrictions.
+1. Issue #9 remains open. PR [#102](https://github.com/voxer21582/OCR-dev/pull/102) contains the Windows acceptance-plan refresh; its required check passed after synchronization to current main in [run 43286394566](https://github.com/voxer21582/OCR-dev/actions/runs/43286394566). The PR is open and awaits owner review/integration. PR [#113](https://github.com/voxer21582/OCR-dev/pull/113) separately records versioned RapidOCR source evidence and also remains open. Exact runtime lock/native inventory, distribution notices and independent license review, installer lifecycle, egress evidence, quality benchmark, and Windows acceptance remain open.
+2. Issue #10 remains open. PR [#111](https://github.com/voxer21582/OCR-dev/pull/111) proposes a safe local pilot protocol; it does not authorize a real-data pilot or close the issue. Preserve owner review of sample, labels, thresholds, access and retention before the pilot.
+3. Issue #42 remains open. Product PR [#106](https://github.com/voxer21582/OCR-dev/pull/106) is draft; CI/validation follow-ups #114–#116 are open and stacked. Their synthetic results do not accept the full application or real-document workflow.
+4. Keep the four store-dependent selectors and the failed #105 worker-validation path outside CI until the documented stop/no-retry conditions are resolved. Do not infer permission to rerun from the green required check.
+5. Keep the original checkout untouched and preserve all R7/R8 restrictions. No real data, native OCR, package/model download, Windows setting, or release is part of this state update.
