@@ -9,7 +9,7 @@
 
 | File | Owner | Provenance | Review state | Reason |
 | --- | --- | --- | --- | --- |
-| `docs/runtime/rapidocr-3.10.0-source-evidence.md` | OCR2 coordinator | Authored from version-pinned upstream source files and official RapidOCR documentation; no code, models, binaries, local inventory, OCR output, or private dossier copied | Independent read-only review READY; reviewed source facts, hash pins and scope; no findings | SHA-256 `9083CD9B86C4D6B3BE6DD38368F14698393A213007AF7CE53EC19BF865398B46`. Records public-source facts and precise remaining license/packaging gates for the already selected evaluation candidate. |
+| `docs/runtime/rapidocr-3.10.0-source-evidence.md` | OCR2 coordinator | Authored from version-pinned upstream source files and official RapidOCR documentation; no code, models, binaries, local inventory, OCR output, or private dossier copied | Independent read-only review READY on the updated source-loading and dictionary-fallback claims | SHA-256 `7500B893C85FAB496E8E0BEA65D0CD5F72EB8A839A7C02F1F8E580CD099FD6B1`. Records pinned source facts and precise remaining license, packaging, model-metadata, and offline-verification gates for the selected evaluation candidate. |
 
 ## Excluded material
 
@@ -23,6 +23,7 @@
 - Documentation-only change; `git diff --check` is applicable.
 - Claims are linked to exact upstream tags where possible. The RapidOCR documentation pages on `main` are explicitly labeled unpinned and used only to identify a packaging question.
 - No legal review, schema validation of an SBOM, native Windows test, network/egress test, model acquisition or real-document evaluation is claimed.
-- The manifest SHA-256 and final review result must be added to the PR after the content is final.
+- Source-note SHA-256 and independent-review status are recorded in the manifest table above. The manifest itself remains an auditable file but is not self-hashed.
 
-Independent review confirmed that the linked versioned sources support the stated candidate version, model routes, language codes, hashes and top-level license declarations. The reviewer found the remaining redistribution, complete-package inventory, SBOM, offline behavior and Windows acceptance gates correctly left open. Review was read-only; no tests, downloads, installs or runtime checks were performed.
+Independent review confirmed that the linked versioned sources support the candidate version, routes, languages, hashes, top-level license declarations, and the updated explicit-model-path/dictionary-resolution claims. It found the remaining exact model-metadata check, redistribution, package inventory, SBOM, offline behavior and Windows acceptance gates correctly left open. Review was read-only; no tests, downloads, installs, model inspection, network/egress checks or runtime checks were performed.
+
