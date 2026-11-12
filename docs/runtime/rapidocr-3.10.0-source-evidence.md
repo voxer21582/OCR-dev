@@ -26,6 +26,15 @@ This note records public, upstream evidence for the already selected evaluation 
 
 These observations come from the already-existing local demo environment; no package or model was acquired for this review.
 
+The existing demo environment is CPython 3.13.15, Windows 11 x64 (`AMD64`). PyPI's release metadata identifies the candidate archive files and expected SHA-256 values below. These are index metadata only: neither wheel archive was downloaded or compared with these digests, so they do not establish the identity of the installed distributions.
+
+| Distribution | Candidate wheel from PyPI | Expected SHA-256 from PyPI metadata | Scope |
+| --- | --- | --- | --- |
+| RapidOCR 3.10.0 | [`rapidocr-3.10.0-py3-none-any.whl`](https://pypi.org/pypi/rapidocr/3.10.0/json) (27,288,134 bytes) | `2fc34e26cd0f48514804a94f8832283039c7334076bff60768b1fed9ad068050` | Universal wheel filename; digest is an expected archive identity from PyPI JSON, not locally verified. |
+| ONNX Runtime 1.31.1 | [`onnxruntime-1.31.1-cp313-cp313-win_amd64.whl`](https://pypi.org/project/onnxruntime/1.31.1/#files) | `0558f29d5f6ac09957390c9c5495931485ee8ae7f0ce781ccee86a0ae5c2348b` | Filename matches CPython 3.13 Windows AMD64; PyPI lists the file without provenance. Digest is not locally verified. |
+
+These two records do not constitute the candidate's complete dependency lock: the transitive dependency closure, platform-specific wheel selection for every dependency, and hashes for each selected artifact still need to be captured and reviewed before a reproducible package can be claimed.
+
 | Distribution | Installed metadata and files observed | What remains unproven |
 | --- | --- | --- |
 | RapidOCR 3.10.0 | `importlib.metadata` reports `License-Expression: Apache-2.0`, `License-File: LICENSE` and `MODEL_LICENSES.md`, and 187 files recorded for the installed distribution. The installed `MODEL_LICENSES.md` (SHA-256 `C5FD0E8603D3DF743355B546121E6FE0F4EF8FF455C5A85C1681FD3AE520E153`) separates source-code and model copyrights, states Apache-2.0 for its listed models, and includes the three ONNX filenames and expected hashes below. The installed source license file SHA-256 is `3E0AF25FDD06AA9586AE97ADB00EA927EBE5A3805AC77D2D3A81CE5F55693333`. | These installed files do not identify the original wheel archive hash or prove that the final OCR2 installer retains all required notices. The notice's attribution and redistribution conditions still need an independent licensing review. |
