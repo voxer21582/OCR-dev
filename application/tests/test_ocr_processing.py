@@ -284,7 +284,7 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
             received_at="2026-11-11T10:00:00+00:00",
         )
         values = valid_limits()
-        values["job_timeout_seconds"] = 0.5
+        values["job_timeout_seconds"] = 2.0
         values["cleanup_grace_seconds"] = 0.2
         manager = OCRProcessingManager(
             "tests.test_ocr_processing:synthetic_factory_sleeps", OCRProcessLimits(**values),
@@ -293,7 +293,7 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
         os.environ["OCR2_SYNTHETIC_WORKER_DIAGNOSTICS"] = "1"
         try:
             job_id = manager.start("synthetic-generation-2", intake, decode_limits=DecodeLimits())
-            time.sleep(0.9)  # No snapshot/poll call occurs during the deadline window.
+            time.sleep(2.5)  # Allow worker startup, then observe only after the deadline without polling.
             status = manager.snapshot(job_id)
             self.assertEqual(status.phase, "failed")
             self.assertEqual(
