@@ -33,11 +33,22 @@ An additional static review found two contract gaps in statement-line extraction
 
 The tests cover extraction-to-reconciliation paths for amount/currency/date conflicts and possible duplicate statement lines when merchant is absent, JSON serialization of a date-conflict result without merchant evidence, and the WSGI reconciliation page, all review outcomes, idempotent review replay, stale revision and source-binding rejection, local source-page route membership, HTML escaping, append-only attachment inclusion history, explicit JSON download, separation from the ChatGPT handoff, and exclusion/reinclusion after a human confirmation without restoring that old decision. Page rendering is mocked in the route test; native PDF/image decoding and browser visual/accessibility behavior are not proven.
 
+### Focused current-commit verification — 2026-11-12
+
+On commit `2d829028bb58bbea33853ec1b113d7cf579519f1`, CPython 3.13.15 passed **83 synthetic unittest cases** using this explicit command from `application/`:
+
+```powershell
+$env:PYTHONPATH = 'src;tests'
+python -B -m unittest -v test_expense_line_extraction test_expense_reconciliation test_expense_reconciliation_ui test_expense_case_store test_expense_case_intake_routes test_expense_case_processing
+```
+
+This run deliberately excluded worker/launcher modules involved in PR #105 and `test_local_document_store`; it does not verify those components. The selected case-processing tests use an in-process fake worker and synthetic records. No real documents or runtime models were read or loaded. This local run does not replace GitHub Actions and is not a product acceptance result.
+
 ## Privacy and acceptance limits
 
-- No real expense document was selected, read, processed, or attached during this implementation. No real filename, OCR value, source hash, screenshot, or derived value was committed or sent to GitHub, CI, ChatGPT, or any external service.
+- The owner has identified a local reference sample for future real-document evaluation. The implementation and test runs documented here use synthetic documents; no real filename, OCR value, source hash, screenshot, or derived value was committed or sent to GitHub, CI, ChatGPT, or any external service.
 - Automated tests use synthetic records and fake OCR adapters only. They do not measure real OCR accuracy.
 - Windows runtime/model availability, install/upgrade behavior, CPU/memory use, 100-document performance, and a real-note comparison on the reference PC remain unverified.
 - This candidate is not a fiscal review, reimbursement decision, payment authorization, or accounting posting. Every suggested match needs human review.
 - Do not use this candidate for a live expense report until the owner verifies the local OCR runtime and compares its output with a real final note inside the local app.
-- The branch `codex/expense-reconciliation` is public and reviewable in [PR #106](https://github.com/voxer21582/OCR-dev/pull/106); it has not been merged. Its latest GitHub Actions run passed 279 pre-existing synthetic contracts, but the explicit selector did not include these expense-case modules. The separate [PR #105](https://github.com/voxer21582/OCR-dev/pull/105) worker-test CI currently fails two Linux worker lifecycle/error-classification assertions; its required check has not been established green. R7/R8 and their stop/no-retry restrictions were not touched.
+- The branch `codex/expense-reconciliation` is public and reviewable in [PR #106](https://github.com/voxer21582/OCR-dev/pull/106); it has not been merged. GitHub Actions passed 279 pre-existing synthetic contracts, but the explicit selector did not include these expense-case modules. The separate [PR #105](https://github.com/voxer21582/OCR-dev/pull/105) worker-test CI has one reviewed diagnostic run (#43220041764) failing two Linux worker-startup assertions. No child bootstrap marker appeared, so the root cause is unknown; no retry is authorized under the current stop condition. R7/R8 and their stop/no-retry restrictions were not touched.
