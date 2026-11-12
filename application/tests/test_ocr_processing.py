@@ -21,7 +21,8 @@ def valid_limits() -> dict[str, int | float]:
     return {
         "job_timeout_seconds": 60.0,
         "cleanup_grace_seconds": 2.0,
-        "child_memory_limit_bytes": 256 * 1024 * 1024,
+        # Match the launcher configuration for synthetic worker lifecycle tests.
+        "child_memory_limit_bytes": 2 * 1024 * 1024 * 1024 - 1,
         "max_input_frame_bytes": 1024 * 1024,
         "max_status_frame_bytes": 4096,
         "max_result_frame_bytes": 1024 * 1024,
@@ -270,15 +271,32 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
             received_at="2026-11-11T10:00:00+00:00",
         )
         values = valid_limits()
-        values["job_timeout_seconds"] = 0.5
-        values["cleanup_grace_seconds"] = 0.2
         manager = OCRProcessingManager(
             "tests.test_ocr_processing:synthetic_factory_sleeps", OCRProcessLimits(**values),
         )
+        previous_diagnostics = os.environ.get("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS")
+        os.environ["OCR2_SYNTHETIC_WORKER_DIAGNOSTICS"] = "1"
         try:
             job_id = manager.start("synthetic-generation-2", intake, decode_limits=DecodeLimits())
-            time.sleep(0.9)  # No snapshot/poll call occurs during the deadline window.
+            startup_deadline = time.monotonic() + 10
             status = manager.snapshot(job_id)
+            while status is not None and status.phase == "queued":
+                if time.monotonic() >= startup_deadline:
+                    self.fail("synthetic child did not report startup")
+                time.sleep(0.02)
+                status = manager.snapshot(job_id)
+            self.assertIsNotNone(status)
+            self.assertEqual(status.phase, "starting_engine")
+            manager._job.deadline = time.monotonic() + 0.1
+            time.sleep(0.2)  # No status polling occurs during the deadline window.
+            status = manager.snapshot(job_id)
+            observation_deadline = time.monotonic() + 10
+            while status is not None and status.phase not in {"failed", "cancelled", "succeeded"}:
+                if time.monotonic() >= observation_deadline:
+                    self.fail("supervisor did not publish a terminal status after the deadline")
+                time.sleep(0.02)
+                status = manager.snapshot(job_id)
+            self.assertIsNotNone(status)
             self.assertEqual(status.phase, "failed")
             self.assertEqual(status.error_code, "job_timeout")
             self.assertIsNone(manager.result_frame("synthetic-generation-2", job_id))
@@ -286,7 +304,13 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
             self.assertTrue(manager._job.input_sender.closed)
             self.assertTrue(manager._job.output_receiver.closed)
         finally:
-            manager.close()
+            try:
+                manager.close()
+            finally:
+                if previous_diagnostics is None:
+                    os.environ.pop("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS", None)
+                else:
+                    os.environ["OCR2_SYNTHETIC_WORKER_DIAGNOSTICS"] = previous_diagnostics
 
     def test_cancellation_reaps_child_and_invalidates_generation(self):
         from io import BytesIO
