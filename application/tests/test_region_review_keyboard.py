@@ -137,6 +137,9 @@ def _inline_region_script():
     raise AssertionError("_REGION_REVIEW_SCRIPT was not found")
 
 
+from alfa_document_intelligence.manual_region_review import normalized_rectangle
+
+
 class RegionReviewKeyboardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -155,6 +158,16 @@ class RegionReviewKeyboardTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_geometry_contract_rejects_inverted_coordinates(self):
+        cases = (
+            ("0.8", "0.2", "0.2", "0.8"),
+            ("0.2", "0.8", "0.8", "0.2"),
+        )
+        for coordinates in cases:
+            with self.subTest(coordinates=coordinates):
+                with self.assertRaisesRegex(ValueError, "positive width and height"):
+                    normalized_rectangle(*coordinates)
 
     def test_keyboard_coordinates_update_overlay_and_live_status(self):
         self._run_case("keyboard-preview")
