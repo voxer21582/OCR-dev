@@ -889,8 +889,15 @@ class OCRProcessingManager:
             if job.cancelled.is_set():
                 self._set_terminal(job, "cancelled", None)
             else:
+                deadline_expired = time.monotonic() >= job.deadline
                 self._stop_process(job)
-                self._set_terminal(job, "failed", "worker_protocol_failed")
+                if isinstance(exc, OCRJobProtocolError):
+                    error_code = "worker_protocol_failed"
+                elif deadline_expired:
+                    error_code = "job_timeout"
+                else:
+                    error_code = "worker_failed"
+                self._set_terminal(job, "failed", error_code)
         finally:
             if job.process.is_alive():
                 self._stop_process(job)
