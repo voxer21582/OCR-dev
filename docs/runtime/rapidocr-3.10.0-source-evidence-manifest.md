@@ -2,7 +2,7 @@
 
 **Prepared:** 2026-11-12
 **Base at initial branch preparation:** public `main` at `4271447da4505571ca9087264e18c4a15592b1c8`
-**Current PR base (verified 2026-11-12):** public `main` at `4a2206a6b6c53f784277a45e195552dc33e66ed5
+**Current PR base (verified 2026-11-12):** public `main` at `4a2206a6b6c53f784277a45e195552dc33e66ed5`
 **Candidate branch:** `codex/r9-license-source-evidence`
 **Related issue:** [#9](https://github.com/voxer21582/OCR-dev/issues/9)
 
