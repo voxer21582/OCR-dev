@@ -78,3 +78,6 @@ jobs:
           test_catalog_pipeline.CatalogAnalysisPipelineTests
           test_catalog_pipeline.RequiredCustomFieldValidationTests
           test_catalog_pipeline.CatalogDocumentProcessingTests
+          test_ocr_processing
+          test_ocr_job_ui
+          test_ocr_launcher_contract

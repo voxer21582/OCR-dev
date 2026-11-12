@@ -15,6 +15,7 @@ import math
 import multiprocessing
 import os
 import re
+import sys
 import threading
 import time
 import uuid
@@ -539,7 +540,10 @@ def _send_worker_frame(connection, kind: str, payload: dict[str, object], limits
     ))
 
 
-def _ocr_worker_entry(input_receiver, output_sender, start_gate, factory_ref: str, limits: OCRProcessLimits) -> None:
+def _ocr_worker_entry(
+    input_receiver, output_sender, start_gate, factory_ref: str, limits: OCRProcessLimits,
+    diagnostics_enabled: bool = False,
+) -> None:
     """Spawn target. It receives no source data until after the parent gate."""
     input_payload: dict[str, object] | None = None
     message_count = [0]
@@ -547,21 +551,49 @@ def _ocr_worker_entry(input_receiver, output_sender, start_gate, factory_ref: st
     generation_id = "unknown"
     terminal_phase = "failed"
     error_code: str | None = "worker_failed"
+    stage = "wait_start_gate"
+
+    def diagnostic(marker: bytes) -> None:
+        if diagnostics_enabled:
+            try:
+                os.write(2, marker)
+            except OSError:
+                pass
+
     try:
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=wait_start_gate_begin\n")
+        stage = "wait_start_gate"
         start_gate.wait()
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=wait_start_gate_done\n")
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=apply_os_limits_begin\n")
+        stage = "apply_os_limits"
         _apply_worker_os_limits(limits)
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=apply_os_limits_done\n")
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=receive_input_frame_begin\n")
+        stage = "receive_input_frame"
         raw = input_receiver.recv_bytes(maxlength=limits.max_input_frame_bytes)
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=receive_input_frame_done\n")
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=decode_input_frame_begin\n")
+        stage = "decode_and_validate_input_frame"
         envelope = _decode_with_kind(raw, limits.max_input_frame_bytes)
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=decode_input_frame_done\n")
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=validate_input_kind_begin\n")
+        stage = "validate_input_kind"
         if envelope["kind"] != "input":
             raise OCRJobProtocolError("expected input frame")
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=validate_input_kind_done\n")
+        stage = "extract_input_payload"
         input_payload = envelope["payload"]
         job_id = input_payload["job_id"]
         generation_id = input_payload["generation_id"]
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=send_starting_status_begin\n")
+        stage = "send_starting_status"
         _send_worker_frame(output_sender, "status", {
             "job_id": job_id, "phase": "starting_engine",
             "completed_documents": 0, "total_documents": len(input_payload["documents"]),
             "current_page": 0, "total_pages": 0, "error_code": None,
         }, limits, message_count)
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=send_starting_status_done\n")
 
         # Imports, catalog reconstruction, and factory construction are delayed
         # until the parent has attached the child to its OS resource boundary.
@@ -608,6 +640,7 @@ def _ocr_worker_entry(input_receiver, output_sender, start_gate, factory_ref: st
         terminal_phase = "succeeded"
         error_code = None
     except BaseException as exc:
+        diagnostic(b"OCR2_SYNTHETIC_WORKER_BOOTSTRAP stage=worker_exception\n")
         if isinstance(exc, _PageOutputLimitError):
             error_code = "page_output_limit"
         elif isinstance(exc, OCRJobProtocolError):
@@ -755,7 +788,10 @@ class OCRProcessingManager:
         start_gate = context.Event()
         process = context.Process(
             target=_ocr_worker_entry,
-            args=(input_receiver, output_sender, start_gate, self._adapter_factory_ref, self._limits),
+            args=(
+                input_receiver, output_sender, start_gate, self._adapter_factory_ref, self._limits,
+                os.environ.get("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS") == "1",
+            ),
             daemon=True,
         )
         job.process = process
@@ -795,11 +831,13 @@ class OCRProcessingManager:
         message_count = 0
         result: bytes | None = None
         terminal: dict[str, object] | None = None
+        stage = "startup"
         try:
             if job.cancelled.is_set():
                 self._stop_process(job)
                 self._set_terminal(job, "cancelled", None)
                 return
+            stage = "send_input"
             job.input_sender.send_bytes(job.input_frame)
             job.input_frame = b""
             job.input_sender.close()
@@ -813,18 +851,23 @@ class OCRProcessingManager:
                     self._stop_process(job)
                     self._set_terminal(job, "failed", "job_timeout")
                     return
+                stage = "wait_for_output"
                 if job.output_receiver.poll(min(0.05, remaining)):
+                    stage = "receive_frame"
                     frame = job.output_receiver.recv_bytes(
                         maxlength=max(self._limits.max_status_frame_bytes, self._limits.max_result_frame_bytes),
                     )
                     message_count += 1
                     if message_count > self._limits.max_ipc_messages:
                         raise OCRJobProtocolError("worker message count limit exceeded")
+                    stage = "classify_frame"
                     kind = _peek_canonical_kind(frame)
+                    stage = f"decode_{kind}"
                     kind_limit = self._limits.max_status_frame_bytes if kind == "status" else self._limits.max_result_frame_bytes
                     if len(frame) > kind_limit:
                         raise OCRJobProtocolError("worker message exceeds its kind limit")
                     envelope = decode_frame(frame, max_bytes=kind_limit, expected_kind=kind)
+                    stage = f"validate_{kind}"
                     payload = envelope["payload"]
                     if kind == "status":
                         if payload["job_id"] != job.job_id:
@@ -864,12 +907,32 @@ class OCRProcessingManager:
                     if job.output_receiver.poll():
                         continue
                     raise RuntimeError("worker exited without a terminal frame")
-        except BaseException:
+        except BaseException as exc:
+            if os.environ.get("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS") == "1":
+                try:
+                    alive = int(job.process.is_alive())
+                    exitcode = job.process.exitcode
+                except (OSError, ValueError):
+                    alive = -1
+                    exitcode = None
+                sys.stderr.write(
+                    "OCR2_SYNTHETIC_WORKER_DIAGNOSTIC "
+                    f"stage={stage} exception={type(exc).__name__} "
+                    f"worker_alive={alive} worker_exitcode={exitcode}\n"
+                )
+                sys.stderr.flush()
             if job.cancelled.is_set():
                 self._set_terminal(job, "cancelled", None)
             else:
+                deadline_expired = time.monotonic() >= job.deadline
                 self._stop_process(job)
-                self._set_terminal(job, "failed", "worker_protocol_failed")
+                if isinstance(exc, OCRJobProtocolError):
+                    error_code = "worker_protocol_failed"
+                elif deadline_expired:
+                    error_code = "job_timeout"
+                else:
+                    error_code = "worker_failed"
+                self._set_terminal(job, "failed", error_code)
         finally:
             if job.process.is_alive():
                 self._stop_process(job)
