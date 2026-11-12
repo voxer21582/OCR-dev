@@ -12,7 +12,7 @@ from .ocr_adapter import OCRPageResult
 _AMOUNT = re.compile(r"(?<![\w.,])([+-]?(?:\d{1,3}(?:[., ]\d{3})+|\d+)[.,]\d{2})(?![\w.,])")
 _DATE = re.compile(r"(?<!\d)(\d{4}-\d{2}-\d{2}|\d{1,2}[/. -]\d{1,2}[/. -]\d{4})(?!\d)")
 _CURRENCY = re.compile(r"(?i)(?<![A-Z])(?:EUR|USD|GBP|CHF|CAD|AUD|JPY)(?![A-Z])|€|\$|£")
-_CURRENCY_CODES = {"€": "EUR", "$": "USD", "£": "GBP"}
+_CURRENCY_CODES = {"€": "EUR", "£": "GBP"}
 _MAX_LINES = 10_000
 _MAX_LINE_TEXT_CHARS = 16_384
 
@@ -131,6 +131,48 @@ def _candidate(values, evidence, *, normalization_rule=None):
     return {"value": None, "status": "uncertain", "alternatives": alternatives, "evidence": [evidence]}
 
 
+def _currency_candidate(text, evidence):
+    matches = [match.group(0) for match in _CURRENCY.finditer(text)]
+    explicit_codes = [(value, value.upper()) for value in matches if value.isalpha()]
+    if explicit_codes:
+        return _candidate(explicit_codes, evidence, normalization_rule="currency-code")
+
+    symbols = [(value, _CURRENCY_CODES.get(value, value)) for value in matches]
+    if any(literal == "$" for literal, _ in symbols):
+        alternatives = []
+        for literal, value in symbols:
+            if value not in {item["value"] for item in alternatives}:
+                alternatives.append({"value": value, "status": "uncertain", "evidence": [evidence]})
+        return {"value": None, "status": "uncertain", "alternatives": alternatives, "evidence": [evidence]}
+    return _candidate(symbols, evidence, normalization_rule="currency-code")
+
+
+def _valid_evidence_producer(producer):
+    return (
+        isinstance(producer, dict)
+        and set(producer) == {"stage", "name", "version"}
+        and producer.get("stage") == "ocr"
+        and all(isinstance(producer.get(key), str) and producer[key] for key in ("name", "version"))
+    )
+
+
+def _evidence_region_error(region):
+    if (
+        not isinstance(region, dict)
+        or region.get("coordinate_space") != "normalized_page"
+        or not isinstance(region.get("polygon"), list)
+        or len(region["polygon"]) < 3
+    ):
+        return "requires a normalized page region"
+    if any(
+        not isinstance(point, list) or len(point) != 2
+        or any(not isinstance(coord, (int, float)) or isinstance(coord, bool) or not math.isfinite(coord) or not 0 <= coord <= 1 for coord in point)
+        for point in region["polygon"]
+    ):
+        return "region coordinates are invalid"
+    return None
+
+
 def extract_expense_lines(pages: Iterable[OCRPageResult]) -> list[dict[str, Any]]:
     """Group OCR tokens by visual row and propose values without confirming them."""
     result = []
@@ -156,13 +198,13 @@ def extract_expense_lines(pages: Iterable[OCRPageResult]) -> list[dict[str, Any]
             }
             amounts = [(match.group(0), _decimal_amount(match.group(0))) for match in _AMOUNT.finditer(text)]
             amounts = [(literal, value) for literal, value in amounts if value is not None]
-            currencies = [(match.group(0), _CURRENCY_CODES.get(match.group(0), match.group(0).upper())) for match in _CURRENCY.finditer(text)]
+            currency = _currency_candidate(text, evidence)
             dates = _date_values(text)
             result.append({
                 "line_id": f"line-p{page.page_number:04d}-{row_number:05d}",
                 "description": {"value": text, "status": "observed", "alternatives": [], "evidence": [evidence]},
                 "amount": _candidate(amounts, evidence, normalization_rule="decimal-amount"),
-                "currency": _candidate(currencies, evidence, normalization_rule="currency-code"),
+                "currency": currency,
                 "date": _candidate(dates, evidence, normalization_rule="iso-date"),
                 "merchant": {"value": None, "status": "absent", "alternatives": [], "evidence": []},
             })
@@ -215,17 +257,12 @@ def validate_expense_lines(lines, source_hash: str, page_numbers: set[int]) -> l
                 if not isinstance(item.get("literal"), str) or len(item["literal"]) > _MAX_LINE_TEXT_CHARS or not isinstance(item.get("token_ids"), list) or not item["token_ids"] or any(not isinstance(token_id, str) or not token_id or len(token_id) > 256 for token_id in item.get("token_ids", [])) or len(set(item.get("token_ids", []))) != len(item.get("token_ids", [])):
                     issues.append(f"{path}: evidence requires literal and token IDs")
                 producer = item.get("producer")
-                if not isinstance(producer, dict) or set(producer) != {"stage", "name", "version"} or producer.get("stage") != "ocr" or any(not isinstance(producer.get(key), str) or not producer[key] for key in ("name", "version")):
+                if not _valid_evidence_producer(producer):
                     issues.append(f"{path}: evidence producer is invalid")
                 region = item.get("region")
-                if not isinstance(region, dict) or region.get("coordinate_space") != "normalized_page" or not isinstance(region.get("polygon"), list) or len(region["polygon"]) < 3:
-                    issues.append(f"{path}: evidence requires a normalized page region")
-                elif any(
-                    not isinstance(point, list) or len(point) != 2
-                    or any(not isinstance(coord, (int, float)) or isinstance(coord, bool) or not math.isfinite(coord) or not 0 <= coord <= 1 for coord in point)
-                    for point in region["polygon"]
-                ):
-                    issues.append(f"{path}: evidence region coordinates are invalid")
+                region_error = _evidence_region_error(region)
+                if region_error:
+                    issues.append(f"{path}: evidence {region_error}")
             normalization = candidate.get("normalization")
             if normalization is not None and (not isinstance(normalization, dict) or normalization.get("normalized_value") != candidate.get("value")):
                 issues.append(f"{path}: normalization does not match candidate value")
@@ -241,4 +278,10 @@ def validate_expense_lines(lines, source_hash: str, page_numbers: set[int]) -> l
                 for item in alternative["evidence"]:
                     if not isinstance(item, dict) or item.get("source_sha256") != source_hash or item.get("page_number") not in page_numbers or not isinstance(item.get("literal"), str) or not isinstance(item.get("token_ids"), list) or not item["token_ids"]:
                         issues.append(f"{path}: alternative evidence is not source-bound")
+                        continue
+                    if not _valid_evidence_producer(item.get("producer")):
+                        issues.append(f"{path}: alternative evidence producer is invalid")
+                    region_error = _evidence_region_error(item.get("region"))
+                    if region_error:
+                        issues.append(f"{path}: alternative evidence {region_error}")
     return issues

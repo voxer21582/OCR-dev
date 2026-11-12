@@ -2,7 +2,7 @@
 import hashlib
 import unittest
 
-from alfa_document_intelligence.expense_line_extraction import extract_expense_lines
+from alfa_document_intelligence.expense_line_extraction import extract_expense_lines, validate_expense_lines
 from alfa_document_intelligence.ocr_adapter import OCRPageResult, OCRToken
 
 
@@ -67,6 +67,47 @@ class ExpenseLineExtractionTests(unittest.TestCase):
         self.assertEqual(result[1]["amount"]["value"], "35.50")
         self.assertEqual(result[1]["currency"]["value"], "EUR")
         self.assertEqual(result[1]["date"]["status"], "absent")
+
+    def test_dollar_symbol_stays_uncertain_without_an_explicit_currency_code(self):
+        result = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "$ 50.00", .1, .1, .5, .15)])
+        ])
+
+        currency = result[0]["currency"]
+        self.assertEqual(currency["status"], "uncertain")
+        self.assertIsNone(currency["value"])
+        self.assertEqual([item["value"] for item in currency["alternatives"]], ["$"])
+
+        identified = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "$ 50.00 USD", .1, .1, .5, .15)])
+        ])[0]["currency"]
+        self.assertEqual(identified["status"], "observed")
+        self.assertEqual(identified["value"], "USD")
+
+    def _uncertain_amount_line(self):
+        result = extract_expense_lines([
+            self.page(1, [
+                _token("p1-t1", "2 x 10,00", .1, .1, .5, .15),
+                _token("p1-t2", "20,00", .7, .1, .9, .15),
+            ])
+        ])
+        return result
+
+    def test_alternative_evidence_requires_a_normalized_page_region(self):
+        result = self._uncertain_amount_line()
+        result[0]["amount"]["alternatives"][0]["evidence"][0].pop("region")
+
+        issues = validate_expense_lines(result, self.digest, {1})
+
+        self.assertTrue(any("alternative evidence requires a normalized page region" in issue for issue in issues))
+
+    def test_alternative_evidence_requires_ocr_producer_metadata(self):
+        result = self._uncertain_amount_line()
+        result[0]["amount"]["alternatives"][0]["evidence"][0].pop("producer")
+
+        issues = validate_expense_lines(result, self.digest, {1})
+
+        self.assertTrue(any("alternative evidence producer is invalid" in issue for issue in issues))
 
 
 if __name__ == "__main__":
