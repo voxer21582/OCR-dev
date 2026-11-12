@@ -86,12 +86,26 @@ def validate_taxonomy_binding(binding: Any) -> tuple[dict[str, Any], str]:
 
 
 def bind_document_record(record: Mapping[str, Any], binding: Mapping[str, Any]) -> dict[str, Any]:
-    """Return a bound document copy using the catalog generation's document schema."""
+    """Return a bound document copy without changing an existing taxonomy binding."""
     record_schema_version = record.get("schema_version") if isinstance(record, Mapping) else None
     if (not isinstance(record, Mapping) or not isinstance(record_schema_version, str)
             or record_schema_version not in {"0.1.0", DOCUMENT_SCHEMA_VERSION}):
         raise TaxonomyBindingError()
     snapshot, digest = validate_taxonomy_binding(dict(binding))
+    if "taxonomy_binding" in record:
+        if record_schema_version != DOCUMENT_SCHEMA_VERSION:
+            raise TaxonomyBindingError()
+        existing_snapshot, existing_digest = validate_taxonomy_binding(record["taxonomy_binding"])
+        expected_record_schema = (
+            DOCUMENT_SCHEMA_VERSION if existing_snapshot["schema_version"] == CATALOG_SCHEMA_VERSION
+            else DOCUMENT_SCHEMA_VERSION_V3
+        )
+        if record_schema_version != expected_record_schema:
+            raise TaxonomyBindingError("taxonomy_binding_version_mismatch")
+        if existing_digest != digest or existing_snapshot != snapshot:
+            raise TaxonomyBindingError("taxonomy_binding_conflict")
+        return deepcopy(dict(record))
+
     result = deepcopy(dict(record))
     result["schema_version"] = (
         DOCUMENT_SCHEMA_VERSION if snapshot["schema_version"] == CATALOG_SCHEMA_VERSION
