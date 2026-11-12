@@ -10,7 +10,7 @@
 
 | File | SHA-256 | Owner | Provenance | Review and inclusion reason |
 | --- | --- | --- | --- | --- |
-| `docs/runtime/issue-10-pilot-protocol-proposal.md` | `6BC28140A95E40C2008482EF16DFFEDF652C00EE19B4E383D9A2D660B74407D9` | `voxerino` (project owner; author confirmed in this chat) | Authored for public OCR2 from issue #10, the owner's recorded choices for local use, real expense documents, batch size, source of truth and retention, and the accepted issue #9 runtime direction. No private files, code, data, OCR output, or hardware identifiers were copied. | Independent review pending. Included to turn known requirements into a reviewable local-pilot proposal while keeping unresolved choices and runtime/product gates visible. |
+| `docs/runtime/issue-10-pilot-protocol-proposal.md` | `6BC28140A95E40C2008482EF16DFFEDF652C00EE19B4E383D9A2D660B74407D9` | `voxerino` (project owner; author confirmed in this chat) | Authored for public OCR2 from issue #10, the owner's recorded choices for local use, real expense documents, batch size, source of truth and retention, and the accepted issue #9 runtime direction. No private files, code, data, OCR output, or hardware identifiers were copied. | Independent review READY on commit `21fd34b88139d73c02b90f99f46bf64eb513370c`; reviewer verified the exact proposal hash and R7/R8 boundary. Included to turn known requirements into a reviewable local-pilot proposal while keeping unresolved choices and runtime/product gates visible. |
 
 ## Excluded content
 
@@ -24,7 +24,7 @@
 - `git diff --check`: passed on the final manifest correction; repeat on the complete staged diff before publication.
 - No functional tests apply to this document-only proposal. No documents, OCR, browser, installer, runtime, archive, or Windows settings were accessed or tested.
 - The branch is based on the reviewed CI candidate that excludes the approved store-dependent selectors. Opening a PR from this branch is expected to run the existing explicit synthetic allowlist only; no workflow or required check is changed here.
-- The independent reviewer must examine the exact proposal and this manifest before the branch is published. The proposal hash is SHA-256 over its committed Git blob bytes; compute it from `git show <commit>:docs/runtime/issue-10-pilot-protocol-proposal.md`, not from a checkout whose line endings Git may normalize.
+- Independent reviewer examined the exact proposal and manifest at commit `21fd34b88139d73c02b90f99f46bf64eb513370c`. This follow-up only records that outcome. The proposal hash is SHA-256 over its committed Git blob bytes; recompute it from `git show <commit>:docs/runtime/issue-10-pilot-protocol-proposal.md` before publication if the proposal changes.
 - A public-content review cannot verify privacy or deletion behavior of the application. The protocol explicitly keeps those product checks blocked until R7/R8 are formally cleared.
 
 The proposal is a plan, not an accepted pilot, quality result, runtime qualification, or product release.
