@@ -24,6 +24,8 @@ The allowlist and a `flagged` event do not constitute approval. A blocked review
 
 ## Verified
 
+Evidence below describes the scope and checkout/commit where it was recorded; historical entries are not a current-main acceptance claim unless explicitly tied to the current workflow or commit above.
+
 - This isolated TIFF-inventory candidate follows Classic TIFF directories beyond the initial prefix within a cumulative per-document metadata-read budget. It preserves upload/archive bounds and rejects duplicate dimension tags. The explicit synthetic regression run passed 43 tests after security-review additions; the [TIFF manifest](../docs/application/tiff-sparse-metadata-manifest.md) records memory changes, evidence and limits. No native TIFF decoder, browser or real document was used, and raster decoding is not verified.
 
 - Accepted PRs #63/#64 correct context-dependent tax arithmetic using exact integer cents. Canonical amount strings longer than 128 characters intentionally produce the existing warning/indeterminate finding; the limit applies to the calculation, not the full input or evidence. Ten selected synthetic tests passed locally, with RED and the reproduction command recorded in the [exact arithmetic manifest](../docs/application/exact-tax-arithmetic-manifest.md). The refreshed PR run [42537191088](https://github.com/voxer21582/OCR-dev/actions/runs/42537191088) passed 276 synthetic tests before owner-approved integration. Evidence and input remain preserved; no fiscal or payment approval is implied.
@@ -49,10 +51,10 @@ The allowlist and a `flagged` event do not constitute approval. A blocked review
 - Manual region correction is bound to the source hash/page, does not run OCR, and does not write to the archive. R7/R8 were not touched.
 - `rapidocr_adapter.py` is dependency-lazy and accepts an already configured engine; no RapidOCR package/model was installed or downloaded, and no production OCR result is claimed.
 
-## Not verified
+## Not verified / product acceptance open
 
-- The catalog tests remain proposed by the separate CI PR #55. This product contribution preserves the main progress selector; it does not add test discovery.
-- The callback is a processor prerequisite, not a background-job implementation. No worker, UI, launcher, installer, production OCR runtime/model, real-document behavior or release is accepted here.
+- The current workflow on `main` uses an explicit allowlist with no test discovery; the four catalog-pipeline test classes from merged PR [#55](https://github.com/voxer21582/OCR-dev/pull/55) are additions to that list, not the whole suite. It excludes `test_ocr_processing`, `test_ocr_job_ui`, and `test_ocr_launcher_contract`; the four store-dependent selectors are also absent. The green required check in run [43286394566](https://github.com/voxer21582/OCR-dev/actions/runs/43286394566) verifies only its allowlisted tests, not worker lifecycle behavior.
+- The page-count callback remains a processor prerequisite. The bounded worker and optional RapidOCR launcher path are integrated by PR #104, with OCR disabled by default, but their dedicated tests are not in CI. Native OCR acceptance, install/update/rollback, browser workflow, real-document behavior and release remain unverified.
 - Catalog findings remain warning/indeterminate and depend on observed family-title alternatives. A manually selected family without those alternatives is not covered by this required-field behavior. No automatic catalog migration, semantic confirmation, fiscal classification or administrative approval is introduced.
 - Public migration remains selective; source ownership, privacy, licenses and scope require per-file review.
 
