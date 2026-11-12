@@ -1,7 +1,8 @@
 # Publication manifest — RapidOCR candidate source evidence
 
 **Prepared:** 2026-11-12
-**Base:** public `main` at `4271447da4505571ca9087264e18c4a15592b1c8`
+**Base at initial branch preparation:** public `main` at `4271447da4505571ca9087264e18c4a15592b1c8`
+**Current PR base (verified 2026-11-12):** public `main` at `4a2206a6b6c53f784277a45e195552dc33e66ed5
 **Candidate branch:** `codex/r9-license-source-evidence`
 **Related issue:** [#9](https://github.com/voxer21582/OCR-dev/issues/9)
 
@@ -9,7 +10,7 @@
 
 | File | Owner | Provenance | Review state | Reason |
 | --- | --- | --- | --- | --- |
-| `docs/runtime/rapidocr-3.10.0-source-evidence.md` | OCR2 coordinator | Authored from version-pinned upstream source files, official RapidOCR documentation, PyPI release metadata, and aggregate observations from already-present local candidate artifacts; no model, wheel, character content, code, OCR output, local path, or private dossier copied | Independent read-only review READY for wording, source metadata, compatibility tags, hash linkage, scope, and stated limits. The reviewer did not reproduce the local Python/environment observation, protobuf scan, package metadata, RECORD counts, or license-file hashes | SHA-256 `9246B9CA9B80A1AF5E4B61A52746223617318AA19FBC09B974F92B4CBE783D79`. Records pinned source facts, PyPI expected wheel filenames/digests (not locally verified), hash-bound local model and installed-package observations, and remaining license, final-package inventory, and offline-verification gates. |
+| `docs/runtime/rapidocr-3.10.0-source-evidence.md` | OCR2 coordinator | Authored from version-pinned upstream source files, official RapidOCR documentation, PyPI release metadata, and aggregate observations from already-present local candidate artifacts; no model, wheel, character content, code, OCR output, local path, or private dossier copied | Initial independent read-only review READY for wording, source metadata, compatibility tags, hash linkage, scope, and stated limits. Two editorial clarifications were added after that review; final-head re-review is pending. The reviewer did not reproduce the local Python/environment observation, protobuf scan, package metadata, RECORD counts, or license-file hashes | SHA-256 `216AF7871C9819F92A841E1F684483E852B74B00CE1385E8F4DCD1BD9FF3F706` (computed over the UTF-8 note content fetched from the PR branch after the wording correction). Records pinned source facts, PyPI expected wheel filenames/digests (not locally verified), hash-bound local model and installed-package observations, and remaining license, final-package inventory, and offline-verification gates. |
 
 ## Excluded material
 
