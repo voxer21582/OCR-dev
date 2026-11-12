@@ -110,5 +110,33 @@ class ExpenseLineExtractionTests(unittest.TestCase):
         self.assertTrue(any("alternative evidence producer is invalid" in issue for issue in issues))
 
 
+    def test_non_string_unhashable_line_id_returns_validation_issue(self):
+        lines = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "Taxi 12,34", .1, .1, .5, .15)])
+        ])
+        lines[0]["line_id"] = ["not", "hashable"]
+
+        issues = validate_expense_lines(lines, self.digest, {1})
+
+        self.assertTrue(any(".line_id: invalid or duplicate" in issue for issue in issues))
+
+    def test_alternative_evidence_enforces_the_primary_evidence_constraints(self):
+        mutations = (
+            ("cross-page", lambda item: item.update(page_number=2), {1, 2}),
+            ("oversized-literal", lambda item: item.update(literal="x" * 16_385), {1}),
+            ("non-string-token-id", lambda item: item.update(token_ids=[["nested"]]), {1}),
+            ("duplicate-token-id", lambda item: item.update(token_ids=["same", "same"]), {1}),
+            ("oversized-token-id", lambda item: item.update(token_ids=["x" * 257]), {1}),
+        )
+        for label, mutate, page_numbers in mutations:
+            with self.subTest(label=label):
+                lines = self._uncertain_amount_line()
+                evidence = lines[0]["amount"]["alternatives"][0]["evidence"][0]
+                mutate(evidence)
+
+                issues = validate_expense_lines(lines, self.digest, page_numbers)
+
+                self.assertTrue(issues, f"malformed {label} alternative evidence was accepted")
+
 if __name__ == "__main__":
     unittest.main()
