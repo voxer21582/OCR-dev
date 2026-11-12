@@ -1,0 +1,36 @@
+# RapidOCR 3.10.0 candidate: upstream source evidence
+
+**Reviewed:** 2026-11-12
+**Status:** partial source review; not a legal opinion, redistribution approval, or runtime acceptance
+**Related:** [issue #9](https://github.com/voxer21582/OCR-dev/issues/9)
+
+## Scope
+
+This note records public, upstream evidence for the already selected evaluation direction: RapidOCR 3.10.0, PP-OCRv6 multilingual small detection and recognition, and ONNX Runtime CPU 1.31.1. It does not select a different runtime, acquire artifacts, or change the product's disabled-by-default OCR setting.
+
+## Facts verified from upstream sources
+
+| Item | Versioned source evidence | What it establishes | What it does not establish |
+| --- | --- | --- | --- |
+| RapidOCR source | [`RapidOCR` v3.10.0 `LICENSE`](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/LICENSE) declares Apache License 2.0; [v3.10.0 release](https://github.com/RapidAI/RapidOCR/releases/tag/v3.10.0) identifies the tagged release commit `bd941da`. | The upstream source repository's declared license and version identity. | License closure for the exact Python wheel, its transitive dependencies, or every bundled file. |
+| PP-OCRv6 multilingual detector | [`default_models.yaml` at v3.10.0](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/python/rapidocr/default_models.yaml) maps `multi_PP-OCRv6_det_small` to the ONNX file and SHA-256 `090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f`. | A versioned upstream model route and integrity value that match the candidate factory's detector pin. | Ownership, licensing or redistribution rights for the model file. A hash proves identity, not permission. |
+| PP-OCRv6 multilingual recognizer | The same versioned [`default_models.yaml`](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/python/rapidocr/default_models.yaml) maps `multi_PP-OCRv6_rec_small` to the ONNX file and SHA-256 `6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884`. | A versioned upstream model route and integrity value that match the candidate factory's recognizer pin. | Ownership, licensing or redistribution rights for the model file. A hash proves identity, not permission. |
+| Language route | The same file lists `en` and `it` in the PP-OCRv6 multilingual supported-language set and maps the `small` detector and recognizer to multilingual model keys. | Upstream routing metadata for Italian and English in this candidate. | Recognition quality or acceptance for OCR2 documents. |
+| ONNX Runtime | [`onnxruntime` v1.31.1 `LICENSE`](https://github.com/microsoft/onnxruntime/blob/v1.31.1/LICENSE) declares MIT; the exact tag also publishes [`ThirdPartyNotices.txt`](https://github.com/microsoft/onnxruntime/blob/v1.31.1/ThirdPartyNotices.txt). The [v1.31.1 release](https://github.com/microsoft/onnxruntime/releases/tag/v1.31.1) identifies commit `6af1a93`. | The upstream version and top-level license, and the existence of a release-specific third-party notices file. | Compliance of the exact Windows wheel/native DLL inventory or satisfaction of each notice obligation in the final installer. |
+| Model packaging behavior | RapidOCR's [installation guide](https://github.com/RapidAI/RapidOCRDocs/blob/main/docs/install_usage/rapidocr/install.en.md), consulted 2026-11-12, says the `rapidocr` wheel includes three models. Its [model list](https://github.com/RapidAI/RapidOCRDocs/blob/main/docs/model_list.md) says model routes can resolve hosted assets. | Packaging and default-routing behavior that must be checked against the exact pinned wheel. | The contents of OCR2's exact wheel, whether each bundled model is loaded, or whether OCR2 is network-free. These pages are on `main`, not a version-pinned documentation tag. |
+
+## Reconciliation with the OCR2 candidate
+
+The current candidate factory pins and hashes two local PP-OCRv6 small ONNX files, passes their explicit local paths to RapidOCR, sets the local model root, and disables the classifier. Its synthetic factory tests exercise those parameters with fake models. The separate Windows smoke recorded on issue #9 is evidence for one synthetic inference and worker lifecycle on the reference PC; it does not prove egress behavior, installer contents, complete license closure, or OCR quality on the user's notes.
+
+The upstream packaging note means the runtime package's *entire distributed contents* must be inventoried. Reviewing only the two model files that OCR2 explicitly uses is insufficient if the installer includes the unmodified wheel and its additional bundled content. Keep every artifact hash-bound to the exact candidate tuple.
+
+## Remaining gate work
+
+1. Capture the exact Windows wheel and model artifact identities already authorized for the candidate; enumerate all files actually included, including native binaries, data files, licenses and notices. Do not infer the wheel file list from current `main` documentation.
+2. Reconcile that complete inventory against the exact distribution metadata and upstream license/notice files. Include all bundled-but-unused artifacts unless the final package demonstrably omits them.
+3. Produce and validate a CycloneDX SBOM for the exact package candidate; the previously prepared local draft was not schema-validated and is not evidence of a complete installer SBOM.
+4. Obtain independent licensing review for the complete, hash-bound bundle before any redistribution or release claim.
+5. Separately verify offline behavior using an approved bounded plan; source configuration and an explicit local path do not by themselves prove that the full runtime makes no network requests.
+
+Until those steps are complete, the RapidOCR candidate remains an evaluation direction, not a redistributable product tuple. No model or package was downloaded or installed for this note, and no real documents were accessed.
