@@ -39,3 +39,8 @@ The adapter tests prove byte-binding for a hypothetical scanner only; they do no
 `fingerprints.py` provides an opt-in SQLite registry for exact-content duplicate detection across separate runs. The caller must supply the database path; there is no implicit project-data directory. It stores only a role (`document`/`archive`), SHA-256, and occurrence count. It never stores source filename, employee identity, or file bytes, and reports repeated occurrences without deleting, merging, or rejecting them. Exact-byte matching will not detect rescans, recompression, crops, or altered metadata.
 
 A SHA-256 fingerprint is still linkable metadata. Treat the database as sensitive: place it only in an approved private location, restrict access, define retention/deletion and backup behavior, and protect it at rest using the host's approved storage controls. This prototype does not encrypt the database or apply a retention policy. The SQLite tests use temporary synthetic-only databases.
+
+
+## Byte-only source preflight
+
+`preflight_source_bytes(content, max_bytes=...)` in `source_preflight.py` provides the narrow in-memory contract from issue #22. It requires an explicit positive byte limit, recognizes PDF/PNG/JPEG/WebP/TIFF by the existing signature classifier, ignores an optional declared extension, and returns only SHA-256, byte count and media kind. Stable error codes reject invalid limits, non-bytes, empty input, oversized input and unsupported signatures. The function does not open paths, decode documents, count pages, or claim internal format validity.
