@@ -9,7 +9,7 @@
 
 | File | Owner | Provenance | Review state | Reason |
 | --- | --- | --- | --- | --- |
-| `docs/runtime/rapidocr-3.10.0-source-evidence.md` | OCR2 coordinator | Authored from version-pinned upstream source files and official RapidOCR documentation; no code, models, binaries, local inventory, OCR output, or private dossier copied | Independent read-only review READY on the updated source-loading and dictionary-fallback claims | SHA-256 `7500B893C85FAB496E8E0BEA65D0CD5F72EB8A839A7C02F1F8E580CD099FD6B1`. Records pinned source facts and precise remaining license, packaging, model-metadata, and offline-verification gates for the selected evaluation candidate. |
+| `docs/runtime/rapidocr-3.10.0-source-evidence.md` | OCR2 coordinator | Authored from version-pinned upstream source files and official RapidOCR documentation; adds only the hash and aggregate metadata result of an already-present local candidate artifact; no model, character content, code, OCR output, local path, or private dossier copied | Independent read-only review READY for wording, scope, hash linkage, and stated limits. The reviewer did not reproduce the local hash/protobuf inspection | SHA-256 `FB35CE915269B04D26A8EA0372C6F3E83023B8DE074C5DC8AA384CCF78CC11F9`. Records pinned source facts, a hash-bound recognizer metadata observation, and the remaining license, full-package inventory, and offline-verification gates. |
 
 ## Excluded material
 
@@ -25,5 +25,5 @@
 - No legal review, schema validation of an SBOM, native Windows test, network/egress test, model acquisition or real-document evaluation is claimed.
 - Source-note SHA-256 and independent-review status are recorded in the manifest table above. The manifest itself remains an auditable file but is not self-hashed.
 
-Independent review confirmed that the linked versioned sources support the candidate version, routes, languages, hashes, top-level license declarations, and the updated explicit-model-path/dictionary-resolution claims. It found the remaining exact model-metadata check, redistribution, package inventory, SBOM, offline behavior and Windows acceptance gates correctly left open. Review was read-only; no tests, downloads, installs, model inspection, network/egress checks or runtime checks were performed.
+Independent review confirmed that the linked versioned sources support the candidate version, routes, languages, hashes, top-level license declarations, and the explicit-model-path/dictionary-resolution claims. A follow-up read-only review found the local artifact observation accurately scoped and tied to the pinned hash; the reviewer did not reproduce the hash/protobuf inspection. That inspection checked the expected SHA-256 before parsing only top-level ONNX metadata using Python's standard library; it emitted key presence and line count, not character values. Installed distribution metadata was read with `importlib.metadata`. No tests, downloads, installs, model inference, network/egress checks or real documents were used. The exact model identity and metadata are verified locally; redistribution, full package inventory, SBOM, offline behavior and Windows acceptance remain open.
 
