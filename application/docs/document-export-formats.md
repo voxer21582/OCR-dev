@@ -45,7 +45,27 @@ encryption, access control, or secure deletion.
 
 ## Availability
 
-The serializers are currently a local Python capability only. They are not
-connected to a browser UI, save dialog, archive selection flow, or import path.
-No user-facing export operation is available until that integration is
-implemented and verified.
+The local archive UI exposes explicit JSON and CSV download links for archived
+records. The request handler retrieves the selected record from the configured
+`LocalDocumentStore`, serializes it with the functions above, and returns it as
+a download; it does not export an unarchived volatile session. The UI also
+states that JSON contains the complete record while CSV is a tabular projection
+and neither includes the original source bytes.
+
+This integration is visible in
+`src/alfa_document_intelligence/local_intake_app.py` in
+`_archive_list_page`, `_archive_document_page`, and the
+`GET /archive/export/{id}.{json|csv}` handler. The focused synthetic coverage
+is in `tests/test_local_document_archive_ui.py::LocalDocumentArchiveUITests.test_archive_list_open_and_json_csv_exports_keep_evidence`.
+On 2026-11-11, the complete focused module passed locally with:
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m unittest discover -s tests -p test_local_document_archive_ui.py -v
+```
+The run reported 8 passing tests. This module remains outside the hosted CI
+allowlist. The local unittest result does not verify a browser download on
+Windows or user acceptance. On Windows, the test setup instantiated
+`LocalDocumentStore` in ordinary temporary directories and therefore exercised
+its fixed-drive and reparse-path validation. It created no junctions and did
+not run the dedicated R7 probe; this result is not R7 acceptance evidence or
+authorization to repeat that probe.

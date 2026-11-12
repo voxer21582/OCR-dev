@@ -76,3 +76,16 @@ jobs:
           test_catalog_pipeline.CatalogAnalysisPipelineTests
           test_catalog_pipeline.RequiredCustomFieldValidationTests
           test_catalog_pipeline.CatalogDocumentProcessingTests
+          test_expense_reports
+          test_expense_report_intake_session
+          test_materialized_upload_batch
+          test_fingerprints
+          test_hashed_lock
+          test_chatgpt_handoff
+          test_manual_chatgpt_handoff_ui
+          test_review_ui
+          test_review_ledger
+          test_multipage_tiff_processing_contract
+          test_synthetic_ocr_metrics
+          test_security_gate
+          test_document_export
