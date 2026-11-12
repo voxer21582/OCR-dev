@@ -548,16 +548,24 @@ def _ocr_worker_entry(input_receiver, output_sender, start_gate, factory_ref: st
     generation_id = "unknown"
     terminal_phase = "failed"
     error_code: str | None = "worker_failed"
+    stage = "wait_start_gate"
     try:
+        stage = "wait_start_gate"
         start_gate.wait()
+        stage = "apply_os_limits"
         _apply_worker_os_limits(limits)
+        stage = "receive_input_frame"
         raw = input_receiver.recv_bytes(maxlength=limits.max_input_frame_bytes)
+        stage = "decode_and_validate_input_frame"
         envelope = _decode_with_kind(raw, limits.max_input_frame_bytes)
+        stage = "validate_input_kind"
         if envelope["kind"] != "input":
             raise OCRJobProtocolError("expected input frame")
+        stage = "extract_input_payload"
         input_payload = envelope["payload"]
         job_id = input_payload["job_id"]
         generation_id = input_payload["generation_id"]
+        stage = "send_starting_status"
         _send_worker_frame(output_sender, "status", {
             "job_id": job_id, "phase": "starting_engine",
             "completed_documents": 0, "total_documents": len(input_payload["documents"]),
@@ -609,6 +617,12 @@ def _ocr_worker_entry(input_receiver, output_sender, start_gate, factory_ref: st
         terminal_phase = "succeeded"
         error_code = None
     except BaseException as exc:
+        if os.environ.get("OCR2_SYNTHETIC_WORKER_DIAGNOSTICS") == "1":
+            sys.stderr.write(
+                "OCR2_SYNTHETIC_WORKER_BOOTSTRAP_DIAGNOSTIC "
+                f"stage={stage} exception={type(exc).__name__}\\n"
+            )
+            sys.stderr.flush()
         if isinstance(exc, _PageOutputLimitError):
             error_code = "page_output_limit"
         elif isinstance(exc, OCRJobProtocolError):
