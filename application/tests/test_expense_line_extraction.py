@@ -170,5 +170,24 @@ class ExpenseLineExtractionTests(unittest.TestCase):
 
         self.assertTrue(any("alternative evidence is not source-bound" in issue for issue in issues))
 
+
+    def test_unhashable_candidate_status_returns_validation_issue(self):
+        lines = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "Taxi 12,34", .1, .1, .5, .15)])
+        ])
+        lines[0]["amount"]["status"] = []
+
+        issues = validate_expense_lines(lines, self.digest, {1})
+
+        self.assertTrue(any("invalid candidate status" in issue for issue in issues))
+
+    def test_unhashable_alternative_status_returns_validation_issue(self):
+        lines = self._uncertain_amount_line()
+        lines[0]["amount"]["alternatives"][0]["status"] = []
+
+        issues = validate_expense_lines(lines, self.digest, {1})
+
+        self.assertTrue(any("alternative candidate is invalid" in issue for issue in issues))
+
 if __name__ == "__main__":
     unittest.main()

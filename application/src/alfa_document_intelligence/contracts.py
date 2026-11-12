@@ -97,7 +97,10 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
 
     family = record.get("document_family")
     is_custom_family = isinstance(family, str) and bool(_CUSTOM_FAMILY_ID.fullmatch(family))
-    if "document_family" in record and family not in _DOCUMENT_FAMILIES and not is_custom_family:
+    if "document_family" in record and (
+        not isinstance(family, str)
+        or (family not in _DOCUMENT_FAMILIES and not is_custom_family)
+    ):
         issues.append("document_family: unsupported family")
     definitions = record.get("document_family_definitions", [])
     if not isinstance(definitions, list) or len(definitions) > 25:
@@ -173,7 +176,9 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
         if not isinstance(fiscal_evidence, list):
             issues.append("fiscal_document_state.evidence: expected array")
             fiscal_evidence = []
-        if fiscal_status in {"fiscal_document", "payment_evidence", "not_fiscal", "uncertain"} and not fiscal_evidence:
+        if not isinstance(fiscal_status, str):
+            issues.append("fiscal_document_state.status: unsupported status")
+        elif fiscal_status in {"fiscal_document", "payment_evidence", "not_fiscal", "uncertain"} and not fiscal_evidence:
             issues.append(f"fiscal_document_state.evidence: required for {fiscal_status} classification")
         for evidence_i, item in enumerate(fiscal_evidence):
             path = f"fiscal_document_state.evidence[{evidence_i}]"
@@ -227,7 +232,7 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
             issues.append(f"fields.{field_name}: expected candidate object")
             continue
         status = candidate.get("status")
-        if status not in _CANDIDATE_STATUSES:
+        if not isinstance(status, str) or status not in _CANDIDATE_STATUSES:
             issues.append(f"fields.{field_name}.status: unsupported status")
         value = candidate.get("value")
         custom_field_definitions = snapshot_field_types.get(field_name) if isinstance(field_name, str) else None
@@ -244,11 +249,11 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
         if not isinstance(alternatives, list):
             issues.append(f"fields.{field_name}.alternatives: expected array")
             alternatives = []
-        if status in {"observed", "uncertain", "unreadable", "rejected"} and not evidence:
+        if isinstance(status, str) and status in {"observed", "uncertain", "unreadable", "rejected"} and not evidence:
             issues.append(f"fields.{field_name}.evidence: required for {status} candidate")
         if status == "observed" and value is None:
             issues.append(f"fields.{field_name}.value: observed candidate requires a value")
-        if status in {"unreadable", "absent", "not_applicable"} and value is not None:
+        if isinstance(status, str) and status in {"unreadable", "absent", "not_applicable"} and value is not None:
             issues.append(f"fields.{field_name}.value: {status} candidate must have null value")
         if status == "uncertain" and value is None and not alternatives:
             issues.append(f"fields.{field_name}.alternatives: required when uncertain value is null")
@@ -262,7 +267,7 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
                 issues.append(f"{path}: expected object")
                 continue
             alt_status = alternative.get("status")
-            if alt_status not in {"observed", "uncertain", "unreadable", "rejected"}:
+            if not isinstance(alt_status, str) or alt_status not in {"observed", "uncertain", "unreadable", "rejected"}:
                 issues.append(f"{path}.status: unsupported alternative status")
             alt_value = alternative.get("value")
             if custom_field_type is not None:
