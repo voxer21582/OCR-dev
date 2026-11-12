@@ -60,7 +60,7 @@ const document = { querySelectorAll: () => [form] };
 vm.runInNewContext(payload.script, { document });
 
 if (payload.case === 'keyboard-preview') {
-  ['0.75', '0.75', '0.25', '0.25'].forEach((value, index) => {
+  ['0.25', '0.25', '0.75', '0.75'].forEach((value, index) => {
     fields[index].value = value;
     fields[index].dispatch('input');
   });
@@ -69,6 +69,17 @@ if (payload.case === 'keyboard-preview') {
   assert.equal(rect.attrs.width, '0.5');
   assert.equal(rect.attrs.height, '0.5');
   assert.match(status.textContent, /Regione selezionata nella pagina 1/);
+} else if (payload.case === 'inverted-x' || payload.case === 'inverted-y') {
+  const values = payload.case === 'inverted-x'
+    ? ['0.75', '0.25', '0.25', '0.75']
+    : ['0.25', '0.75', '0.75', '0.25'];
+  values.forEach((value, index) => {
+    fields[index].value = value;
+    fields[index].dispatch('input');
+  });
+  assert.equal(rect.attrs.width, '0');
+  assert.equal(rect.attrs.height, '0');
+  assert.match(status.textContent, /Coordinate invertite/);
 } else if (payload.case === 'incomplete-and-invalid') {
   fields[0].value = '0.2';
   fields[0].dispatch('input');
@@ -147,6 +158,10 @@ class RegionReviewKeyboardTests(unittest.TestCase):
 
     def test_keyboard_coordinates_update_overlay_and_live_status(self):
         self._run_case("keyboard-preview")
+
+    def test_inverted_coordinates_are_rejected_instead_of_misleading_preview(self):
+        self._run_case("inverted-x")
+        self._run_case("inverted-y")
 
     def test_partial_or_out_of_range_coordinates_clear_the_preview(self):
         self._run_case("incomplete-and-invalid")
