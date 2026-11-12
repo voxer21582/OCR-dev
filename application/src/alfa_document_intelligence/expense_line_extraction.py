@@ -175,12 +175,20 @@ def _evidence_region_error(region):
 
 def _evidence_validation_issues(item, source_hash, page_numbers, encoded_page, path, *, alternative=False):
     label = "alternative evidence" if alternative else "evidence"
-    if not isinstance(item, dict) or item.get("source_sha256") != source_hash or item.get("page_number") not in page_numbers:
-        message = "alternative evidence is not source-bound" if alternative else "evidence must bind to this source and an inventoried page"
+    message = "alternative evidence is not source-bound" if alternative else "evidence must bind to this source and an inventoried page"
+    if not isinstance(item, dict):
+        return [f"{path}: {message}"]
+    evidence_page = item.get("page_number")
+    if (
+        item.get("source_sha256") != source_hash
+        or not isinstance(evidence_page, int)
+        or isinstance(evidence_page, bool)
+        or evidence_page not in page_numbers
+    ):
         return [f"{path}: {message}"]
 
     issues = []
-    if encoded_page != item.get("page_number"):
+    if encoded_page != evidence_page:
         message = "alternative evidence page differs from its line ID" if alternative else "line ID page differs from its evidence page"
         issues.append(f"{path}: {message}")
 
