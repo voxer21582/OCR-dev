@@ -30,7 +30,7 @@ This coordinator does not itself prove that the required ingestion, malware scan
 
 ## Verification
 
-Synthetic unit tests cover stage prerequisites, source/page binding, full inventoried page coverage, non-mutation, existing-field collision preservation, and hotel-date validation with uncertain proposals. The full repository CI remains the supported-runtime check.
+Synthetic unit tests cover stage prerequisites, source/page binding, full inventoried page coverage, non-mutation, existing-field collision preservation, and hotel-date validation with uncertain proposals. These tests complement, but do not replace, the explicit repository CI suite described below.
 
 
 ## Runtime and CI verification boundary
