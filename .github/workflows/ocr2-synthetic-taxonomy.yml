@@ -64,6 +64,7 @@ jobs:
           test_analysis_pipeline
           test_document_validation
           test_document_export
+          test_review_ledger
           test_rapidocr_adapter
           test_document_family_catalog
           test_catalog_alias_delimiters.CatalogAliasDelimiterTests
