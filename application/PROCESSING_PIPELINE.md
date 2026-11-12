@@ -33,8 +33,8 @@ This coordinator does not itself prove that the required ingestion, malware scan
 Synthetic unit tests cover stage prerequisites, source/page binding, full inventoried page coverage, non-mutation, existing-field collision preservation, and hotel-date validation with uncertain proposals. The full repository CI remains the supported-runtime check.
 
 
-## Optional browser processor path
+## Runtime and CI verification boundary
 
-OCR remains disabled by default. Application tests are present under `tests/`, but the repository-root required check currently runs only taxonomy tests; historical synthetic flows do not establish current product acceptance.
+OCR remains disabled by default. The repository-root required check runs the taxonomy contract modules and an explicit allowlist of application unittest modules defined in [the workflow](../.github/workflows/ocr2-synthetic-taxonomy.yml); it does not discover tests. The current workflow includes `test_document_validation`.
 
-A historical synthetic-only run does not establish public CI coverage or current application acceptance. The default app remains OCR-disabled; runtime dependencies, licenses, native decoder isolation, packaging, and full application verification remain open.
+A passing check establishes only that those selected synthetic contracts pass on the configured Linux runner. It does not establish OCR accuracy, a complete application test suite, Windows runtime or installer acceptance, persistent-storage acceptance, or operational readiness. Modules not named in the workflow are not run. Runtime dependencies, licenses, native decoder isolation, packaging, and full application verification remain open.
