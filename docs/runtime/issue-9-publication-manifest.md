@@ -11,7 +11,7 @@
 
 | File | SHA-256 of canonical Git content (LF) | Owner | Provenance and reason |
 | --- | --- | --- | --- |
-| `docs/runtime/windows11-acceptance-plan.md` | 015D69CE1BBEFCD812A7C3F2A12C5D654B9A79B053D046073FC9C63EA157833E | OCR2 development coordinator | Current public plan refreshed against the selectively migrated application and owner-approved evaluation direction recorded on [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6718473055). It records upstream model references and runtime metadata, plus the separately authorized one-off synthetic smoke summary from [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6818743640), with explicit non-acceptance limits. No code, runtime, model, local Windows identifier, private log, test output, dossier, or previous-project artifact is copied. |
+| `docs/runtime/windows11-acceptance-plan.md` | 3A60AA889E5B5CFD2387A34F9181707B615D8C57709D09B2F5A299BC1F409E34 | OCR2 development coordinator | Current public plan refreshed against the selectively migrated application and owner-approved evaluation direction recorded on [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6718473055). It records upstream model references and runtime metadata, plus the separately authorized one-off synthetic smoke summary from [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6818743640), with explicit non-acceptance limits. No code, runtime, model, local Windows identifier, private log, test output, dossier, or previous-project artifact is copied. |
 
 ## Control record
 
