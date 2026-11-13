@@ -10,6 +10,7 @@ from .document_family_catalog import catalog_from_snapshots, validate_family_sna
 _SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
 _CANDIDATE_STATUSES = {"observed", "uncertain", "unreadable", "absent", "not_applicable", "rejected"}
 _DOCUMENT_FAMILIES = {"invoice", "fiscal_receipt", "parking_receipt", "hotel_document", "expense_report", "pos_slip", "other", "unknown"}
+_FISCAL_DOCUMENT_STATUSES = {"fiscal_document", "payment_evidence", "not_fiscal", "uncertain", "unknown"}
 _CUSTOM_FAMILY_ID = re.compile(r"^custom_[a-z][a-z0-9_]{1,24}$")
 _CUSTOM_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _CUSTOM_AMOUNT = re.compile(r"^-?(?:0|[1-9][0-9]*)\.[0-9]{2}$")
@@ -176,7 +177,7 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
         if not isinstance(fiscal_evidence, list):
             issues.append("fiscal_document_state.evidence: expected array")
             fiscal_evidence = []
-        if not isinstance(fiscal_status, str):
+        if not isinstance(fiscal_status, str) or fiscal_status not in _FISCAL_DOCUMENT_STATUSES:
             issues.append("fiscal_document_state.status: unsupported status")
         elif fiscal_status in {"fiscal_document", "payment_evidence", "not_fiscal", "uncertain"} and not fiscal_evidence:
             issues.append(f"fiscal_document_state.evidence: required for {fiscal_status} classification")

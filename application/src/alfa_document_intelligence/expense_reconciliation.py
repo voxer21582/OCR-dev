@@ -76,7 +76,13 @@ def case_source_set_revision(
         })
     normalized_events = []
     for sequence, event in enumerate(inclusion_events, start=1):
-        if not isinstance(event, dict) or event.get("sequence") != sequence:
+        event_sequence = event.get("sequence") if isinstance(event, dict) else None
+        if (
+            not isinstance(event, dict)
+            or not isinstance(event_sequence, int)
+            or isinstance(event_sequence, bool)
+            or event_sequence != sequence
+        ):
             raise ReconciliationError("source-set inclusion history is invalid")
         digest = _valid_hash(event.get("event_sha256"), "source-set inclusion event digest")
         body = {key: value for key, value in event.items() if key not in {"sequence", "event_sha256"}}
@@ -97,7 +103,12 @@ def _validate_review_event(event: Any, expected_sequence: int | None = None) -> 
     _valid_hash(event.get("case_revision"), "review case revision")
     _valid_id(event.get("line_id"), "review line ID")
     _valid_hash(event.get("line_evidence_sha256"), "review line evidence digest")
-    if expected_sequence is not None and event.get("sequence") != expected_sequence:
+    event_sequence = event.get("sequence")
+    if expected_sequence is not None and (
+        not isinstance(event_sequence, int)
+        or isinstance(event_sequence, bool)
+        or event_sequence != expected_sequence
+    ):
         raise ReconciliationError("review event sequence is invalid")
     action = event.get("action")
     if not isinstance(action, str) or action not in _ACTIONS:
