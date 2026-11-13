@@ -660,11 +660,15 @@ _REGION_REVIEW_SCRIPT = (
     'rect=form.querySelector("[data-region-selection]"),page=form.querySelector("[data-region-page]"),'
     'status=form.querySelector("[data-region-status]"),fields=["x0","y0","x1","y1"].map(k=>form.querySelector(`[name=region_${k}]`));let start=null;'
     'const clear=()=>{rect.setAttribute("width","0");rect.setAttribute("height","0");start=null};'
-    'page.addEventListener("change",()=>{img.src=`${img.dataset.previewBase}/${page.value}.png`;clear()});'
+    'const render=(x0,y0,x1,y1)=>{rect.setAttribute("x",x0);rect.setAttribute("y",y0);rect.setAttribute("width",x1-x0);rect.setAttribute("height",y1-y0)};'
+    'const announce=()=>{status.textContent=`Regione selezionata nella pagina ${page.value}. Verifica il testo e registra la correzione.`};'
+    'const coordinates=()=>{const raw=fields.map(field=>field.value);if(raw.some(value=>value==="")){clear();status.textContent="Completa tutte e quattro le coordinate per visualizzare la regione.";return}const values=raw.map(Number);if(values.some(value=>!Number.isFinite(value)||value<0||value>1)){clear();status.textContent="Coordinate non valide: usa valori compresi tra 0 e 1.";return}const [x0,y0,x1,y1]=values;if(x0>x1||y0>y1){clear();status.textContent="Coordinate invertite: i valori iniziali devono precedere quelli finali.";return}if(x1<=x0||y1<=y0){clear();status.textContent="La regione deve avere larghezza e altezza maggiori di zero.";return}render(x0,y0,x1,y1);announce()};'
+    'fields.forEach(field=>field.addEventListener("input",coordinates));'
+    'page.addEventListener("change",()=>{img.src=`${img.dataset.previewBase}/${page.value}.png`;fields.forEach(field=>{field.value=""});clear();status.textContent=`Pagina ${page.value}: inserisci coordinate o trascina per selezionare una regione.`});'
     'const point=e=>{const r=svg.getBoundingClientRect();return [Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))]};'
     'svg.addEventListener("pointerdown",e=>{if(e.button!==0)return;start=point(e);svg.setPointerCapture(e.pointerId);rect.setAttribute("x",start[0]);rect.setAttribute("y",start[1]);rect.setAttribute("width","0");rect.setAttribute("height","0")});'
-    'svg.addEventListener("pointermove",e=>{if(!start)return;const p=point(e),x0=Math.min(start[0],p[0]),y0=Math.min(start[1],p[1]),x1=Math.max(start[0],p[0]),y1=Math.max(start[1],p[1]);rect.setAttribute("x",x0);rect.setAttribute("y",y0);rect.setAttribute("width",x1-x0);rect.setAttribute("height",y1-y0)});'
-    'svg.addEventListener("pointerup",e=>{if(!start)return;const p=point(e),x0=Math.min(start[0],p[0]),y0=Math.min(start[1],p[1]),x1=Math.max(start[0],p[0]),y1=Math.max(start[1],p[1]);if(x1>x0&&y1>y0){[x0,y0,x1,y1].forEach((v,i)=>fields[i].value=v.toFixed(6));status.textContent=`Regione selezionata nella pagina ${page.value}. Verifica il testo e registra la correzione.`}else{clear();status.textContent="Selezione troppo piccola: trascina una regione più ampia."}start=null});'
+    'svg.addEventListener("pointermove",e=>{if(!start)return;const p=point(e),x0=Math.min(start[0],p[0]),y0=Math.min(start[1],p[1]),x1=Math.max(start[0],p[0]),y1=Math.max(start[1],p[1]);render(x0,y0,x1,y1)});'
+    'svg.addEventListener("pointerup",e=>{if(!start)return;const p=point(e),x0=Math.min(start[0],p[0]),y0=Math.min(start[1],p[1]),x1=Math.max(start[0],p[0]),y1=Math.max(start[1],p[1]);if(x1>x0&&y1>y0){[x0,y0,x1,y1].forEach((v,i)=>fields[i].value=v.toFixed(6));render(x0,y0,x1,y1);announce()}else{clear();status.textContent="Selezione troppo piccola: trascina una regione più ampia."}start=null});'
     '});})();'
 )
 

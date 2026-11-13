@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from alfa_document_intelligence.document_decoder import (
+    DecodeLimits,
     DocumentDecodeError,
     iter_decoded_pages,
 )
@@ -123,6 +124,181 @@ class RasterDecoderContractTests(unittest.TestCase):
             [(3, 2), (2, 1), (1, 1)],
         )
         self.assertEqual([page.raster.image_bytes[0] for page in pages], [1, 2, 3])
+
+
+class _SyntheticPdfRgb:
+    def __init__(self, size, marker, closed):
+        self.size = size
+        self.marker = marker
+        self.closed = closed
+
+    def tobytes(self):
+        return bytes([self.marker]) * (self.size[0] * self.size[1] * 3)
+
+    def close(self):
+        self.closed.append("rgb")
+
+
+class _SyntheticPdfImage:
+    def __init__(self, size, marker, closed):
+        self.size = size
+        self.marker = marker
+        self.closed = closed
+
+    def convert(self, mode):
+        if mode != "RGB":
+            raise AssertionError(f"unexpected PDF image mode: {mode}")
+        return _SyntheticPdfRgb(self.size, self.marker, self.closed)
+
+    def close(self):
+        self.closed.append("image")
+
+
+class _SyntheticPdfBitmap:
+    def __init__(self, size, marker, closed):
+        self.size = size
+        self.marker = marker
+        self.closed = closed
+
+    def to_pil(self):
+        return _SyntheticPdfImage(self.size, self.marker, self.closed)
+
+    def close(self):
+        self.closed.append("bitmap")
+
+
+class _SyntheticPdfPage:
+    def __init__(self, size, marker, closed):
+        self.size = size
+        self.marker = marker
+        self.closed = closed
+        self.scale = None
+        self.was_closed = False
+
+    def get_size(self):
+        return (72.0, 72.0)
+
+    def render(self, *, scale):
+        self.scale = scale
+        return _SyntheticPdfBitmap(self.size, self.marker, self.closed)
+
+    def close(self):
+        self.was_closed = True
+
+
+class _SyntheticPdfDocument:
+    def __init__(self, page_specs):
+        self.closed_resources = []
+        self.pages = [
+            _SyntheticPdfPage(size, marker, self.closed_resources)
+            for size, marker in page_specs
+        ]
+        self.raw = object()
+        self.accessed = []
+        self.was_closed = False
+
+    def __len__(self):
+        return len(self.pages)
+
+    def __getitem__(self, index):
+        self.accessed.append(index)
+        return self.pages[index]
+
+    def close(self):
+        self.was_closed = True
+
+
+def _install_synthetic_pdfium(document, security_revision=-1):
+    package = types.ModuleType("pypdfium2")
+    package.PdfDocument = lambda _data: document
+    package.raw = types.SimpleNamespace(
+        FPDF_GetSecurityHandlerRevision=lambda _raw: security_revision
+    )
+    return patch.dict(sys.modules, {"pypdfium2": package})
+
+
+class PdfDecoderContractTests(unittest.TestCase):
+    def _decode(self, document, *, security_revision=-1, limits=DecodeLimits()):
+        data = b"%PDF synthetic bytes"
+        with _install_synthetic_pdfium(document, security_revision):
+            pages = list(iter_decoded_pages(
+                data,
+                "pdf",
+                source_sha256=hashlib.sha256(data).hexdigest(),
+                limits=limits,
+            ))
+        return pages
+
+    def test_pdf_decoder_emits_ordered_pages_and_closes_native_resources(self):
+        document = _SyntheticPdfDocument([
+            ((2, 3), 21),
+            ((3, 1), 22),
+        ])
+        pages = self._decode(document)
+        self.assertEqual([page.raster.page_number for page in pages], [1, 2])
+        self.assertEqual([page.page_count for page in pages], [2, 2])
+        self.assertEqual(
+            [(page.raster.width_px, page.raster.height_px) for page in pages],
+            [(2, 3), (3, 1)],
+        )
+        self.assertEqual([page.raster.image_bytes[0] for page in pages], [21, 22])
+        self.assertEqual(document.accessed, [0, 1])
+        self.assertTrue(document.was_closed)
+        self.assertTrue(all(page.was_closed for page in document.pages))
+        self.assertEqual(
+            document.closed_resources,
+            ["rgb", "image", "bitmap", "rgb", "image", "bitmap"],
+        )
+
+    def test_encrypted_pdf_is_rejected_before_page_access_and_document_is_closed(self):
+        document = _SyntheticPdfDocument([((1, 1), 1)])
+        data = b"%PDF synthetic bytes"
+        with _install_synthetic_pdfium(document, security_revision=0):
+            with self.assertRaisesRegex(DocumentDecodeError, "encrypted PDF"):
+                list(iter_decoded_pages(
+                    data,
+                    "pdf",
+                    source_sha256=hashlib.sha256(data).hexdigest(),
+                ))
+        self.assertEqual(document.accessed, [])
+        self.assertTrue(document.was_closed)
+
+    def test_pdf_page_limit_is_checked_before_page_resources_are_opened(self):
+        document = _SyntheticPdfDocument([
+            ((1, 1), 1),
+            ((1, 1), 2),
+        ])
+        data = b"%PDF synthetic bytes"
+        with _install_synthetic_pdfium(document):
+            with self.assertRaisesRegex(DocumentDecodeError, "page count"):
+                list(iter_decoded_pages(
+                    data,
+                    "pdf",
+                    source_sha256=hashlib.sha256(data).hexdigest(),
+                    limits=DecodeLimits(max_pages=1),
+                ))
+        self.assertEqual(document.accessed, [])
+        self.assertTrue(document.was_closed)
+
+    def test_stopping_after_first_pdf_page_closes_every_open_resource(self):
+        document = _SyntheticPdfDocument([
+            ((2, 2), 3),
+            ((2, 2), 4),
+        ])
+        data = b"%PDF synthetic bytes"
+        with _install_synthetic_pdfium(document):
+            pages = iter_decoded_pages(
+                data,
+                "pdf",
+                source_sha256=hashlib.sha256(data).hexdigest(),
+            )
+            first = next(pages)
+            self.assertEqual(first.raster.page_number, 1)
+            pages.close()
+        self.assertTrue(document.was_closed)
+        self.assertTrue(document.pages[0].was_closed)
+        self.assertEqual(document.pages[1].was_closed, False)
+        self.assertEqual(document.closed_resources, ["rgb", "image", "bitmap"])
 
 
 if __name__ == "__main__":
