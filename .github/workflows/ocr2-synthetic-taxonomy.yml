@@ -63,8 +63,8 @@ jobs:
           test_semantic_proposals
           test_analysis_pipeline
           test_document_validation
-          test_loopback_csrf
-          test_manual_region_review
+          test_trip_date_consistency.TripDateConsistencyTests
+          test_required_custom_selection.RequiredCustomSelectionTests
           test_rapidocr_adapter
           test_document_family_catalog
           test_rapidocr_runtime_factory
