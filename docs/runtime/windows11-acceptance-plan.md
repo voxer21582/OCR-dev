@@ -31,7 +31,7 @@ Before acceptance testing, record one immutable candidate tuple. A missing or ch
 | --- | --- | --- |
 | Windows host | Windows edition/build, architecture, test account role and effective permissions; capture without changing settings, excluding device identifiers | One local synthetic smoke ran on the reference Windows 11 PC; no full host/account acceptance record |
 | OCR2 application | source commit and hashes of the application, worker, bootstrap, and preview-decoder code under review | Selective application snapshot exists; no complete product release tuple is frozen |
-| Python/runtime | exact interpreter build, architecture, supported Windows baseline, package lock, wheel hashes, and native DLL/PYD inventory | Smoke tuple used CPython 3.13.15 AMD64 and ONNX Runtime 1.31.1; no product lock or redistribution approval |
+| Python/runtime | exact interpreter build, architecture, supported Windows baseline, package lock, wheel hashes, and native DLL/PYD inventory | The smoke used ONNX Runtime 1.31.1; no exact product interpreter/runtime lock or redistribution approval |
 | OCR engine | exact distribution/version and source provenance; runtime configuration that prevents implicit network/model acquisition | RapidOCR 3.10.0 is the evaluation candidate; no general-use or distribution acceptance |
 | Models | task and language roles, official source/revision, exact file hashes, metadata, and redistribution terms | PP-OCRv6 small multilingual was used in the one-off smoke; rights and bundle review remain open |
 | Preview decoder | exact implementation/version, native components, source provenance, and license/notice inventory | Not bound to a runtime candidate |
@@ -62,7 +62,7 @@ Historical inventories or candidate recipes may guide investigation but do not b
 
 ## Current candidate evidence (2026-11-12)
 
-One separately authorized synthetic local smoke completed with RapidOCR 3.10.0, ONNX Runtime 1.31.1, and PP-OCRv6 small multilingual detection/recognition. It processed one generated PNG page, produced the single expected candidate, published the result once, matched the generated-source hash, and closed the worker and supervisor with worker exit code 0 (5.849 seconds). The exact attempt summary and limitations are recorded in [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6818743640); the detailed local transcript remains private.
+One separately authorized synthetic local smoke completed with RapidOCR 3.10.0, ONNX Runtime 1.31.1, and PP-OCRv6 small multilingual detection/recognition. It processed one generated PNG page, produced the single expected candidate, published the result once, and closed the worker and supervisor with worker exit code 0 (5.849 seconds). The exact attempt summary and limitations are recorded in [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6818743640); the detailed local transcript remains private.
 
 This verifies only basic inference and worker lifecycle for that candidate on the reference PC. It does not measure OCR quality, test real notes, establish CER/WER or field-accuracy thresholds, exercise PDF/JPEG end to end, or verify installation, egress, upgrades, rollback, or redistribution. The result is not a formal Windows 11 acceptance run and cannot be combined with other runtime tuples.
 
