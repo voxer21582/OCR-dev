@@ -1,19 +1,17 @@
 # Issue #9 acceptance-plan refresh manifest
 
-**Prepared:** 2026-11-12
+**Prepared:** 2026-11-13
 
-**Current main:** `4a2206a6b6c53f784277a45e195552dc33e66ed5`
-**Parent:** PR #102, head `ef89abd9281a4da3a8d2fd31841b1b62c5f6ed94`
+**Base:** `main` at `4a2206a6b6c53f784277a45e195552dc33e66ed5`
 
-**Candidate branch:** `codex/r9-plan-smoke-reconciliation`
-**Pull request target:** `codex/issue-9-runtime-plan-refresh` (PR #102)
+**Candidate branch:** `codex/issue-9-runtime-plan-refresh`
 **Scope:** documentation-only refresh for [issue #9](https://github.com/voxer21582/OCR-dev/issues/9). This manifest and the plan do not mark the issue complete or accept gate A4.
 
 ## Included content
 
 | File | SHA-256 of canonical Git content (LF) | Owner | Provenance and reason |
 | --- | --- | --- | --- |
-| `docs/runtime/windows11-acceptance-plan.md` | `2B7BC9401A106CD4CFB8B790B4D8E4B80F6003D66A5D38DD12A010F59FA8F085` | OCR2 development coordinator | Current public plan from PR #102, updated on an isolated child branch to include the one authorized synthetic smoke summary recorded in [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6818743640), alongside the owner-approved evaluation direction. It preserves the upstream references and explicit non-acceptance limits. No code, runtime, model, local Windows identifier, raw test log, private dossier, or previous-project artifact is copied. |
+| `docs/runtime/windows11-acceptance-plan.md` | 3A60AA889E5B5CFD2387A34F9181707B615D8C57709D09B2F5A299BC1F409E34 | OCR2 development coordinator | Current public plan refreshed against the selectively migrated application and owner-approved evaluation direction recorded on [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6718473055). It records upstream model references and runtime metadata, plus the separately authorized one-off synthetic smoke summary from [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6818743640), with explicit non-acceptance limits. No code, runtime, model, local Windows identifier, private log, test output, dossier, or previous-project artifact is copied. |
 
 ## Control record
 
@@ -28,9 +26,8 @@ This manifest is publication control metadata and is not part of the content-fil
 
 ## Review and verification boundary
 
-- Independent read-only review of the exact final plan and manifest returned READY on 2026-11-12; the reviewer verified the plan's canonical UTF-8/LF SHA-256 against this table and checked claims against the public issue #9 smoke summary. No runtime or functional tests were run by this documentation change.
+- Independent read-only review of the retained model references, corrected versioned license-ledger path, runtime metadata, and consolidated public smoke summary returned READY on 2026-11-13 at plan head `d51ef6d25d54b208d046088216631fa9a865ebb9`. The reviewer independently verified the plan SHA-256 against this manifest. No runtime or functional tests were run.
 - `git diff --check` is required before publication. No functional tests apply to this documentation-only change; no runtime or Windows operation is performed.
-- The smoke metrics are copied only from the already-public owner summary in issue #9. The private detailed log, local inventory, raw output, documents, OCR text, and device identifiers remain excluded.
 - Automated secret/DLP scanning is not included. The review is scoped to the listed files and is not a guarantee that all sensitive content can be detected.
 - The existing taxonomy and application CI do not validate Windows runtime acceptance.
 
