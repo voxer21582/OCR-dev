@@ -275,6 +275,34 @@ class ExpenseReconciliationTests(unittest.TestCase):
         self.assertEqual(second["lines"][0]["status"], "rejected")
         self.assertEqual(second["lines"][0]["current_review_event_id"], "event-second")
 
+    def test_boolean_review_event_sequence_is_rejected(self):
+        result = self.build()
+        line = result["lines"][0]
+        reviewed = append_line_review(
+            result, expected_case_revision=result["case_revision"],
+            line_id=line["line_id"], expected_line_evidence_sha256=line["evidence_sha256"],
+            action="confirmed", candidate_sources=[{"document_id": "receipt-1", "source_sha256": "b" * 64}],
+            event_id="event-bool-sequence", reviewer_note=None,
+        )
+        reviewed["review_events"][0]["sequence"] = True
+
+        with self.assertRaisesRegex(ReconciliationError, "review event sequence is invalid"):
+            validate_reconciliation(reviewed, _case()[1])
+
+    def test_boolean_source_set_inclusion_sequence_is_rejected(self):
+        body = {
+            "event_id": "event-bool-inclusion", "case_revision": "c" * 64,
+            "document_id": "receipt-1", "source_sha256": "b" * 64,
+            "included": True, "reason": "Synthetic review",
+        }
+        digest = hashlib.sha256(json.dumps(
+            body, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")).hexdigest()
+        events = [{**body, "sequence": True, "event_sha256": digest}]
+
+        with self.assertRaisesRegex(ReconciliationError, "source-set inclusion history is invalid"):
+            case_source_set_revision("statement", "a" * 64, [], events)
+
     def test_tampered_review_event_digest_is_rejected(self):
         result = self.build()
         line = result["lines"][0]
