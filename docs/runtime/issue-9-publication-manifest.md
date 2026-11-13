@@ -26,7 +26,7 @@ This manifest is publication control metadata and is not part of the content-fil
 
 ## Review and verification boundary
 
-- Independent read-only review of the retained model references, corrected versioned license-ledger path, and runtime-metadata addition returned READY on 2026-11-11. The smoke summary is copied from the independently reviewed #107 candidate; this combined document still needs a fresh read-only review. No runtime or functional tests were run.
+- Independent read-only review of the retained model references, corrected versioned license-ledger path, runtime metadata, and consolidated public smoke summary returned READY on 2026-11-13 at plan head `d51ef6d25d54b208d046088216631fa9a865ebb9`. The reviewer independently verified the plan SHA-256 against this manifest. No runtime or functional tests were run.
 - `git diff --check` is required before publication. No functional tests apply to this documentation-only change; no runtime or Windows operation is performed.
 - Automated secret/DLP scanning is not included. The review is scoped to the listed files and is not a guarantee that all sensitive content can be detected.
 - The existing taxonomy and application CI do not validate Windows runtime acceptance.
