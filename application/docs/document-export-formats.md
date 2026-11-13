@@ -1,8 +1,9 @@
 # Local document export formats
 
 This module provides local serialization for a validated document record. It
-does not write files, open source documents, or transmit data. The calling UI is
-responsible for presenting an explicit save action and a destination.
+does not write files, open source documents, or transmit data. The archive UI
+links to a download route; the browser handles the download destination rather
+than the application opening a native save dialog.
 
 ## JSON record export
 
@@ -45,7 +46,17 @@ encryption, access control, or secure deletion.
 
 ## Availability
 
-The serializers are currently a local Python capability only. They are not
-connected to a browser UI, save dialog, archive selection flow, or import path.
-No user-facing export operation is available until that integration is
-implemented and verified.
+The archive UI exposes explicit JSON and CSV links for each document and from
+the archived-document page. They call `GET /archive/export/{document_id}.json` or
+`GET /archive/export/{document_id}.csv` and return an attachment response. The
+source document bytes are not included in either serialization. The application
+does not choose a destination; the browser handles the download according to
+its own settings.
+
+This route reads the archived record through `LocalDocumentStore`. Its code path
+is present, but the user-facing behavior has not been accepted through a browser
+walkthrough, and the storage/runtime gates remain in force. Therefore this
+documentation does not claim that export is operationally verified or ready for
+real documents. The archive/store-dependent tests are not part of the current
+authorized CI allowlist.
+
