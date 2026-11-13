@@ -134,5 +134,78 @@ class RasterDecoderContractTests(unittest.TestCase):
             ))
 
 
+class PdfDecoderResourceContractTests(unittest.TestCase):
+    def test_closes_pdf_resources_when_consumer_stops_early(self):
+        closed = []
+
+        class FakeRgbImage:
+            size = (198, 198)
+
+            def tobytes(self):
+                return bytes(self.size[0] * self.size[1] * 3)
+
+            def close(self):
+                closed.append("rgb")
+
+        class FakeImage:
+            def convert(self, mode):
+                if mode != "RGB":
+                    raise AssertionError(f"unexpected output mode: {mode}")
+                return FakeRgbImage()
+
+            def close(self):
+                closed.append("image")
+
+        class FakeBitmap:
+            def to_pil(self):
+                return FakeImage()
+
+            def close(self):
+                closed.append("bitmap")
+
+        class FakePage:
+            def get_size(self):
+                return 72, 72
+
+            def render(self, *, scale):
+                if scale <= 0:
+                    raise AssertionError("render scale must be positive")
+                return FakeBitmap()
+
+            def close(self):
+                closed.append("page")
+
+        class FakePdfDocument:
+            raw = object()
+
+            def __init__(self, _data):
+                self.page = FakePage()
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, _index):
+                return self.page
+
+            def close(self):
+                closed.append("document")
+
+        pdfium = types.SimpleNamespace(
+            PdfDocument=FakePdfDocument,
+            raw=types.SimpleNamespace(FPDF_GetSecurityHandlerRevision=lambda _raw: -1),
+        )
+        data = b"synthetic PDF bytes"
+        with patch.dict(sys.modules, {"pypdfium2": pdfium}):
+            pages = iter_decoded_pages(
+                data,
+                "pdf",
+                source_sha256=hashlib.sha256(data).hexdigest(),
+            )
+            next(pages)
+            pages.close()
+
+        self.assertCountEqual(closed, {"rgb", "image", "bitmap", "page", "document"})
+
+
 if __name__ == "__main__":
     unittest.main()
