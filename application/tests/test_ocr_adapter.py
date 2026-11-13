@@ -139,31 +139,35 @@ class OCRPageResultStatusTests(unittest.TestCase):
                 with self.assertRaises(OCRContractError):
                     OCRPageResult(**(common | fields))
 
-    def test_incomplete_results_validate_source_page_engine_language_and_tokens(self):
-        token = OCRToken("t1", "observed", POLYGON)
-        invalid = (
-            {"source_sha256": "bad"},
-            {"page_number": True},
-            {"engine_name": " "},
-            {"engine_version": ""},
-            {"language": "it+it"},
-            {"tokens": [token]},
-            {"tokens": (OCRToken("t1", "", POLYGON),)},
+    def test_status_metadata_remains_immutable(self):
+        result = OCRPageResult(
+            source_sha256=SOURCE_HASH,
+            page_number=1,
+            engine_name="synthetic-test-adapter",
+            engine_version="1",
+            language="it+en",
+            tokens=(),
+            status="failed",
+            error_code="engine_unavailable",
         )
-        base = {
-            "source_sha256": SOURCE_HASH,
-            "page_number": 1,
-            "engine_name": "synthetic-test-adapter",
-            "engine_version": "1",
-            "language": "it+en",
-            "tokens": (),
-            "status": "partial",
-            "error_code": "page_timeout",
-        }
-        for fields in invalid:
-            with self.subTest(fields=fields):
-                with self.assertRaises(OCRContractError):
-                    OCRPageResult(**(base | fields))
+        with self.assertRaises(AttributeError):
+            result.status = "complete"
+
+    def test_run_ocr_rejects_invalid_page_number_and_engine_identity(self):
+        with self.assertRaisesRegex(OCRContractError, "positive integer"):
+            run_ocr(
+                self.adapter, [RasterPage(True, 100, 200, b"synthetic-raster")],
+                source_sha256=SOURCE_HASH,
+            )
+
+        self.adapter.name = " "
+        with self.assertRaisesRegex(OCRContractError, "adapter name"):
+            run_ocr(self.adapter, self.pages, source_sha256=SOURCE_HASH)
+
+        self.adapter.name = "synthetic-test-adapter"
+        self.adapter.version = ""
+        with self.assertRaisesRegex(OCRContractError, "adapter version"):
+            run_ocr(self.adapter, self.pages, source_sha256=SOURCE_HASH)
 
 
 if __name__ == "__main__":
