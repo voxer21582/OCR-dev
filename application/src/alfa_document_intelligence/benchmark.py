@@ -111,7 +111,16 @@ def _evidence_matches(gold: dict[str, Any], candidate: dict[str, Any], threshold
 
 
 def evaluate(labels: list[dict[str, Any]], predictions: list[dict[str, Any]], split: str, run_metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Calculate field quality, review, reliability, latency, and run-resource metrics."""
+    """Calculate field quality, review, reliability, latency, and run-resource metrics.
+
+    Evidence precision and recall cover field/case pairs with nonempty labeled
+    evidence only; predicted references for other pairs are counted separately,
+    not assumed incorrect. Matching is greedy, one-to-one, on the same page;
+    when both regions exist it uses bounding-box IoU >= 0.5, otherwise page
+    equality suffices. Alternative evidence is not included. A label-evidence
+    key absent from the global union of standard and input field names is not
+    scored. These metrics do not establish source-hash or value accuracy.
+    """
     if split not in SPLITS:
         raise ValueError("unsupported benchmark split")
 
@@ -156,6 +165,7 @@ def evaluate(labels: list[dict[str, Any]], predictions: list[dict[str, Any]], sp
     observed = false_confirmed = reviewed_fields = reviewed_cases = predicted_field_decisions = 0
     failed_cases = 0
     gold_evidence_count = predicted_evidence_count = matched_evidence_count = 0
+    unassessable_predicted_evidence_count = 0
     confirmed_fields = confirmed_fields_with_evidence = 0
     runtimes: list[float] = []
     review_times: list[float] = []
@@ -269,13 +279,18 @@ def evaluate(labels: list[dict[str, Any]], predictions: list[dict[str, Any]], sp
         gold_evidence = label.get("evidence", {})
         if not isinstance(gold_evidence, dict):
             raise ValueError("labels: evidence must map field names to evidence lists")
+        # Validate even keys omitted from scoring so malformed annotations are
+        # not silently accepted; historical matching scope stays unchanged.
+        for refs in gold_evidence.values():
+            _evidence_entries(refs, "labels")
         for field in field_names:
             gold_refs = _evidence_entries(gold_evidence.get(field, []), "labels")
-            if not gold_refs:
-                continue
-            gold_evidence_count += len(gold_refs)
             candidate = pred_fields.get(field, {})
             predicted_refs = _evidence_entries(candidate.get("evidence", []), "predictions") if isinstance(candidate, dict) else []
+            if not gold_refs:
+                unassessable_predicted_evidence_count += len(predicted_refs)
+                continue
+            gold_evidence_count += len(gold_refs)
             predicted_evidence_count += len(predicted_refs)
             unmatched = list(predicted_refs)
             for gold_ref in gold_refs:
@@ -434,6 +449,8 @@ def evaluate(labels: list[dict[str, Any]], predictions: list[dict[str, Any]], sp
             "matched_references": matched_evidence_count,
             "labeled_references": gold_evidence_count,
             "predicted_references": predicted_evidence_count,
+            "unassessable_predicted_references": unassessable_predicted_evidence_count,
+            "precision_scope": "field_cases_with_labeled_evidence",
             "recall": matched_evidence_count / gold_evidence_count if gold_evidence_count else None,
             "precision": matched_evidence_count / predicted_evidence_count if predicted_evidence_count else None,
             "region_iou_threshold": 0.5,
