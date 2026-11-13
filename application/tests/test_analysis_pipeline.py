@@ -2,6 +2,7 @@ import copy
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from alfa_document_intelligence.analysis_pipeline import (
     AnalysisPipelineError,
@@ -79,6 +80,24 @@ class AnalysisPipelineTests(unittest.TestCase):
         self.document["processing"]["ingestion"]["status"] = "in_progress"
         with self.assertRaisesRegex(AnalysisPipelineError, "ingestion must be completed"):
             analyze_ocr_results(self.document, [self.page])
+
+    def test_rejects_incomplete_page_results_before_semantic_proposals(self):
+        for status in ("partial", "failed"):
+            with self.subTest(status=status):
+                page = copy.copy(self.page)
+                object.__setattr__(page, "status", status)
+                with patch(
+                    "alfa_document_intelligence.analysis_pipeline.propose_common_fields"
+                ) as propose, patch(
+                    "alfa_document_intelligence.analysis_pipeline.extract_expense_lines"
+                ) as extract:
+                    with self.assertRaisesRegex(
+                        AnalysisPipelineError, "every OCR page must be complete"
+                    ):
+                        analyze_ocr_results(self.document, [page])
+                propose.assert_not_called()
+                extract.assert_not_called()
+                self.assertEqual(self.document, self.original)
 
     def test_rejects_mismatched_source_page_inventory_and_result_type(self):
         wrong_source = OCRPageResult("b" * 64, 1, "synthetic-ocr", "test-1", "it+en", ())
