@@ -76,7 +76,7 @@ def iter_decoded_pages(
         raise DocumentDecodeError("source SHA-256 is required")
     if hashlib.sha256(source_bytes).hexdigest() != source_sha256.lower():
         raise DocumentDecodeError("source bytes do not match the supplied SHA-256")
-    if media_kind not in {"pdf", "png", "jpeg", "tiff", "webp"}:
+    if type(media_kind) is not str or media_kind not in {"pdf", "png", "jpeg", "tiff", "webp"}:
         raise DocumentDecodeError("unsupported media kind")
 
     if media_kind == "pdf":

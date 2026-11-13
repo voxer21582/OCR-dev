@@ -124,6 +124,15 @@ class RasterDecoderContractTests(unittest.TestCase):
         )
         self.assertEqual([page.raster.image_bytes[0] for page in pages], [1, 2, 3])
 
+    def test_decoder_rejects_non_string_media_kind_with_contract_error(self):
+        data = b"synthetic source"
+        with self.assertRaisesRegex(DocumentDecodeError, "unsupported media kind"):
+            list(iter_decoded_pages(
+                data,
+                [],
+                source_sha256=hashlib.sha256(data).hexdigest(),
+            ))
+
 
 if __name__ == "__main__":
     unittest.main()
