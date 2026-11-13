@@ -1,39 +1,10 @@
 # Document Intelligence current state
 
-Updated: 2026-11-14
+Updated: 2026-11-09
 
-## Archive export route status (2026-11-14; code present, operation not accepted)
+## R6 keyboard region preview candidate (2026-11-12; PR #120, review-ready)
 
-The archive list and archived-document page render JSON/CSV links in
-`src/alfa_document_intelligence/local_intake_app.py`; the WSGI route reads a
-stored record through `LocalDocumentStore` and returns JSON or CSV with an
-attachment header. `document-export-formats.md` describes the serialization
-contract and the sensitive metadata it may contain. The explicit GitHub Actions
-allowlist runs `test_document_export` and `test_review_ledger`, but it does not
-exercise the store-backed route or a browser download. This is evidence that the
-code and isolated serializer contracts exist, not evidence of persistent-store,
-browser, Windows, or real-document acceptance. R7/R8 restrictions remain in
-force; no store-dependent test or real-document workflow was run for this
-status update.
-
-## R6 keyboard region preview (2026-11-13; partial contribution integrated)
-
-The keyboard preview uses normalized coordinates, shares its overlay renderer with
-pointer selection, and clears stale coordinates when the source page changes.
-Reversed coordinates clear the overlay and announce the ordering requirement,
-matching the server's strict rectangle contract. The explicit UI selector covers
-five synthetic Node VM/DOM cases plus a direct geometry-helper regression. GitHub
-Actions [run 43311025251](https://github.com/voxer21582/OCR-dev/actions/runs/43311025251)
-passed 22 taxonomy and 265 explicitly selected application tests. The R6
-correction/CI stack from PRs #120 and #112 was integrated through PR #110 in
-main at commit
-[`b6193a3`](https://github.com/voxer21582/OCR-dev/commit/b6193a318e09dab0a3a7f849bcc74dfa67d604a4).
-
-This remains a partial contribution to open issue #34. Browser and assistive-
-technology behavior, durable review history, conflict handling, invalidation,
-and persistence acceptance remain unverified. The four store-dependent selectors
-remain excluded under the R7/R8 boundary; no R7/R8 tests, OCR, or real documents
-were used.
+The region preview accepts keyboard-entered normalized coordinates and shares its renderer with pointer selection. Coordinates must be ordered (initial x/y less than final x/y), matching the server's strict rectangle contract; reversed coordinates clear the overlay and announce the ordering requirement instead of previewing a region that submission rejects. Changing source page clears the old coordinates and preview. The explicit selector now covers five synthetic Node VM/DOM cases and a direct geometry-helper regression for reversed X and Y. The new UI regression failed before the correction because reversed values produced a nonzero preview; the original five Node VM tests passed locally with `python -B -m unittest -v test_region_review_keyboard`. `py_compile` passed for the source and test file before the helper test was added. GitHub Actions [run 43310867413](https://github.com/voxer21582/OCR-dev/actions/runs/43310867413) passed the required check and explicitly ran 22 taxonomy plus 265 application tests; after the documentation refresh, [run 43311025251](https://github.com/voxer21582/OCR-dev/actions/runs/43311025251) repeated the same 22/265 counts successfully; the log confirms the helper and all five R6 DOM cases. Independent static review of code and tests at `8780311b8aacc7f8c865711c5d004bc2636952cf` is READY with no blocking findings; subsequent commits on this branch update only this status record. No browser, OCR, archive/store module, real documents, or R7/R8 tests were used. Browser/accessibility behavior remains unverified. PR #110 contains the UI change, PR #112 adds the explicit CI selector, and PR #120 contains this correction on a child branch based on #112. None of these PRs is merged by this candidate, and the issue remains partially addressed.
 
 ## Background OCR job candidate (2026-11-11; not published)
 
@@ -88,4 +59,3 @@ The allowlist and a `flagged` event do not constitute approval. A blocked review
 1. Reconcile PR #54 and CI PR #55 with the accepted main, preserving all reviewed source/test files and both explicit selector sets. The owner approved the conditional merge sequence; merge only after the refreshed checks pass.
 2. Continue bounded worker-protocol preparation independently; no background worker is included here and native/runtime acceptance remains separate.
 3. Preserve the original checkout and all R7/R8 stop/no-retry restrictions.
-
