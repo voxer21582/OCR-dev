@@ -153,6 +153,47 @@ class OCRPageResultStatusTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             result.status = "complete"
 
+    def test_result_constructor_validates_provenance_and_immutable_payload(self):
+        class HostileInteger(int):
+            def __ge__(self, other):
+                raise RuntimeError("custom comparison must not run")
+
+        enormous_integer = 10**1000
+        token = OCRToken("t1", "observed", POLYGON)
+        common = {
+            "source_sha256": SOURCE_HASH,
+            "page_number": 1,
+            "engine_name": "synthetic-test-adapter",
+            "engine_version": "1",
+            "language": "it+en",
+            "tokens": (),
+            "status": "partial",
+            "error_code": "page_timeout",
+        }
+        invalid = (
+            {"source_sha256": "bad"},
+            {"page_number": True},
+            {"engine_name": " "},
+            {"engine_version": ""},
+            {"language": "it+it"},
+            {"tokens": [token]},
+            {"tokens": (OCRToken("t1", "", POLYGON),)},
+            {"tokens": (OCRToken(
+                "huge-coordinate", "x",
+                ((enormous_integer, 0), (1, 0), (1, 1)),
+            ),)},
+            {"tokens": (OCRToken(
+                "hostile-coordinate", "x",
+                ((HostileInteger(0), 0), (1, 0), (1, 1)),
+            ),)},
+            {"tokens": (OCRToken(
+                "huge-confidence", "x", POLYGON, enormous_integer,
+            ),)},
+        )
+        for fields in invalid:
+            with self.subTest(fields=fields), self.assertRaises(OCRContractError):
+                OCRPageResult(**(common | fields))
+
     def test_run_ocr_rejects_invalid_page_number_and_engine_identity(self):
         adapter = FakeAdapter()
         pages = [RasterPage(1, 100, 200, b"synthetic-raster")]
