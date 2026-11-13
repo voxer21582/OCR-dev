@@ -23,6 +23,7 @@ _MEDIA_TYPES = {
     "image/tiff": ".tif",
     "image/webp": ".webp",
 }
+_PROCESSING_STATUSES = {"not_started", "in_progress", "completed", "failed", "skipped"}
 
 
 def _signature_matches(data: bytes, media_type: str) -> bool:
@@ -64,9 +65,11 @@ def _render_record(record: dict[str, Any], *, has_source: bool, key: str) -> str
             "</tr>"
         )
     fiscal = overlay["reviewed_fiscal_document_state"]
-    semantic = record["processing"]["semantic_extraction"]
+    processing = record.get("processing")
+    semantic = processing.get("semantic_extraction") if isinstance(processing, Mapping) else None
+    semantic_status = semantic.get("status") if isinstance(semantic, Mapping) else None
     warning = ""
-    if semantic["status"] == "failed":
+    if semantic_status == "failed":
         reason = (
             " È stato raggiunto un limite di revisione delle proposte."
             if semantic.get("error_code") in (
@@ -78,6 +81,11 @@ def _render_record(record: dict[str, Any], *, has_source: bool, key: str) -> str
         warning = (
             "<p>Estrazione automatica non completata. "
             f"È necessaria una verifica manuale.{reason}</p>"
+        )
+    elif not isinstance(semantic_status, str) or semantic_status not in _PROCESSING_STATUSES:
+        warning = (
+            "<p>Stato estrazione automatica non disponibile. "
+            "È necessaria una verifica manuale.</p>"
         )
     preview = (
         f'<p><a href="/reviews/{quote(key, safe="")}/source" target="_blank" '
