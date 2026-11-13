@@ -2,7 +2,9 @@
 
 **Prepared:** 2026-11-13
 
-**Base:** `main` at `4a2206a6b6c53f784277a45e195552dc33e66ed5`
+**Initial branch base:** `main` at `4a2206a6b6c53f784277a45e195552dc33e66ed5`
+
+**Synchronized PR base:** `main` at `ba3cc28bbe08c97f86b38e01011195d027e39e86`
 
 **Candidate branch:** `codex/issue-9-runtime-plan-refresh`
 **Scope:** documentation-only refresh for [issue #9](https://github.com/voxer21582/OCR-dev/issues/9). This manifest and the plan do not mark the issue complete or accept gate A4.
