@@ -39,7 +39,7 @@ Before acceptance testing, record one immutable candidate tuple. A missing or ch
 
 ### Upstream model references (not artifact verification)
 
-The [RapidOCR 3.10.0 `default_models.yaml`](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/python/rapidocr/default_models.yaml) source declares the following ONNX artifacts for the approved evaluation candidate. These are publisher-declared hashes copied from the versioned routing file; no model file has been downloaded or independently hashed in this work. They therefore do not close model provenance, integrity, or redistribution review.
+The [RapidOCR 3.10.0 `default_models.yaml`](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/python/rapidocr/default_models.yaml) source declares the following ONNX artifacts for the approved evaluation candidate. These are publisher-declared hashes copied from the versioned routing file. No model files were downloaded or independently hashed as part of this documentation update. The separately authorized local synthetic smoke reported below used the candidate PP-OCRv6 models after its own pin preflight; that separate result does not replace complete artifact-provenance, licensing, or redistribution review.
 
 | Role | Model key | Versioned source URL | Publisher-declared SHA-256 |
 | --- | --- | --- | --- |
