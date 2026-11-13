@@ -113,7 +113,7 @@ def _required_custom_field_findings(record: dict[str, Any]) -> list[dict[str, An
     fields = record["fields"]
     family_candidate = fields.get("document_family_candidates")
     if not isinstance(family_candidate, dict):
-        return []
+        family_candidate = {}
     active_family_ids = {
         alternative.get("value")
         for alternative in family_candidate.get("alternatives", [])
@@ -122,6 +122,13 @@ def _required_custom_field_findings(record: dict[str, Any]) -> list[dict[str, An
         and isinstance(alternative.get("value"), str)
         and alternative["value"].startswith("custom_")
     }
+    primary = family_candidate.get("value")
+    if (family_candidate.get("status") == "observed"
+            and isinstance(primary, str) and primary.startswith("custom_")):
+        active_family_ids.add(primary)
+    selected = record.get("document_family")
+    if isinstance(selected, str) and selected.startswith("custom_"):
+        active_family_ids.add(selected)
     if not active_family_ids:
         return []
 
