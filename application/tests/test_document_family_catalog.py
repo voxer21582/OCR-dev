@@ -24,6 +24,17 @@ SOURCE = "a" * 64
 POLYGON = ((0.1, 0.2), (0.8, 0.2), (0.8, 0.4), (0.1, 0.4))
 
 
+def _unchecked_page_result(source, page_number, engine_name, engine_version, language, tokens):
+    """Build corrupt in-memory data only for consumer-side defense tests."""
+    value = object.__new__(OCRPageResult)
+    for name, field_value in zip(
+        ("source_sha256", "page_number", "engine_name", "engine_version", "language", "tokens"),
+        (source, page_number, engine_name, engine_version, language, tuple(tokens)),
+    ):
+        object.__setattr__(value, name, field_value)
+    return value
+
+
 def catalog_payload():
     return {
         "catalog_version": "1",
@@ -112,7 +123,7 @@ class CustomDocumentFamilyCatalogTests(unittest.TestCase):
 
     def test_proposals_reject_invalid_source_hash_before_emitting_evidence(self):
         catalog = load_custom_family_catalog(json.dumps(catalog_payload(), ensure_ascii=False))
-        page = OCRPageResult(
+        page = _unchecked_page_result(
             "not-a-sha256", 1, "synthetic-ocr", "fixture-1", "it",
             (OCRToken("title", "RICEVUTA TAXI", POLYGON),),
         )
@@ -172,7 +183,7 @@ class CustomDocumentFamilyCatalogTests(unittest.TestCase):
             ((0.1, 0.2), (0.8, 0.2)),
         )
         for index, polygon in enumerate(bad_polygons):
-            page = OCRPageResult(
+            page = _unchecked_page_result(
                 SOURCE, 1, "synthetic-ocr", "fixture-1", "it",
                 (OCRToken(f"title-{index}", "RICEVUTA TAXI", polygon),),
             )
@@ -182,7 +193,7 @@ class CustomDocumentFamilyCatalogTests(unittest.TestCase):
                 build_custom_family_proposals((page,), catalog)
 
         invalid_token = OCRToken("", "RICEVUTA TAXI", POLYGON)
-        page = OCRPageResult(
+        page = _unchecked_page_result(
             SOURCE, 1, "synthetic-ocr", "fixture-1", "it", (invalid_token,),
         )
         with self.assertRaisesRegex(DocumentFamilyCatalogError, "token_id"):
@@ -192,7 +203,7 @@ class CustomDocumentFamilyCatalogTests(unittest.TestCase):
             invalid_confidence = OCRToken(
                 f"confidence-{confidence}", "RICEVUTA TAXI", POLYGON, confidence,
             )
-            page = OCRPageResult(
+            page = _unchecked_page_result(
                 SOURCE, 1, "synthetic-ocr", "fixture-1", "it", (invalid_confidence,),
             )
             with self.subTest(confidence=confidence), self.assertRaisesRegex(
@@ -241,7 +252,7 @@ class CustomDocumentFamilyCatalogTests(unittest.TestCase):
 
     def test_proposals_reject_duplicate_token_ids_and_boolean_polygon_coordinates(self):
         catalog = load_custom_family_catalog(json.dumps(catalog_payload(), ensure_ascii=False))
-        duplicate_ids = OCRPageResult(
+        duplicate_ids = _unchecked_page_result(
             SOURCE, 1, "synthetic-ocr", "fixture-1", "it",
             (
                 OCRToken("same-id", "RICEVUTA TAXI", POLYGON),
@@ -255,7 +266,7 @@ class CustomDocumentFamilyCatalogTests(unittest.TestCase):
             "boolean-coordinate", "RICEVUTA TAXI",
             ((False, 0.1), (0.8, 0.1), (0.8, 0.4)),
         )
-        page = OCRPageResult(
+        page = _unchecked_page_result(
             SOURCE, 1, "synthetic-ocr", "fixture-1", "it", (invalid_coordinate,),
         )
         with self.assertRaisesRegex(DocumentFamilyCatalogError, "coordinates"):
@@ -316,7 +327,7 @@ class CustomDocumentFamilyCatalogTests(unittest.TestCase):
         )
 
         for token, message in invalid_values:
-            page = OCRPageResult(SOURCE, 1, "synthetic-ocr", "fixture-1", "it", (token,))
+            page = _unchecked_page_result(SOURCE, 1, "synthetic-ocr", "fixture-1", "it", (token,))
             with self.subTest(message=message), self.assertRaisesRegex(
                 DocumentFamilyCatalogError, message
             ):
@@ -332,7 +343,7 @@ class CustomDocumentFamilyCatalogTests(unittest.TestCase):
             "hostile-coordinate", "RICEVUTA TAXI",
             ((HostileInteger(0), 0), (1, 0), (1, 1)),
         )
-        coordinate_page = OCRPageResult(
+        coordinate_page = _unchecked_page_result(
             SOURCE, 1, "synthetic-ocr", "fixture-1", "it", (coordinate_token,),
         )
         with self.assertRaisesRegex(DocumentFamilyCatalogError, "coordinates"):
@@ -341,7 +352,7 @@ class CustomDocumentFamilyCatalogTests(unittest.TestCase):
         confidence_token = OCRToken(
             "hostile-confidence", "RICEVUTA TAXI", POLYGON, HostileInteger(1),
         )
-        confidence_page = OCRPageResult(
+        confidence_page = _unchecked_page_result(
             SOURCE, 1, "synthetic-ocr", "fixture-1", "it", (confidence_token,),
         )
         with self.assertRaisesRegex(DocumentFamilyCatalogError, "confidence"):
