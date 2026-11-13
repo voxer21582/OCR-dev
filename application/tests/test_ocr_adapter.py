@@ -43,6 +43,8 @@ class OCRAdapterTests(unittest.TestCase):
         self.assertEqual(result[0].page_number, 1)
         self.assertEqual(result[0].engine_name, self.adapter.name)
         self.assertEqual(result[0].language, "it+en")
+        self.assertEqual(result[0].status, "complete")
+        self.assertIsNone(result[0].error_code)
         self.assertEqual(result[0].tokens[0].text, "EUR 12,50")
         self.assertEqual(self.adapter.calls, [(1, ("it", "en"))])
 
@@ -82,8 +84,6 @@ class OCRAdapterTests(unittest.TestCase):
         empty_text = OCRToken("t1", " ", POLYGON)
         with self.assertRaisesRegex(OCRContractError, "text must be non-empty"):
             run_ocr(FakeAdapter([empty_text]), self.pages, source_sha256=SOURCE_HASH)
-
-
 
 
 class OCRPageResultStatusTests(unittest.TestCase):
