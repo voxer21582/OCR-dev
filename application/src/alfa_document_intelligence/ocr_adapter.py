@@ -4,9 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import re
-from typing import Protocol, Sequence
+from typing import Literal, Protocol, Sequence
 
 _SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
+_OCR_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 MAX_OCR_PAGES_PER_DOCUMENT = 100
 MAX_OCR_TOKENS_PER_PAGE = 10_000
 MAX_OCR_TOKENS_PER_DOCUMENT = 100_000
@@ -43,6 +44,23 @@ class OCRPageResult:
     engine_version: str
     language: str
     tokens: tuple[OCRToken, ...]
+    status: Literal["complete", "partial", "failed"] = "complete"
+    error_code: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, str) or self.status not in ("complete", "partial", "failed"):
+            raise OCRContractError("status must be complete, partial, or failed")
+        if self.error_code is not None and (
+            not isinstance(self.error_code, str)
+            or not _OCR_ERROR_CODE.fullmatch(self.error_code)
+        ):
+            raise OCRContractError("error_code must be a stable non-sensitive code")
+        if self.status == "complete" and self.error_code is not None:
+            raise OCRContractError("complete result cannot have an error_code")
+        if self.status != "complete" and self.error_code is None:
+            raise OCRContractError("partial or failed result requires an error_code")
+        if self.status == "failed" and self.tokens:
+            raise OCRContractError("failed result cannot contain OCR observations")
 
 
 class OCREngineAdapter(Protocol):
