@@ -44,6 +44,13 @@ python -B -m unittest -v test_expense_line_extraction test_expense_reconciliatio
 
 This run deliberately excluded worker/launcher modules involved in PR #105 and `test_local_document_store`; it does not verify those components. The selected case-processing tests use an in-process fake worker and synthetic records. No real documents or runtime models were read or loaded. This local run does not replace GitHub Actions and is not a product acceptance result.
 
+### Source-hash consistency guard — 2026-11-13
+
+- A synthetic regression showed that `extract_expense_lines` accepted pages bound to different source hashes in one result. Such a result cannot be consistently bound to the single definitive statement expected by reconciliation.
+- The regression failed before the change because no error was raised. The extractor now rejects non-typed page results before attribute access and rejects a page batch whose source hashes differ.
+- From `application/`, `python -B -m unittest -v test_expense_line_extraction test_expense_reconciliation` passed **29 synthetic tests**. `py_compile` for the changed module and test passed; `git diff --check` passed.
+- This change does not access document storage, start an OCR worker, use real documents, or modify R7/R8. It does not verify native OCR accuracy or Windows end-to-end behavior.
+
 ## Privacy and acceptance limits
 
 - The owner has identified a local reference sample for future real-document evaluation. The implementation and test runs documented here use synthetic documents; no real filename, OCR value, source hash, screenshot, or derived value was committed or sent to GitHub, CI, ChatGPT, or any external service.
