@@ -1,6 +1,20 @@
 # Document Intelligence current state
 
-Updated: 2026-11-09
+Updated: 2026-11-14
+
+## Archive export route status (2026-11-14; code present, operation not accepted)
+
+The archive list and archived-document page render JSON/CSV links in
+`src/alfa_document_intelligence/local_intake_app.py`; the WSGI route reads a
+stored record through `LocalDocumentStore` and returns JSON or CSV with an
+attachment header. `document-export-formats.md` describes the serialization
+contract and the sensitive metadata it may contain. The explicit GitHub Actions
+allowlist runs `test_document_export` and `test_review_ledger`, but it does not
+exercise the store-backed route or a browser download. This is evidence that the
+code and isolated serializer contracts exist, not evidence of persistent-store,
+browser, Windows, or real-document acceptance. R7/R8 restrictions remain in
+force; no store-dependent test or real-document workflow was run for this
+status update.
 
 ## R6 keyboard region preview candidate (2026-11-12; PR #120, review-ready)
 
@@ -59,3 +73,4 @@ The allowlist and a `flagged` event do not constitute approval. A blocked review
 1. Reconcile PR #54 and CI PR #55 with the accepted main, preserving all reviewed source/test files and both explicit selector sets. The owner approved the conditional merge sequence; merge only after the refreshed checks pass.
 2. Continue bounded worker-protocol preparation independently; no background worker is included here and native/runtime acceptance remains separate.
 3. Preserve the original checkout and all R7/R8 stop/no-retry restrictions.
+
