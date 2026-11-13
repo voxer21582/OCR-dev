@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from urllib.parse import urlencode
 
 from alfa_document_intelligence.local_document_store import LocalDocumentStore
 from alfa_document_intelligence.local_intake_app import create_expense_report_app
@@ -66,6 +67,200 @@ class ExpenseCaseIntakeRouteTests(unittest.TestCase):
         self.store = LocalDocumentStore(Path(self.temp.name) / "archive.sqlite3", protector=SyntheticProtector())
         self.app = create_expense_report_app(archive_store=self.store)
         self.addCleanup(self.app.close)
+
+    def _create_case(self, case_id="case-" + "f" * 36):
+        body, content_type = _multipart(
+            [("private-statement.pdf", NOTE)], fields={"_case_id": case_id},
+        )
+        status, _, _ = _request(self.app, "POST", "/cases", body, content_type)
+        self.assertEqual(status, "201 Created")
+        return case_id
+
+    def _add_receipt(self, case_id):
+        case = self.store.get_case(case_id)
+        body, content_type = _multipart(
+            [("private-receipt.pdf", RECEIPT)],
+            fields={"_case_revision": case["case_revision"], "_chunk_id": "delete-test-chunk"},
+        )
+        status, _, _ = _request(
+            self.app, "POST", f"/cases/{case_id}/attachments", body, content_type,
+        )
+        self.assertEqual(status, "200 OK")
+        return self.store.get_case(case_id)
+
+    def _delete_case(self, case_id, revision, confirmation):
+        body = urlencode({
+            "_case_revision": revision, "_confirmation": confirmation,
+        }).encode("ascii")
+        return _request(
+            self.app, "POST", f"/cases/{case_id}/delete", body,
+            "application/x-www-form-urlencoded",
+        )
+
+    def test_delete_case_confirmation_is_side_effect_free_and_hides_document_details(self):
+        case_id = self._create_case()
+        case = self._add_receipt(case_id)
+
+        status, headers, page = _request(self.app, path=f"/cases/{case_id}/delete")
+
+        self.assertEqual(status, "200 OK")
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        self.assertIn(case_id.encode(), page)
+        self.assertIn(b"2 documenti", page)
+        self.assertIn(b"_case_revision", page)
+        self.assertIn(b"_confirmation", page)
+        self.assertIn(b"_ocr2_csrf", page)
+        self.assertIn(b"Eliminazione permanente", page)
+        self.assertNotIn(b"private-statement.pdf", page)
+        self.assertNotIn(b"private-receipt.pdf", page)
+        self.assertEqual(self.store.get_case(case_id)["case_revision"], case["case_revision"])
+
+    def test_delete_case_requires_exact_typed_confirmation(self):
+        case_id = self._create_case()
+        case = self.store.get_case(case_id)
+
+        status, _, _ = self._delete_case(case_id, case["case_revision"], "another-case")
+
+        self.assertEqual(status, "400 Bad Request")
+        self.assertIsNotNone(self.store.get_case(case_id))
+
+    def test_delete_case_rejects_stale_revision(self):
+        case_id = self._create_case()
+        stale_revision = self.store.get_case(case_id)["case_revision"]
+        current = self._add_receipt(case_id)
+
+        status, _, _ = self._delete_case(case_id, stale_revision, case_id)
+
+        self.assertEqual(status, "409 Conflict")
+        self.assertEqual(self.store.get_case(case_id)["case_revision"], current["case_revision"])
+
+    def test_delete_case_rechecks_revision_atomically_after_confirmation_lookup(self):
+        case_id = self._create_case()
+        case = self.store.get_case(case_id)
+        original_delete = self.store.delete_case
+
+        def concurrent_update_then_delete(requested_case_id, **kwargs):
+            latest = self.store.get_case(requested_case_id)
+            latest["processing"]["state"] = "stale"
+            self.store.save_case(latest, expected_revision=latest["case_revision"])
+            return original_delete(requested_case_id, **kwargs)
+
+        self.store.delete_case = concurrent_update_then_delete
+        status, _, _ = self._delete_case(case_id, case["case_revision"], case_id)
+
+        self.assertEqual(status, "409 Conflict")
+        self.assertEqual(self.store.get_case(case_id)["processing"]["state"], "stale")
+
+    def test_delete_case_rejects_queued_or_processing_cases(self):
+        for state, suffix in (("queued", "a"), ("processing", "b")):
+            with self.subTest(state=state):
+                case_id = self._create_case("case-" + suffix * 36)
+                case = self.store.get_case(case_id)
+                case["processing"]["state"] = state
+                case = self.store.save_case(case, expected_revision=case["case_revision"])
+
+                status, _, _ = self._delete_case(case_id, case["case_revision"], case_id)
+
+                self.assertEqual(status, "409 Conflict")
+                self.assertEqual(self.store.get_case(case_id)["processing"]["state"], state)
+
+    def test_delete_case_rejects_wrong_origin_before_consuming_request(self):
+        case_id = self._create_case()
+        case = self.store.get_case(case_id)
+        body = urlencode({
+            "_case_revision": case["case_revision"], "_confirmation": case_id,
+        }).encode("ascii")
+
+        class TrackedInput(io.BytesIO):
+            def read(self, size=-1):
+                self.was_read = True
+                return super().read(size)
+
+        consumed = TrackedInput(body)
+        response = {}
+
+        def start_response(status, headers):
+            response["status"] = status
+
+        environ = {
+            "REQUEST_METHOD": "POST", "PATH_INFO": f"/cases/{case_id}/delete",
+            "HTTP_HOST": "127.0.0.1:8080", "HTTP_ORIGIN": "https://evil.example",
+            "CONTENT_LENGTH": str(len(body)), "CONTENT_TYPE": "application/x-www-form-urlencoded",
+            "wsgi.input": consumed,
+        }
+
+        b"".join(self.app(environ, start_response))
+
+        self.assertEqual(response["status"], "403 Forbidden")
+        self.assertFalse(getattr(consumed, "was_read", False))
+        self.assertIsNotNone(self.store.get_case(case_id))
+
+    def test_delete_case_missing_id_is_not_found_without_disclosing_case_data(self):
+        status, headers, page = _request(self.app, path=f"/cases/{'case-' + '9' * 36}/delete")
+
+        self.assertEqual(status, "404 Not Found")
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        self.assertIn(b"Fascicolo non trovato", page)
+        self.assertNotIn(b"private-statement", page)
+
+    def test_delete_case_removes_case_and_unshared_documents(self):
+        case_id = self._create_case()
+        case = self._add_receipt(case_id)
+        document_ids = [case["statement_document_id"]] + [
+            item["document_id"] for item in case["attachments"]
+        ]
+
+        status, _, page = self._delete_case(case_id, case["case_revision"], case_id)
+
+        self.assertEqual(status, "200 OK")
+        self.assertIn(b"Fascicolo eliminato", page)
+        self.assertIsNone(self.store.get_case(case_id))
+        for document_id in document_ids:
+            self.assertIsNone(self.store.get(document_id))
+
+    def test_delete_case_preserves_independently_retained_statement(self):
+        case_id = self._create_case()
+        case = self.store.get_case(case_id)
+        statement = self.store.get(case["statement_document_id"])
+        self.store.save(statement.record, statement.source_bytes)
+
+        status, _, _ = self._delete_case(case_id, case["case_revision"], case_id)
+
+        self.assertEqual(status, "200 OK")
+        self.assertIsNone(self.store.get_case(case_id))
+        retained = self.store.get(statement.record["document_id"])
+        self.assertIsNotNone(retained)
+        self.assertEqual(retained.source_bytes, NOTE)
+
+    def test_delete_case_preserves_attachment_shared_with_another_case(self):
+        first_case_id = self._create_case("case-" + "c" * 36)
+        first_case = self._add_receipt(first_case_id)
+        shared_document_id = first_case["attachments"][0]["document_id"]
+        shared_document = self.store.get(shared_document_id)
+        second_case_id = self._create_case("case-" + "d" * 36)
+        second_case = self.store.get_case(second_case_id)
+        shared_source = [{
+            "record": shared_document.record,
+            "source_bytes": shared_document.source_bytes,
+        }]
+        self.store.append_case_chunk(
+            second_case_id, second_case["case_revision"], "shared-source",
+            self.store.case_chunk_digest(shared_source), shared_source,
+        )
+
+        status, _, _ = self._delete_case(
+            first_case_id, first_case["case_revision"], first_case_id,
+        )
+
+        self.assertEqual(status, "200 OK")
+        self.assertIsNone(self.store.get_case(first_case_id))
+        surviving_case = self.store.get_case(second_case_id)
+        self.assertIn(shared_document_id, {
+            item["document_id"] for item in surviving_case["attachments"]
+        })
+        retained = self.store.get(shared_document_id)
+        self.assertIsNotNone(retained)
+        self.assertEqual(retained.source_bytes, RECEIPT)
 
     def test_statement_and_bounded_attachments_create_resumable_private_case(self):
         status, _, index_page = _request(self.app, path="/cases")

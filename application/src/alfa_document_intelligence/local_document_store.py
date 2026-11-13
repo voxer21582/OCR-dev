@@ -1066,9 +1066,23 @@ class LocalDocumentStore:
         except sqlite3.Error as exc:
             raise StoreError("could not list local expense cases") from exc
 
-    def delete_case(self, case_id: str) -> bool:
+    def delete_case(
+        self,
+        case_id: str,
+        *,
+        expected_revision: str | None = None,
+        reject_processing_states: frozenset[str] = frozenset(),
+    ) -> bool:
         if not isinstance(case_id, str) or not case_id:
             return False
+        if expected_revision is not None and (
+            not isinstance(expected_revision, str) or not _SHA256.fullmatch(expected_revision)
+        ):
+            raise StoreRejected("expected_revision must be a SHA-256 digest")
+        if not isinstance(reject_processing_states, frozenset) or any(
+            not isinstance(item, str) for item in reject_processing_states
+        ):
+            raise StoreRejected("reject_processing_states must be a set of state names")
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
@@ -1080,6 +1094,11 @@ class LocalDocumentStore:
                 case = self._decode_case_payload(payload)
                 if case["case_id"] != case_id or self._case_id_index(case_id) != case_index:
                     raise StoreIntegrityError("case ID index points to a different case")
+                if expected_revision is not None and case["case_revision"] != expected_revision.lower():
+                    raise StoreConcurrentUpdate("case changed since it was read")
+                processing = case.get("processing", {})
+                if isinstance(processing, dict) and processing.get("state") in reject_processing_states:
+                    raise StoreConcurrentUpdate("case processing is active")
                 self._validate_case_references(connection, case, case_index)
                 refs = self._manifest_document_refs(case)
                 connection.execute("DELETE FROM case_documents WHERE case_id_index = ?", (case_index,))
