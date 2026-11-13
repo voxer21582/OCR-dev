@@ -7,7 +7,7 @@ import re
 from typing import Literal, Protocol, Sequence
 
 _SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
-_OCR_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_OCR_ERROR_CODES = frozenset({"engine_error", "engine_unavailable", "page_timeout"})
 MAX_OCR_PAGES_PER_DOCUMENT = 100
 MAX_OCR_TOKENS_PER_PAGE = 10_000
 MAX_OCR_TOKENS_PER_DOCUMENT = 100_000
@@ -48,11 +48,31 @@ class OCRPageResult:
     error_code: str | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.source_sha256, str) or not _SHA256.fullmatch(self.source_sha256):
+            raise OCRContractError("source_sha256 must be 64 hexadecimal characters")
+        if (not isinstance(self.page_number, int) or isinstance(self.page_number, bool)
+                or self.page_number < 1):
+            raise OCRContractError("page_number must be a positive integer")
+        if not isinstance(self.engine_name, str) or not self.engine_name.strip():
+            raise OCRContractError("adapter name is required")
+        if not isinstance(self.engine_version, str) or not self.engine_version.strip():
+            raise OCRContractError("adapter version is required")
+        if not isinstance(self.language, str):
+            raise OCRContractError("language must contain only it/en")
+        languages = self.language.split("+")
+        if (not languages or any(language not in {"it", "en"} for language in languages)
+                or len(set(languages)) != len(languages)):
+            raise OCRContractError("language must contain unique it/en codes")
+        if not isinstance(self.tokens, tuple):
+            raise OCRContractError("tokens must be an immutable tuple")
+        seen_ids: set[str] = set()
+        for token in self.tokens:
+            _validate_token(token, seen_ids)
         if not isinstance(self.status, str) or self.status not in ("complete", "partial", "failed"):
             raise OCRContractError("status must be complete, partial, or failed")
         if self.error_code is not None and (
             not isinstance(self.error_code, str)
-            or not _OCR_ERROR_CODE.fullmatch(self.error_code)
+            or self.error_code not in _OCR_ERROR_CODES
         ):
             raise OCRContractError("error_code must be a stable non-sensitive code")
         if self.status == "complete" and self.error_code is not None:
@@ -151,9 +171,6 @@ def run_ocr(
         tokens = adapter.recognize(page, languages)
         if isinstance(tokens, (str, bytes)) or not isinstance(tokens, Sequence):
             raise OCRContractError("adapter must return a sequence of OCRToken values")
-        seen_ids: set[str] = set()
-        for token in tokens:
-            _validate_token(token, seen_ids)
         results.append(OCRPageResult(
             source_sha256=source_sha256,
             page_number=page.page_number,
