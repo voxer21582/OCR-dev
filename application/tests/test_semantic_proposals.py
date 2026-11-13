@@ -18,6 +18,17 @@ def page(number, tokens, source=SOURCE):
     return OCRPageResult(source, number, "synthetic-ocr", "test-1", "it+en", tuple(tokens))
 
 
+def _unchecked_page(number, tokens, source=SOURCE):
+    """Build a corrupted value only to test consumer-side defense in depth."""
+    value = object.__new__(OCRPageResult)
+    for name, field_value in zip(
+        ("source_sha256", "page_number", "engine_name", "engine_version", "language", "tokens"),
+        (source, number, "synthetic-ocr", "test-1", "it+en", tuple(tokens)),
+    ):
+        object.__setattr__(value, name, field_value)
+    return value
+
+
 class SemanticProposalTests(unittest.TestCase):
     def test_proposals_remain_uncertain_and_bind_every_alternative_to_ocr_evidence(self):
         tokens = [
@@ -101,21 +112,21 @@ class SemanticProposalTests(unittest.TestCase):
         with self.assertRaisesRegex(SemanticProposalError, "unique"):
             propose_common_fields([page(1, [token]), page(1, [token])])
         with self.assertRaisesRegex(SemanticProposalError, "unique OCRToken"):
-            propose_common_fields([page(1, [token, token])])
+            propose_common_fields([_unchecked_page(1, [token, token])])
 
     def test_requires_valid_source_hash_and_pages(self):
         with self.assertRaisesRegex(SemanticProposalError, "source_sha256"):
-            propose_common_fields([page(1, [], "invalid")])
+            propose_common_fields([_unchecked_page(1, [], "invalid")])
         with self.assertRaisesRegex(SemanticProposalError, "at least one"):
             propose_common_fields([])
 
     def test_rejects_malformed_token_evidence_before_emitting_candidates(self):
         bad_polygon = OCRToken("bad", "12,50", ((0.1, 0.2), (1.1, 0.2), (0.8, 0.4)))
         with self.assertRaisesRegex(SemanticProposalError, "normalized"):
-            propose_common_fields([page(1, [bad_polygon])])
+            propose_common_fields([_unchecked_page(1, [bad_polygon])])
         empty_text = OCRToken("empty", " ", POLYGON)
         with self.assertRaisesRegex(SemanticProposalError, "non-empty"):
-            propose_common_fields([page(1, [empty_text])])
+            propose_common_fields([_unchecked_page(1, [empty_text])])
 
     def test_ambiguous_amount_formats_are_normalized_from_the_last_separator(self):
         values = propose_common_fields([
