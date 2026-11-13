@@ -2,6 +2,7 @@ import unittest
 
 from alfa_document_intelligence.ocr_adapter import (
     OCRContractError,
+    OCRPageResult,
     OCRToken,
     RasterPage,
     run_ocr,
@@ -81,6 +82,62 @@ class OCRAdapterTests(unittest.TestCase):
         empty_text = OCRToken("t1", " ", POLYGON)
         with self.assertRaisesRegex(OCRContractError, "text must be non-empty"):
             run_ocr(FakeAdapter([empty_text]), self.pages, source_sha256=SOURCE_HASH)
+
+
+
+
+class OCRPageResultStatusTests(unittest.TestCase):
+    def test_partial_result_keeps_only_observed_tokens_and_a_stable_error_code(self):
+        token = OCRToken("t1", "EUR 12,50", POLYGON, 0.97)
+        result = OCRPageResult(
+            source_sha256=SOURCE_HASH,
+            page_number=2,
+            engine_name="synthetic-test-adapter",
+            engine_version="1",
+            language="it+en",
+            tokens=(token,),
+            status="partial",
+            error_code="page_timeout",
+        )
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(result.error_code, "page_timeout")
+        self.assertEqual(result.tokens, (token,))
+
+    def test_failed_result_is_representable_without_invented_observations(self):
+        result = OCRPageResult(
+            source_sha256=SOURCE_HASH,
+            page_number=2,
+            engine_name="synthetic-test-adapter",
+            engine_version="1",
+            language="it+en",
+            tokens=(),
+            status="failed",
+            error_code="engine_unavailable",
+        )
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.error_code, "engine_unavailable")
+        self.assertEqual(result.tokens, ())
+
+    def test_status_and_error_code_contract_rejects_invalid_combinations(self):
+        common = {
+            "source_sha256": SOURCE_HASH,
+            "page_number": 1,
+            "engine_name": "synthetic-test-adapter",
+            "engine_version": "1",
+            "language": "it+en",
+            "tokens": (),
+        }
+        invalid = (
+            {"status": "unknown"},
+            {"status": "complete", "error_code": "engine_error"},
+            {"status": "partial"},
+            {"status": "failed", "error_code": "engine_error", "tokens": (OCRToken("t1", "x", POLYGON),)},
+            {"status": "failed", "error_code": "RuntimeError:/private/path"},
+        )
+        for fields in invalid:
+            with self.subTest(fields=fields):
+                with self.assertRaises(OCRContractError):
+                    OCRPageResult(**(common | fields))
 
 
 if __name__ == "__main__":
