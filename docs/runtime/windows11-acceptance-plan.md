@@ -1,14 +1,14 @@
 # Windows 11 runtime acceptance plan
 
-**Status:** planning only; A4 is open. An evaluation route and installer direction have owner approval, but no exact runtime tuple or distribution is accepted.
+**Status:** planning only; A4 is open. The owner-approved RapidOCR evaluation route has one narrow synthetic smoke result, but no exact runtime tuple or distribution is accepted for general product use.
 
-This plan defines the evidence needed before OCR2 can claim a supported local OCR runtime on Windows 11. The public repository now contains taxonomy contracts and a selectively migrated application under `application/`; it still does not contain an accepted OCR runtime bundle or model artifacts, and it does not yet contain the complete product. Passing synthetic application or taxonomy checks does not satisfy any runtime criterion below.
+This plan defines the evidence needed before OCR2 can claim a supported local OCR runtime on Windows 11. The public repository contains taxonomy contracts and a selectively migrated application under `application/`; it does not contain the complete product or an accepted OCR runtime/model bundle. Passing synthetic application or taxonomy checks does not satisfy any runtime criterion below. A summary of the separately authorized synthetic smoke is recorded in [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6818743640); its detailed log remains private.
 
 ## Acceptance boundary
 
 - Product target: local use on Windows 11. Windows Server results are not substitutes.
 - Data boundary: public repository and CI use synthetic fixtures only. Real documents, OCR output, personal data, and derived sensitive values stay out of GitHub and external services.
-- Activation: OCR remains off until every applicable prerequisite has evidence bound to the exact runtime tuple and the required technical and security approvals are recorded.
+- Activation: the launcher default remains disabled. The one-off synthetic smoke was separately authorized and does not enable general use or production acceptance. Keep OCR disabled until every applicable prerequisite has evidence bound to the exact runtime tuple and required technical and security approvals are recorded.
 - Change control: this plan authorizes no downloads, installs, Windows configuration changes, native tests, model acquisition, deployment, or activation. Each operation follows its own approved plan and authority.
 
 ## Owner-approved evaluation direction
@@ -29,13 +29,13 @@ Before acceptance testing, record one immutable candidate tuple. A missing or ch
 
 | Component | Required identity and evidence | Current status |
 | --- | --- | --- |
-| Windows host | Windows edition/build, architecture, test account role and effective permissions; capture without changing settings, excluding device identifiers | Owner-designated PC; no acceptance-run host/account record |
-| OCR2 application | source commit and hashes of the application, worker, bootstrap, and preview-decoder code under review | Selectively migrated application exists; not bound to an accepted runtime candidate |
-| Python/runtime | exact interpreter build, architecture, supported Windows baseline, package lock, wheel hashes, and native DLL/PYD inventory | Embedded CPython 3.13 x64 is an approved direction; exact build and artifact inventory are open |
-| OCR engine | exact distribution/version and source provenance; runtime configuration that prevents implicit network/model acquisition | RapidOCR 3.10.0 is the approved evaluation candidate; exact artifact, provenance, and offline behavior are not accepted |
-| Models | task and language roles, official source/revision, exact file hashes, metadata, and redistribution terms | PP-OCRv6 small multilingual is the evaluation candidate; exact artifacts, hashes, and redistribution review remain open |
+| Windows host | Windows edition/build, architecture, test account role and effective permissions; capture without changing settings, excluding device identifiers | One local synthetic smoke ran on the reference Windows 11 PC; no full host/account acceptance record |
+| OCR2 application | source commit and hashes of the application, worker, bootstrap, and preview-decoder code under review | Selective application snapshot exists; no complete product release tuple is frozen |
+| Python/runtime | exact interpreter build, architecture, supported Windows baseline, package lock, wheel hashes, and native DLL/PYD inventory | Smoke tuple used CPython 3.13.15 AMD64 and ONNX Runtime 1.31.1; no product lock or redistribution approval |
+| OCR engine | exact distribution/version and source provenance; runtime configuration that prevents implicit network/model acquisition | RapidOCR 3.10.0 is the evaluation candidate; no general-use or distribution acceptance |
+| Models | task and language roles, official source/revision, exact file hashes, metadata, and redistribution terms | PP-OCRv6 small multilingual was used in the one-off smoke; rights and bundle review remain open |
 | Preview decoder | exact implementation/version, native components, source provenance, and license/notice inventory | Not bound to a runtime candidate |
-| Package and notices | complete dependency/model/native-component inventory, license texts, attribution, and redistribution decision tied to the tuple hashes | Open; the NSIS per-user offline installer is a direction, not an accepted package |
+| Package and notices | complete dependency/model/native-component inventory, license texts, attribution, and redistribution decision tied to the tuple hashes | Local candidate wheel/notice inventories exist; complete installer closure and redistribution review remain open |
 
 ### Upstream model references (not artifact verification)
 
@@ -59,6 +59,12 @@ RapidOCR v3.10.0's [package metadata](https://github.com/RapidAI/RapidOCR/blob/v
 The [ONNX Runtime CPU installation documentation](https://onnxruntime.ai/docs/install/) requires the Visual C++ 2019 runtime on Windows. The [ONNX Runtime 1.31.1 release files on PyPI](https://pypi.org/project/onnxruntime/1.31.1/) include a CPython 3.13 Windows x64 wheel (SHA-256 `0558f29d5f6ac09957390c9c5495931485ee8ae7f0ce781ccee86a0ae5c2348b`). This establishes published wheel availability only; 1.31.1 is not selected for OCR2, its bytes have not been acquired or verified here, and neither its compatibility with the proposed embedded interpreter nor the full runtime dependency closure has been tested. The exact runtime lock and native dependency inventory remain open.
 
 Historical inventories or candidate recipes may guide investigation but do not become the selected tuple without current artifacts and review. Do not combine old evidence, unverified hashes, or results from another OCR project.
+
+## Current candidate evidence (2026-11-12)
+
+One separately authorized synthetic local smoke completed with RapidOCR 3.10.0, ONNX Runtime 1.31.1, and PP-OCRv6 small multilingual detection/recognition. It processed one generated PNG page, produced the single expected candidate, published the result once, matched the generated-source hash, and closed the worker and supervisor with worker exit code 0 (5.849 seconds). The exact attempt summary and limitations are recorded in [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6818743640); the detailed local transcript remains private.
+
+This verifies only basic inference and worker lifecycle for that candidate on the reference PC. It does not measure OCR quality, test real notes, establish CER/WER or field-accuracy thresholds, exercise PDF/JPEG end to end, or verify installation, egress, upgrades, rollback, or redistribution. The result is not a formal Windows 11 acceptance run and cannot be combined with other runtime tuples.
 
 ## Required evidence gates
 
@@ -86,7 +92,7 @@ All evidence must identify the frozen tuple, test host and account, command or p
 
 ## Current gaps and next actions
 
-- **Candidate selection — evaluation route approved; exact tuple open:** RapidOCR 3.10.0 with PP-OCRv6 small multilingual and ONNX Runtime CPU is the approved evaluation direction. Upstream versioned model URLs and publisher-declared SHA-256 values are recorded above, but exact artifact bytes, package artifacts, model-specific redistribution terms, and offline configuration must still be verified before freezing a tuple. PR #100 is a separate PaddleOCR feasibility assessment and does not authorize switching candidates.
+- **Candidate evaluation — partial; product tuple open:** RapidOCR 3.10.0 with PP-OCRv6 small multilingual and ONNX Runtime CPU is the approved evaluation direction and has one narrow synthetic smoke result. Upstream versioned model URLs and publisher-declared SHA-256 values are recorded above, but exact artifact bytes, package artifacts, model-specific redistribution terms, and offline configuration must still be verified before freezing a tuple. PR #100 is a separate PaddleOCR feasibility assessment and does not authorize switching candidates.
 - **Artifact and license closure — open:** exact current runtime/model artifacts and a complete component-level license/notice review are required.
 - **Native Windows 11 evidence — not run:** installation, identity, isolation, egress, lifecycle, and resource checks need a separately reviewed plan and applicable authorization. This plan does not authorize them.
 - **Application and approval linkage — open:** the public repository does not contain the full OCR2 app. The exact app commit and authorized technical/security approvers must be linked to the evidence before any gate can close.
