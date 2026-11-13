@@ -154,20 +154,22 @@ class OCRPageResultStatusTests(unittest.TestCase):
             result.status = "complete"
 
     def test_run_ocr_rejects_invalid_page_number_and_engine_identity(self):
+        adapter = FakeAdapter()
+        pages = [RasterPage(1, 100, 200, b"synthetic-raster")]
         with self.assertRaisesRegex(OCRContractError, "positive integer"):
             run_ocr(
-                self.adapter, [RasterPage(True, 100, 200, b"synthetic-raster")],
+                adapter, [RasterPage(True, 100, 200, b"synthetic-raster")],
                 source_sha256=SOURCE_HASH,
             )
 
-        self.adapter.name = " "
+        adapter.name = " "
         with self.assertRaisesRegex(OCRContractError, "adapter name"):
-            run_ocr(self.adapter, self.pages, source_sha256=SOURCE_HASH)
+            run_ocr(adapter, pages, source_sha256=SOURCE_HASH)
 
-        self.adapter.name = "synthetic-test-adapter"
-        self.adapter.version = ""
+        adapter.name = "synthetic-test-adapter"
+        adapter.version = ""
         with self.assertRaisesRegex(OCRContractError, "adapter version"):
-            run_ocr(self.adapter, self.pages, source_sha256=SOURCE_HASH)
+            run_ocr(adapter, pages, source_sha256=SOURCE_HASH)
 
 
 if __name__ == "__main__":
