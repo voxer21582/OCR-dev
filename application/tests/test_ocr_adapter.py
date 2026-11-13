@@ -132,12 +132,38 @@ class OCRPageResultStatusTests(unittest.TestCase):
             {"status": "complete", "error_code": "engine_error"},
             {"status": "partial"},
             {"status": "failed", "error_code": "engine_error", "tokens": (OCRToken("t1", "x", POLYGON),)},
-            {"status": "failed", "error_code": "RuntimeError:/private/path"},
+            {"status": "failed", "error_code": "private_path_credential"},
         )
         for fields in invalid:
             with self.subTest(fields=fields):
                 with self.assertRaises(OCRContractError):
                     OCRPageResult(**(common | fields))
+
+    def test_incomplete_results_validate_source_page_engine_language_and_tokens(self):
+        token = OCRToken("t1", "observed", POLYGON)
+        invalid = (
+            {"source_sha256": "bad"},
+            {"page_number": True},
+            {"engine_name": " "},
+            {"engine_version": ""},
+            {"language": "it+it"},
+            {"tokens": [token]},
+            {"tokens": (OCRToken("t1", "", POLYGON),)},
+        )
+        base = {
+            "source_sha256": SOURCE_HASH,
+            "page_number": 1,
+            "engine_name": "synthetic-test-adapter",
+            "engine_version": "1",
+            "language": "it+en",
+            "tokens": (),
+            "status": "partial",
+            "error_code": "page_timeout",
+        }
+        for fields in invalid:
+            with self.subTest(fields=fields):
+                with self.assertRaises(OCRContractError):
+                    OCRPageResult(**(base | fields))
 
 
 if __name__ == "__main__":
