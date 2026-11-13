@@ -68,6 +68,18 @@ class ExpenseLineExtractionTests(unittest.TestCase):
         self.assertEqual(result[1]["currency"]["value"], "EUR")
         self.assertEqual(result[1]["date"]["status"], "absent")
 
+    def test_rejects_pages_bound_to_different_source_documents(self):
+        foreign_page = OCRPageResult(
+            "b" * 64, 2, "FakeOCR", "1", "it+en",
+            (_token("p2-t1", "EUR 35,50", .1, .1, .5, .15),),
+        )
+
+        with self.assertRaisesRegex(ValueError, "one source document"):
+            extract_expense_lines([
+                self.page(1, [_token("p1-t1", "Spese viaggio", .1, .1, .5, .15)]),
+                foreign_page,
+            ])
+
     def test_dollar_symbol_stays_uncertain_without_an_explicit_currency_code(self):
         result = extract_expense_lines([
             self.page(1, [_token("p1-t1", "$ 50.00", .1, .1, .5, .15)])

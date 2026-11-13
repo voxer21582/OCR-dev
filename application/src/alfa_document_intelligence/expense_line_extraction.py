@@ -177,8 +177,15 @@ def extract_expense_lines(pages: Iterable[OCRPageResult]) -> list[dict[str, Any]
     """Group OCR tokens by visual row and propose values without confirming them."""
     result = []
     seen_page_numbers = set()
-    for page in sorted(pages, key=lambda item: item.page_number):
-        if not isinstance(page, OCRPageResult) or page.page_number in seen_page_numbers:
+    page_results = list(pages)
+    if any(not isinstance(page, OCRPageResult) for page in page_results):
+        raise ValueError("OCR page results must be typed")
+    if page_results and any(
+        page.source_sha256 != page_results[0].source_sha256 for page in page_results[1:]
+    ):
+        raise ValueError("OCR pages must belong to one source document")
+    for page in sorted(page_results, key=lambda item: item.page_number):
+        if page.page_number in seen_page_numbers:
             raise ValueError("OCR page results must be unique and typed")
         seen_page_numbers.add(page.page_number)
         for row_number, row in enumerate(_rows(page), start=1):
