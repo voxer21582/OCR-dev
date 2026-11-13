@@ -34,6 +34,7 @@ technology behavior, durable review history, conflict handling, invalidation,
 and persistence acceptance remain unverified. The four store-dependent selectors
 remain excluded under the R7/R8 boundary; no R7/R8 tests, OCR, or real documents
 were used.
+
 ## Background OCR job candidate (2026-11-11; not published)
 
 An isolated candidate on `codex/ocr-processing-jobs` implements a bounded spawned OCR worker, privacy-safe aggregate progress, cancellation, generation-bound one-shot result publication, optional local WSGI routes, and an explicit `--ocr-engine rapidocr-v6` opt-in. The launcher default remains `disabled`; no worker, package, or model is created or loaded unless that flag is selected and a later job is submitted. The fixed factory checks RapidOCR version and the two pinned local model hashes inside the isolated worker. RapidOCR remains the chosen direction for issue #9; A4 PaddleOCR/medium research is separate.
