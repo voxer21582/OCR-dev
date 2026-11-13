@@ -76,7 +76,13 @@ def case_source_set_revision(
         })
     normalized_events = []
     for sequence, event in enumerate(inclusion_events, start=1):
-        if not isinstance(event, dict) or event.get("sequence") != sequence:
+        event_sequence = event.get("sequence") if isinstance(event, dict) else None
+        if (
+            not isinstance(event, dict)
+            or not isinstance(event_sequence, int)
+            or isinstance(event_sequence, bool)
+            or event_sequence != sequence
+        ):
             raise ReconciliationError("source-set inclusion history is invalid")
         digest = _valid_hash(event.get("event_sha256"), "source-set inclusion event digest")
         body = {key: value for key, value in event.items() if key not in {"sequence", "event_sha256"}}
@@ -97,10 +103,15 @@ def _validate_review_event(event: Any, expected_sequence: int | None = None) -> 
     _valid_hash(event.get("case_revision"), "review case revision")
     _valid_id(event.get("line_id"), "review line ID")
     _valid_hash(event.get("line_evidence_sha256"), "review line evidence digest")
-    if expected_sequence is not None and event.get("sequence") != expected_sequence:
+    event_sequence = event.get("sequence")
+    if expected_sequence is not None and (
+        not isinstance(event_sequence, int)
+        or isinstance(event_sequence, bool)
+        or event_sequence != expected_sequence
+    ):
         raise ReconciliationError("review event sequence is invalid")
     action = event.get("action")
-    if action not in _ACTIONS:
+    if not isinstance(action, str) or action not in _ACTIONS:
         raise ReconciliationError("review event action is invalid")
     sources = event.get("candidate_sources")
     if not isinstance(sources, list):
@@ -166,7 +177,7 @@ def _validate_candidate(candidate: Any, *, label: str, expected_hash: str, page_
     if not isinstance(candidate, dict):
         raise ReconciliationError(f"{label} candidate must be an object")
     status = candidate.get("status")
-    if status not in {"observed", "uncertain", "unreadable", "absent", "not_applicable", "rejected"}:
+    if not isinstance(status, str) or status not in {"observed", "uncertain", "unreadable", "absent", "not_applicable", "rejected"}:
         raise ReconciliationError(f"{label} candidate status is invalid")
     if status == "observed" and not isinstance(candidate.get("value"), str):
         raise ReconciliationError(f"observed {label} candidate must have a string value")
@@ -191,7 +202,7 @@ def _validate_candidate(candidate: Any, *, label: str, expected_hash: str, page_
     if status == "uncertain" and candidate.get("value") is None and not alternatives:
         raise ReconciliationError(f"uncertain {label} candidate requires alternatives")
     for alternative in alternatives:
-        if not isinstance(alternative, dict) or alternative.get("status") not in {"observed", "uncertain", "unreadable", "rejected"}:
+        if not isinstance(alternative, dict) or not isinstance(alternative.get("status"), str) or alternative.get("status") not in {"observed", "uncertain", "unreadable", "rejected"}:
             raise ReconciliationError(f"{label} alternative is invalid")
         alternative_evidence = alternative.get("evidence")
         if not isinstance(alternative_evidence, list) or not alternative_evidence:
@@ -229,7 +240,7 @@ def _candidate_possible_values(candidate: dict[str, Any], normalize) -> list[tup
         return []
     result = []
     for alternative in candidate.get("alternatives", []):
-        if not isinstance(alternative, dict) or alternative.get("status") not in {"observed", "uncertain"}:
+        if not isinstance(alternative, dict) or not isinstance(alternative.get("status"), str) or alternative.get("status") not in {"observed", "uncertain"}:
             continue
         value = normalize(alternative.get("value"))
         if value is not None:
@@ -367,6 +378,7 @@ def build_reconciliation(
         line_merchant = _merchant(_candidate_value(line.get("merchant", {})))
         uncertain = any(
             isinstance(line.get(field), dict)
+            and isinstance(line[field].get("status"), str)
             and line[field].get("status") in {"uncertain", "unreadable"}
             for field in _LINE_FIELDS
         )
@@ -651,7 +663,7 @@ def append_line_review(
     _valid_id(event_id, "review event ID")
     _valid_id(line_id, "statement line ID")
     _valid_hash(expected_line_evidence_sha256, "line evidence digest")
-    if action not in _ACTIONS or not isinstance(candidate_sources, list):
+    if not isinstance(action, str) or action not in _ACTIONS or not isinstance(candidate_sources, list):
         raise ReconciliationError("review action or candidate sources are invalid")
     if reviewer_note is not None and (not isinstance(reviewer_note, str) or len(reviewer_note) > 2000):
         raise ReconciliationError("reviewer note is invalid")
