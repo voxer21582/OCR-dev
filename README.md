@@ -20,18 +20,39 @@ PYTHONPATH=src:tests python -B -m unittest -v \
   test_taxonomy_binding
 ```
 
-This first command selects 19 registry tests and 3 binding tests. To reproduce the application portion, run from `application/` in an existing approved Python environment:
+This first command selects 19 registry tests and 3 binding tests. To reproduce the current explicitly allowed application portion, run from `application/` in an existing approved Python environment. The selector list is intentional; it excludes tests importing the blocked local archive/store path, including `test_ocr_job_ui`, `test_ocr_launcher_contract`, `test_loopback_csrf`, and `test_manual_region_review`:
 
 ```sh
 PYTHONPATH=src:tests python -B -m unittest -v \
-  test_public_data_guard test_contract_baseline test_document_contract \
-  test_document_decoder_contract test_ingestion test_ocr_adapter \
-  test_semantic_proposals test_analysis_pipeline test_document_validation \
-  test_loopback_csrf test_manual_region_review test_rapidocr_adapter \
-  test_document_family_catalog
+  test_public_data_guard \
+  test_contract_baseline \
+  test_document_contract \
+  test_document_decoder_contract \
+  test_ingestion \
+  test_tiff_offset_fixture.TiffOffsetFixtureTests \
+  test_tiff_offset_fixture.TiffBoundaryTests \
+  test_tiff_offset_fixture.TiffReviewTests \
+  test_ocr_adapter \
+  test_semantic_proposals \
+  test_analysis_pipeline \
+  test_document_validation \
+  test_rapidocr_adapter \
+  test_document_family_catalog \
+  test_catalog_alias_delimiters.CatalogAliasDelimiterTests \
+  test_rapidocr_runtime_factory \
+  test_document_processing.DocumentProcessingProgressTests \
+  test_document_processing.OverflowProcessingTests \
+  test_handoff_latest_correction.HandoffLatestCorrectionTests \
+  test_tax_exact_arithmetic.TaxExactArithmeticTests \
+  test_semantic_failure_warning.SemanticFailureWarningTests \
+  test_catalog_pipeline.CatalogSemanticProposalTests \
+  test_catalog_pipeline.CatalogAnalysisPipelineTests \
+  test_catalog_pipeline.RequiredCustomFieldValidationTests \
+  test_catalog_pipeline.CatalogDocumentProcessingTests \
+  test_region_review_keyboard
 ```
 
-On Windows PowerShell, set `$env:PYTHONPATH='src;tests'` first and invoke the same `python -B -m unittest` module list. These tests use synthetic inputs and isolated temporary files where required. They do not invoke an installed OCR engine, download models or transmit documents.
+`test_region_review_keyboard` uses synthetic DOM doubles and Node's built-in VM. It skips when Node.js is not installed; a CI run that reports the selector as skipped does not verify that contract. On Windows PowerShell, set `$env:PYTHONPATH='src;tests'` first and invoke the same `python -B -m unittest` module list. These tests use synthetic inputs and isolated temporary files where required. They do not invoke an installed OCR engine, download models or transmit documents.
 
 The configurable document-family catalog and its separate CI extension were integrated through [PR #46](https://github.com/voxer21582/OCR-dev/pull/46) and [PR #47](https://github.com/voxer21582/OCR-dev/pull/47). The catalog's 41 synthetic tests are included in the `main` result above; this library coverage does not establish its UI or archive integration.
 
