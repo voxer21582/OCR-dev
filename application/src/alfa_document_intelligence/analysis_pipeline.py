@@ -64,10 +64,7 @@ def analyze_ocr_results(
         raise AnalysisPipelineError("at least one OCR page is required")
     if any(not isinstance(page, OCRPageResult) for page in materialized_pages):
         raise AnalysisPipelineError("pages must contain OCRPageResult values")
-    if any(
-        getattr(page, "status", "complete") != "complete"
-        for page in materialized_pages
-    ):
+    if any(page.status != "complete" for page in materialized_pages):
         raise AnalysisPipelineError("every OCR page must be complete before semantic analysis")
     source_hash = document["source"]["sha256"]
     if any(page.source_sha256 != source_hash for page in materialized_pages):

@@ -8,7 +8,13 @@ from alfa_document_intelligence.analysis_pipeline import (
     AnalysisPipelineError,
     analyze_ocr_results,
 )
-from alfa_document_intelligence.ocr_adapter import OCRPageResult, OCRToken
+from alfa_document_intelligence.ocr_adapter import (
+    OCRPageResult,
+    OCRRecognitionResult,
+    OCRToken,
+    RasterPage,
+    run_ocr,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "synthetic_hotel_document.json"
 POLYGON = ((0.1, 0.2), (0.8, 0.2), (0.8, 0.4), (0.1, 0.4))
@@ -82,10 +88,18 @@ class AnalysisPipelineTests(unittest.TestCase):
             analyze_ocr_results(self.document, [self.page])
 
     def test_rejects_incomplete_page_results_before_semantic_proposals(self):
+        self.assertEqual(getattr(self.page, "status", None), "complete")
         for status in ("partial", "failed"):
             with self.subTest(status=status):
-                page = copy.copy(self.page)
-                object.__setattr__(page, "status", status)
+                page = OCRPageResult(
+                    source_sha256=self.page.source_sha256,
+                    page_number=self.page.page_number,
+                    engine_name=self.page.engine_name,
+                    engine_version=self.page.engine_version,
+                    language=self.page.language,
+                    tokens=self.page.tokens,
+                    status=status,
+                )
                 with patch(
                     "alfa_document_intelligence.analysis_pipeline.propose_common_fields"
                 ) as propose, patch(
@@ -98,6 +112,37 @@ class AnalysisPipelineTests(unittest.TestCase):
                 propose.assert_not_called()
                 extract.assert_not_called()
                 self.assertEqual(self.document, self.original)
+
+    def test_partial_adapter_status_is_blocked_before_semantic_proposals(self):
+        class PartialAdapter:
+            name = "synthetic-partial-adapter"
+            version = "1"
+
+            def recognize(self, page, languages):
+                return OCRRecognitionResult(self.page.tokens, status="partial")
+
+        adapter = PartialAdapter()
+        adapter.page = self.page
+        page = run_ocr(
+            adapter,
+            [RasterPage(1, 100, 200, b"synthetic-raster")],
+            source_sha256=self.document["source"]["sha256"],
+        )[0]
+        self.assertEqual(page.status, "partial")
+
+        with patch(
+            "alfa_document_intelligence.analysis_pipeline.propose_common_fields"
+        ) as propose, patch(
+            "alfa_document_intelligence.analysis_pipeline.extract_expense_lines"
+        ) as extract:
+            with self.assertRaisesRegex(
+                AnalysisPipelineError, "every OCR page must be complete"
+            ):
+                analyze_ocr_results(self.document, [page])
+
+        propose.assert_not_called()
+        extract.assert_not_called()
+        self.assertEqual(self.document, self.original)
 
     def test_rejects_mismatched_source_page_inventory_and_result_type(self):
         wrong_source = OCRPageResult("b" * 64, 1, "synthetic-ocr", "test-1", "it+en", ())
