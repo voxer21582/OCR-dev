@@ -82,10 +82,18 @@ class AnalysisPipelineTests(unittest.TestCase):
             analyze_ocr_results(self.document, [self.page])
 
     def test_rejects_incomplete_page_results_before_semantic_proposals(self):
+        self.assertEqual(getattr(self.page, "status", None), "complete")
         for status in ("partial", "failed"):
             with self.subTest(status=status):
-                page = copy.copy(self.page)
-                object.__setattr__(page, "status", status)
+                page = OCRPageResult(
+                    source_sha256=self.page.source_sha256,
+                    page_number=self.page.page_number,
+                    engine_name=self.page.engine_name,
+                    engine_version=self.page.engine_version,
+                    language=self.page.language,
+                    tokens=self.page.tokens,
+                    status=status,
+                )
                 with patch(
                     "alfa_document_intelligence.analysis_pipeline.propose_common_fields"
                 ) as propose, patch(
