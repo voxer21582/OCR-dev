@@ -55,7 +55,7 @@ These choices fill gaps in the documentation. Each is reversible; the owner is a
 | IMP-4 | Exact duplicates (SHA-256) are reported, never silently removed. | MUST | Duplicate sources and documents listed with both identities. | `SYN-CI`. |
 | IMP-5 | Additional formats are admitted only after evaluation. Rule: licensed, hash-locked decoder; resource limits; synthetic malformed-input tests; provenance preserved. Candidates in order: BMP, single-frame GIF; later HEIC/HEIF, JPEG 2000. Office documents are out of scope (the user exports to PDF). | SHOULD | Per format: decision record, limits, tests. | `OPEN`. |
 | IMP-6 | Encrypted or password-protected PDFs are rejected with a clear message. | MUST | Stable error code, no crash. | Implemented in the decoder; tests need `pytest` (`SYN-LOCAL`). |
-| IMP-7 | PDF rendering requires `pypdfium2`; it must be a pinned, hash-locked, licence-recorded dependency. | MUST | Present in the Windows lock with hash and notice. | `OPEN` (not in any repository lock). Installed with hash verification in a local venv only (`LOCAL-RUN`). |
+| IMP-7 | PDF rendering requires `pypdfium2`; it must be a pinned, hash-locked, licence-recorded dependency. | MUST | Present in the Windows lock with hash and notice. | `IN-PR` (#138): hash-locked in `requirements/ocr2-runtime-cp313-win-amd64.lock`; a fresh venv installed only from that file passes the runtime check (`LOCAL-RUN`). Licence and notice review `OPEN`. |
 
 ## 5. OCR with provenance and engine extensibility (OCR)
 
@@ -69,7 +69,7 @@ These choices fill gaps in the documentation. Each is reversible; the owner is a
 | OCR-6 | Italian and English recognition at minimum. | MUST | Synthetic mixed-language fixtures recognised with agreed thresholds. | `LOCAL-RUN` on synthetic lines only; thresholds `OPEN`. |
 | OCR-7 | Use a PDF's embedded text layer when present, recorded as a distinct producer. | SHOULD | Text-native PDF produces tokens without raster OCR; provenance names the producer. | `OPEN`. |
 | OCR-8 | Orientation and quality handling (EXIF orientation, rotation, optional deskew). | SHOULD | Rotated fixtures recognised. | EXIF orientation implemented in the decoder; rotation/deskew `OPEN`. |
-| OCR-9 | OCR is off unless explicitly enabled, and the app states clearly when it is off or when the runtime is incomplete (checked at start, not at the first job). | MUST | Start with a missing package/model shows a specific message. | Default off `SYN-LOCAL` (launcher contract test is outside the CI selector); the early check is `OPEN` (a missing package surfaces at the first job). |
+| OCR-9 | OCR is off unless explicitly enabled, and the app states clearly when it is off or when the runtime is incomplete (checked at start, not at the first job). | MUST | Start with a missing package/model shows a specific message. | Default off `SYN-LOCAL` (launcher contract test is outside the CI selector); the early check is `IN-PR` (#138: exit code 2 with every problem listed, nothing started; `LOCAL-RUN`). Without that PR a missing package surfaces at the first job. |
 
 ## 6. Classification, extraction, validation (CLS, EXT, VAL)
 
@@ -156,7 +156,7 @@ Measurements come from synthetic files with clean text on one development PC; th
 | ID | Increment | Exit evidence |
 |---|---|---|
 | M0 | Baseline: this document, evidence register, issues for known defects. | Reviewed by the owner. |
-| M1 | Trustworthy single-document pipeline: lock including `pypdfium2`, start-up runtime check, all 13 pytest-style modules runnable in CI, PDF/TIFF/WebP end to end with the real engine, PR #133 decided. | CI includes the previously unrun modules; local evidence recorded for each format. |
+| M1 | Trustworthy single-document pipeline: lock including `pypdfium2` (#138), start-up runtime check (#138), pytest-style modules in CI (#139: 9 of 13 run; the 4 that import the R7 archive/store path stay excluded), real decoder cases in CI (Pillow and `pypdfium2` locks for Ubuntu, `OPEN`; 4 decoder tests are skipped in CI today), PDF/TIFF/WebP end to end with the real engine (WebP `OPEN`), PR #133 decided. | CI runs the previously unrun modules with no unexplained skips; local evidence recorded for each format. |
 | M2 | Cases and reconciliation: integrate the #106 chain, fixes for #134 and #135, owner decision on ambiguous dates, a 100-document case benchmark, a driven browser walkthrough (needs authorization to install a test driver). | Known-answer reconciliation fixtures; recorded benchmark. |
 | M3 | Library acceptance (R7/R8 owners): import, reopen, search, review, export, delete, interruption and recovery (issue #8). | Evidence run on synthetic data, independently reviewed. |
 | M4 | Extensibility: engine registry with manifests, a second engine behind the adapter, catalog editor, embedded PDF text. | Synthetic benchmark across engines; catalog round trip. |
