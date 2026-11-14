@@ -1,6 +1,17 @@
 # Document Intelligence current state
 
-Updated: 2026-11-12
+Updated: 2026-11-14
+
+## Expense-lines schema/runtime consistency — PR #128 (2026-11-14)
+
+The review of PR #106 found that JSON Schema and `validate_document_record` disagreed about `expense_lines`: completed 0.3.0 expense reports could pass the schema without proposals, while explicit `null` and legacy-version handling differed.
+
+Draft PR [#128](https://github.com/voxer21582/OCR-dev/pull/128), stacked on #106, aligns the contracts. The field is required for completed 0.3.0 expense-report analysis, omitted for legacy 0.1.0/0.2.0 records, and a present `null` is rejected by both validators. A synthetic test compares schema and runtime validation for incomplete, completed, null, valid-array, and legacy cases.
+
+Evidence: the test-only regression failed on commit `bb634213d3a41d06f3a20360949ad95435c7463a`. Push run [43543788432](https://github.com/voxer21582/OCR-dev/actions/runs/43543788432) and PR run [43543869514](https://github.com/voxer21582/OCR-dev/actions/runs/43543869514) passed; each ran 22 taxonomy and 300 explicitly selected synthetic application tests.
+
+PR #128 is not merged and has no independent formal review. This resolves only the specific schema/runtime consistency finding; the broader PR #106 review and product acceptance remain open. No real documents, OCR runtime, storage/worker tests, or R7/R8 components were used.
+
 
 ## Expense reconciliation candidate — PR #106 (2026-11-12)
 
