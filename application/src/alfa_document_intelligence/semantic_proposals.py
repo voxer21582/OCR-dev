@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from itertools import chain
 import math
 import re
 from typing import Iterable
@@ -119,6 +120,13 @@ class _Proposal:
     evidence: dict[str, object]
     rule_id: str
     original_literal: str
+
+
+class _BoundedProposals(list[_Proposal]):
+    def append(self, proposal: _Proposal) -> None:
+        if len(self) >= MAX_PROPOSALS_PER_FIELD:
+            raise SemanticProposalLimitError("semantic_proposal_field_limit")
+        super().append(proposal)
 
 
 def _validate_pages(pages: Iterable[OCRPageResult]) -> tuple[OCRPageResult, ...]:
@@ -256,21 +264,21 @@ def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: st
     Ambiguous dates keep both valid interpretations as evidence-linked alternatives.
     """
     ordered_pages = _validate_pages(pages)
-    dates: list[_Proposal] = []
-    role_dates: dict[str, list[_Proposal]] = {name: [] for name in _DATE_ROLE_LABELS if name not in {"trip_start_date", "trip_end_date"} or document_family == "expense_report"}
-    expense_text: dict[str, list[_Proposal]] = {name: [] for name in _EXPENSE_TEXT_LABELS} if document_family == "expense_report" else {}
-    amounts: list[_Proposal] = []
-    labelled_totals: list[_Proposal] = []
-    paid_amounts: list[_Proposal] = []
-    tip_amounts: list[_Proposal] = []
-    payment_methods: list[_Proposal] = []
-    payment_references: list[_Proposal] = []
-    currencies: list[_Proposal] = []
-    tax_proposals: dict[str, list[_Proposal]] = {name: [] for name in ('vat_amount', 'taxable_base', 'vat_rate')}
-    entity_proposals: dict[str, list[_Proposal]] = {name: [] for name in _ENTITY_LABELS}
-    document_numbers: list[_Proposal] = []
-    vat_registration_numbers: list[_Proposal] = []
-    family_proposals: list[_Proposal] = []
+    dates: list[_Proposal] = _BoundedProposals()
+    role_dates: dict[str, list[_Proposal]] = {name: _BoundedProposals() for name in _DATE_ROLE_LABELS if name not in {"trip_start_date", "trip_end_date"} or document_family == "expense_report"}
+    expense_text: dict[str, list[_Proposal]] = {name: _BoundedProposals() for name in _EXPENSE_TEXT_LABELS} if document_family == "expense_report" else {}
+    amounts: list[_Proposal] = _BoundedProposals()
+    labelled_totals: list[_Proposal] = _BoundedProposals()
+    paid_amounts: list[_Proposal] = _BoundedProposals()
+    tip_amounts: list[_Proposal] = _BoundedProposals()
+    payment_methods: list[_Proposal] = _BoundedProposals()
+    payment_references: list[_Proposal] = _BoundedProposals()
+    currencies: list[_Proposal] = _BoundedProposals()
+    tax_proposals: dict[str, list[_Proposal]] = {name: _BoundedProposals() for name in ('vat_amount', 'taxable_base', 'vat_rate')}
+    entity_proposals: dict[str, list[_Proposal]] = {name: _BoundedProposals() for name in _ENTITY_LABELS}
+    document_numbers: list[_Proposal] = _BoundedProposals()
+    vat_registration_numbers: list[_Proposal] = _BoundedProposals()
+    family_proposals: list[_Proposal] = _BoundedProposals()
 
     for page in ordered_pages:
         for token in page.tokens:
@@ -324,13 +332,11 @@ def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: st
                             value, _evidence(page, token, literal),
                             f"explicit-{field_name}-label-trim-whitespace", entity_match.group(1),
                         ))
-            date_matches = [
-                (match, match.group(0), match.start(), match.end())
-                for match in _ISO_DATE.finditer(token.text)
-            ]
-            date_matches.extend(
-                (match, match.group(1), match.start(1), match.end(1))
-                for match in _NUMERIC_DATE.finditer(token.text)
+            date_matches = chain(
+                ((match, match.group(0), match.start(), match.end())
+                 for match in _ISO_DATE.finditer(token.text)),
+                ((match, match.group(1), match.start(1), match.end(1))
+                 for match in _NUMERIC_DATE.finditer(token.text)),
             )
             for match, literal, date_start, date_end in date_matches:
                 for normalized, rule_id in _date_proposals(literal):
