@@ -43,6 +43,20 @@ class ExpenseLineExtractionTests(unittest.TestCase):
         self.assertEqual(evidence["literal"], "Taxi 12,34")
         self.assertEqual(evidence["region"]["coordinate_space"], "normalized_page")
 
+    def test_identical_token_regions_are_ordered_independently_of_input(self):
+        tokens = [
+            _token("token-a", "Taxi", .1, .1, .5, .15),
+            _token("token-b", "12,34", .1, .1, .5, .15),
+        ]
+
+        forward = extract_expense_lines([self.page(1, tokens)])
+        reversed_input = extract_expense_lines([self.page(1, list(reversed(tokens)))])
+
+        self.assertEqual(forward, reversed_input)
+        evidence = forward[0]["description"]["evidence"][0]
+        self.assertEqual(forward[0]["description"]["value"], "Taxi 12,34")
+        self.assertEqual(evidence["token_ids"], ["token-a", "token-b"])
+
     def test_multiple_amounts_remain_uncertain_with_alternatives(self):
         result = extract_expense_lines([
             self.page(1, [
