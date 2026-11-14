@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import re
-from typing import Protocol, Sequence
+from typing import Literal, Protocol, Sequence
 
 _SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
 MAX_OCR_PAGES_PER_DOCUMENT = 100
@@ -15,6 +15,7 @@ MAX_OCR_TOKEN_TEXT_CHARS = 4_096
 MAX_OCR_POLYGON_VERTICES = 256
 Point = tuple[float, float]
 Polygon = tuple[Point, ...]
+OCRPageStatus = Literal["complete", "partial", "failed"]
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,11 @@ class OCRPageResult:
     engine_version: str
     language: str
     tokens: tuple[OCRToken, ...]
+    status: OCRPageStatus = "complete"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, str) or self.status not in ("complete", "partial", "failed"):
+            raise ValueError("status must be complete, partial, or failed")
 
 
 class OCREngineAdapter(Protocol):
