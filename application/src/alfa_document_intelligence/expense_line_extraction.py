@@ -9,7 +9,33 @@ from typing import Any, Iterable
 
 from .ocr_adapter import OCRPageResult
 
-_AMOUNT = re.compile(r"(?<![\w.,])((?:[+\-\u2212]\s?)?(?:\d{1,3}(?:[., ]\d{3})+|\d+)[.,]\d{2})(?![\w.,])")
+_AMOUNT_NUMBER = r"(?:\d{1,3}(?:[., ]\d{3})+|\d+)[.,]\d{2}"
+_CURRENCY_MARKER = r"(?:EUR|USD|GBP|CHF|CAD|AUD|JPY|[€$£])"
+_CURRENCY_SIGNED_AMOUNT = re.compile(
+    rf"(?i)(?<![\w.(])(?P<literal>(?P<currency>EUR|USD|GBP|CHF|CAD|AUD|JPY)"
+    rf"(?P<sign>[+\-\u2212])\s*(?P<number>{_AMOUNT_NUMBER}))(?![\w.,])"
+)
+_PARENTHESIZED_AMOUNT = re.compile(
+    rf"(?<![.,])(?P<literal>(?:(?P<outer_sign>[+\-\u2212])\s*)?\(\s*"
+    rf"(?:{_CURRENCY_MARKER}\s*)?(?P<inner_sign>[+\-\u2212])?\s*"
+    rf"(?P<number>{_AMOUNT_NUMBER})\s*(?:{_CURRENCY_MARKER})?\s*\))",
+    re.IGNORECASE,
+)
+_SIGNED_AMOUNT = re.compile(
+    rf"(?<![\w.,])(?P<literal>(?P<sign>[+\-\u2212])\s*"
+    rf"(?P<number>{_AMOUNT_NUMBER}))(?![\w.,])"
+)
+_WORD_ATTACHED_SIGNED_AMOUNT = re.compile(
+    rf"(?P<literal>(?P<sign>[+\-\u2212])\s*(?P<number>{_AMOUNT_NUMBER}))"
+    rf"(?![\w.,])"
+)
+_UNSIGNED_AMOUNT = re.compile(
+    rf"(?<![\w.,+\-\u2212])(?P<literal>(?P<number>{_AMOUNT_NUMBER}))(?![\w.,])"
+)
+_WORD_PREFIX_UNSIGNED_AMOUNT = re.compile(
+    rf"(?<!\w)(?:EUR|USD|GBP|CHF|CAD|AUD|JPY)(?P<literal>(?P<number>{_AMOUNT_NUMBER}))(?![\w.,])",
+    re.IGNORECASE,
+)
 _DATE = re.compile(r"(?<!\d)(\d{4}-\d{2}-\d{2}|\d{1,2}[/. -]\d{1,2}[/. -]\d{4})(?!\d)")
 _CURRENCY = re.compile(r"(?i)(?<![A-Z])(?:EUR|USD|GBP|CHF|CAD|AUD|JPY)(?![A-Z])|€|\$|£")
 _CURRENCY_CODES = {"€": "EUR", "£": "GBP"}
@@ -78,7 +104,63 @@ def _decimal_amount(literal: str) -> str | None:
         amount = Decimal(canonical)
     except InvalidOperation:
         return None
+    if amount.is_zero():
+        return "0.00"
     return format(amount, ".2f") if amount.is_finite() else None
+
+
+def _amount_values(text: str) -> list[tuple[str, str]]:
+    """Extract bounded sign interpretations without discarding source wording."""
+    values: list[tuple[int, int, str, str]] = []
+    occupied: list[tuple[int, int]] = []
+    order = 0
+
+    def add(match, interpretations):
+        nonlocal order
+        span = match.span()
+        if any(span[0] < end and start < span[1] for start, end in occupied):
+            return
+        occupied.append(span)
+        for normalized in interpretations:
+            if normalized is not None:
+                values.append((span[0], order, match.group("literal"), normalized))
+                order += 1
+
+    for pattern in (_PARENTHESIZED_AMOUNT, _CURRENCY_SIGNED_AMOUNT, _SIGNED_AMOUNT):
+        for match in pattern.finditer(text):
+            sign = (
+                match.groupdict().get("sign")
+                or match.groupdict().get("outer_sign")
+                or match.groupdict().get("inner_sign")
+            )
+            number = match.group("number")
+            signed_number = (sign or "") + number
+            outer = match.groupdict().get("outer_sign")
+            attached_outer = bool(outer and match.start() and (text[match.start() - 1].isalnum() or text[match.start() - 1] == "_"))
+            if pattern is _PARENTHESIZED_AMOUNT and (
+                sign is None or attached_outer or (outer and match.group("inner_sign"))
+            ):
+                add(match, (_decimal_amount(number), _decimal_amount("-" + number)))
+            else:
+                add(match, (_decimal_amount(signed_number),))
+
+    for match in _WORD_ATTACHED_SIGNED_AMOUNT.finditer(text):
+        start = match.start()
+        if start == 0 or not (text[start - 1].isalnum() or text[start - 1] == "_"):
+            continue
+        sign = match.group("sign")
+        number = match.group("number")
+        if sign == "+":
+            add(match, (_decimal_amount(number),))
+        else:
+            add(match, (_decimal_amount(number), _decimal_amount("-" + number)))
+
+    for pattern in (_UNSIGNED_AMOUNT, _WORD_PREFIX_UNSIGNED_AMOUNT):
+        for match in pattern.finditer(text):
+            add(match, (_decimal_amount(match.group("number")),))
+
+    values.sort(key=lambda item: (item[0], item[1]))
+    return [(literal, normalized) for _, _, literal, normalized in values]
 
 
 def _date_values(literal: str) -> list[tuple[str, str]]:
@@ -257,8 +339,7 @@ def extract_expense_lines(pages: Iterable[OCRPageResult]) -> list[dict[str, Any]
                 "literal": text,
                 "producer": {"stage": "ocr", "name": page.engine_name, "version": page.engine_version},
             }
-            amounts = [(match.group(0), _decimal_amount(match.group(0))) for match in _AMOUNT.finditer(text)]
-            amounts = [(literal, value) for literal, value in amounts if value is not None]
+            amounts = _amount_values(text)
             currency = _currency_candidate(text, evidence)
             dates = _date_values(text)
             result.append({

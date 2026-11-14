@@ -107,6 +107,207 @@ class ExpenseLineExtractionTests(unittest.TestCase):
         self.assertEqual(amount["value"], "-12.34")
         self.assertEqual(amount["normalization"]["original_literal"], "−\t12,34")
 
+    def test_conflicting_parenthesized_signs_remain_uncertain(self):
+        for literal in ("-(+12,34)", "+(-12,34)"):
+            with self.subTest(literal=literal):
+                amount = extract_expense_lines([
+                    self.page(1, [_token("p1-t1", literal, .1, .1, .5, .15)])
+                ])[0]["amount"]
+                self.assertEqual(amount["status"], "uncertain")
+                self.assertEqual({item["value"] for item in amount["alternatives"]}, {"12.34", "-12.34"})
+
+    def test_parenthesized_amount_after_text_preserves_literal(self):
+        for text in ("Spesa (12,34)", "ABC(12,34)"):
+            with self.subTest(text=text):
+                amount = extract_expense_lines([
+                    self.page(1, [_token("p1-t1", text, .1, .1, .7, .15)])
+                ])[0]["amount"]
+                self.assertEqual(amount["status"], "uncertain")
+                self.assertEqual({item["value"] for item in amount["alternatives"]}, {"12.34", "-12.34"})
+                self.assertEqual({item["normalization"]["original_literal"] for item in amount["alternatives"]}, {"(12,34)"})
+
+    def test_currency_prefix_explicit_minus_is_preserved(self):
+        result = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "EUR-12,34", .1, .1, .5, .15)])
+        ])
+
+        amount = result[0]["amount"]
+        self.assertEqual(amount["status"], "observed")
+        self.assertEqual(amount["value"], "-12.34")
+        self.assertEqual(amount["normalization"]["original_literal"], "EUR-12,34")
+        self.assertEqual(amount["evidence"][0]["literal"], "EUR-12,34")
+        self.assertEqual(validate_expense_lines(result, self.digest, {1}), [])
+
+    def test_explicit_signs_outside_parentheses_keep_direction(self):
+        results = [
+            extract_expense_lines([
+                self.page(1, [_token("p1-t1", literal, .1, .1, .5, .15)])
+            ])[0]["amount"]
+            for literal in ("-12,34", "+12,34", "−12,34")
+        ]
+
+        self.assertEqual([item["status"] for item in results], ["observed"] * 3)
+        self.assertEqual([item["value"] for item in results], ["-12.34", "12.34", "-12.34"])
+        self.assertEqual(
+            [item["normalization"]["original_literal"] for item in results],
+            ["-12,34", "+12,34", "−12,34"],
+        )
+
+    def test_parenthesized_amount_without_sign_keeps_both_interpretations(self):
+        result = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "(12,34)", .1, .1, .5, .15)])
+        ])
+
+        amount = result[0]["amount"]
+        self.assertEqual(amount["status"], "uncertain")
+        self.assertIsNone(amount["value"])
+        self.assertEqual([item["value"] for item in amount["alternatives"]], ["12.34", "-12.34"])
+        self.assertEqual(
+            [item["normalization"]["original_literal"] for item in amount["alternatives"]],
+            ["(12,34)", "(12,34)"],
+        )
+        self.assertEqual(amount["evidence"][0]["literal"], "(12,34)")
+        self.assertEqual(validate_expense_lines(result, self.digest, {1}), [])
+
+    def test_word_attached_hyphen_is_not_silently_dropped(self):
+        result = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "ABC-12,34", .1, .1, .5, .15)])
+        ])
+
+        amount = result[0]["amount"]
+        self.assertEqual(amount["status"], "uncertain")
+        self.assertIsNone(amount["value"])
+        self.assertEqual([item["value"] for item in amount["alternatives"]], ["12.34", "-12.34"])
+        self.assertEqual(amount["evidence"][0]["literal"], "ABC-12,34")
+
+    def test_unsigned_amount_after_attached_code_or_label_is_retained(self):
+        for literal in ("EUR12,34",):
+            with self.subTest(literal=literal):
+                amount = extract_expense_lines([
+                    self.page(1, [_token("p1-t1", literal, .1, .1, .5, .15)])
+                ])[0]["amount"]
+
+                self.assertEqual(amount["status"], "observed")
+                self.assertEqual(amount["value"], "12.34")
+                self.assertEqual(amount["evidence"][0]["literal"], literal)
+
+    def test_product_code_is_not_certain_amount(self):
+        amount = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "SKU123.45", .1, .1, .5, .15)])
+        ])[0]["amount"]
+        self.assertNotEqual(amount["status"], "observed")
+
+    def test_currency_code_inside_identifier_is_not_certain_amount(self):
+        for literal in ("SKU1EUR12.34", "123EUR-12.34"):
+            with self.subTest(literal=literal):
+                amount = extract_expense_lines([
+                    self.page(1, [_token("p1-t1", literal, .1, .1, .5, .15)])
+                ])[0]["amount"]
+                self.assertNotEqual(amount["status"], "observed")
+
+    def test_parentheses_followed_by_currency_keep_ambiguity(self):
+        amount = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "(12.34)EUR", .1, .1, .5, .15)])
+        ])[0]["amount"]
+        self.assertEqual(amount["status"], "uncertain")
+        self.assertEqual({item["value"] for item in amount["alternatives"]}, {"12.34", "-12.34"})
+
+    def test_punctuation_after_signed_parentheses_keeps_negative_sign(self):
+        for literal in ("-(12.34),", "-(12.34)."):
+            with self.subTest(literal=literal):
+                amount = extract_expense_lines([
+                    self.page(1, [_token("p1-t1", literal, .1, .1, .5, .15)])
+                ])[0]["amount"]
+                self.assertEqual(amount["value"], "-12.34")
+
+    def test_parentheses_attached_to_identifiers_remain_uncertain(self):
+        for literal in ("ABC-(12.34)", "1-(12.34)", "(12.34)XYZ"):
+            with self.subTest(literal=literal):
+                amount = extract_expense_lines([
+                    self.page(1, [_token("p1-t1", literal, .1, .1, .5, .15)])
+                ])[0]["amount"]
+                self.assertEqual(amount["status"], "uncertain")
+                self.assertEqual({item["value"] for item in amount["alternatives"]}, {"12.34", "-12.34"})
+
+    def test_explicit_minus_with_repeated_spaces_is_preserved(self):
+        for literal in ("-  12,34", "EUR-  12,34"):
+            with self.subTest(literal=literal):
+                amount = extract_expense_lines([
+                    self.page(1, [_token("p1-t1", literal, .1, .1, .5, .15)])
+                ])[0]["amount"]
+
+                self.assertEqual(amount["status"], "observed")
+                self.assertEqual(amount["value"], "-12.34")
+                self.assertEqual(amount["evidence"][0]["literal"], literal)
+
+    def test_word_attached_explicit_plus_does_not_create_negative_alternative(self):
+        amount = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "ABC+12,34", .1, .1, .5, .15)])
+        ])[0]["amount"]
+
+        self.assertEqual(amount["status"], "observed")
+        self.assertEqual(amount["value"], "12.34")
+        self.assertEqual(amount["alternatives"], [])
+        self.assertEqual(amount["evidence"][0]["literal"], "ABC+12,34")
+
+    def test_currency_inside_parentheses_keeps_sign_ambiguity(self):
+        for literal in ("(EUR 12,34)", "($12.34)", "(12,34 €)"):
+            with self.subTest(literal=literal):
+                amount = extract_expense_lines([
+                    self.page(1, [_token("p1-t1", literal, .1, .1, .5, .15)])
+                ])[0]["amount"]
+
+                self.assertEqual(amount["status"], "uncertain")
+                self.assertIsNone(amount["value"])
+                self.assertEqual([item["value"] for item in amount["alternatives"]], ["12.34", "-12.34"])
+                self.assertEqual(
+                    [item["normalization"]["original_literal"] for item in amount["alternatives"]],
+                    [literal, literal],
+                )
+
+    def test_signed_currency_inside_parentheses_preserves_complete_literal(self):
+        literal = "( EUR-12,34 )"
+        amount = extract_expense_lines([
+            self.page(1, [_token("p1-t1", literal, .1, .1, .5, .15)])
+        ])[0]["amount"]
+
+        self.assertEqual(amount["status"], "observed")
+        self.assertEqual(amount["value"], "-12.34")
+        self.assertEqual(amount["normalization"]["original_literal"], literal)
+        self.assertEqual(amount["evidence"][0]["literal"], literal)
+
+    def test_sign_outside_parentheses_is_preserved_in_normalization_literal(self):
+        for literal, expected in (("-(12,34)", "-12.34"), ("+(12,34)", "12.34")):
+            with self.subTest(literal=literal):
+                amount = extract_expense_lines([
+                    self.page(1, [_token("p1-t1", literal, .1, .1, .5, .15)])
+                ])[0]["amount"]
+
+                self.assertEqual(amount["status"], "observed")
+                self.assertEqual(amount["value"], expected)
+                self.assertEqual(amount["normalization"]["original_literal"], literal)
+                self.assertEqual(amount["evidence"][0]["literal"], literal)
+
+    def test_unsigned_parenthesized_zero_deduplicates_equal_values(self):
+        amount = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "(0,00)", .1, .1, .5, .15)])
+        ])[0]["amount"]
+
+        self.assertEqual(amount["status"], "observed")
+        self.assertEqual(amount["value"], "0.00")
+        self.assertEqual(amount["alternatives"], [])
+
+    def test_amount_results_follow_text_position_across_pattern_kinds(self):
+        amount = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "20,00 -10,00 30,00", .1, .1, .9, .15)])
+        ])[0]["amount"]
+
+        self.assertEqual(amount["status"], "uncertain")
+        self.assertEqual(
+            [item["value"] for item in amount["alternatives"]],
+            ["20.00", "-10.00", "30.00"],
+        )
+
     def test_each_page_gets_stable_unique_line_ids_and_explicit_missing_values(self):
         result = extract_expense_lines([
             self.page(1, [_token("p1-t1", "Spese viaggio", .1, .1, .5, .15)]),
