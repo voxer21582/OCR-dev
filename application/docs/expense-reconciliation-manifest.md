@@ -51,6 +51,19 @@ This run deliberately excluded worker/launcher modules involved in PR #105 and `
 - From `application/`, `python -B -m unittest -v test_expense_line_extraction test_expense_reconciliation` passed **29 synthetic tests**. `py_compile` for the changed module and test passed; `git diff --check` passed.
 - This change does not access document storage, start an OCR worker, use real documents, or modify R7/R8. It does not verify native OCR accuracy or Windows end-to-end behavior.
 
+### Dollar-symbol disambiguation coverage — 2026-11-14
+
+- Added a synthetic table-driven case for `USD $`, `CAD $`, and `AUD $`, asserting that each matching explicit currency code resolves the symbol while retaining no unresolved alternatives. The existing conflict case `EUR $` remains uncertain, and `$` without a code remains uncertain.
+- From `application/`, `PYTHONPATH=src;tests python -B -m unittest -v test_expense_line_extraction` passed **11 tests**. The full explicit application selector set from the current workflow plus the two selectors added by stacked CI PR #114 passed **336 tests: 335 passed, 1 skipped** because `jsonschema` is not installed locally. The command used the complete named selector list; no test discovery was used. `git diff --check` passed.
+- This is local synthetic verification only. The new test has not run in GitHub Actions or received a separate independent review. The surrounding currency implementation has an independent READY review recorded in `CURRENT_STATE.md`; that review predates this additional coverage.
+- No real documents, OCR runtime, archive/store, worker, Windows configuration, or R7/R8 component was accessed or tested.
+
+### Isolated parent-fixes branch verification — 2026-11-14
+
+- Branch `codex/expense-reconciliation-parent-fixes` is based on PR #106 head `95fbd611f8516dec2cf5530f3fb62cae1a36ae28`. It includes the schema-0.3 expense-lines contract, currency ambiguity, and Unicode-minus fixes. The stable token-ordering commit owned by PR #127 is intentionally excluded to avoid duplicating that change.
+- Exact local synthetic selectors from `application/` with `PYTHONPATH=src`: `test_expense_line_extraction.py` (12), `test_expense_reconciliation.py` (22), and `test_document_contract.py` (32). Total: 66 run, 65 passed, 1 skipped because `jsonschema` is unavailable locally. `git diff --check` passed. The skipped JSON Schema validation case requires the existing hash-locked CI environment and has not been re-run locally.
+- This evidence is local only. It does not demonstrate a GitHub Actions run, native Windows/OCR behavior, real-document accuracy, storage/worker behavior, or product acceptance. The first import attempt omitted `PYTHONPATH=src` and ran zero tests; the exact selector passed after setting the local source path. No dependency was installed.
+
 ## Privacy and acceptance limits
 
 - The owner has identified a local reference sample for future real-document evaluation. The implementation and test runs documented here use synthetic documents; no real filename, OCR value, source hash, screenshot, or derived value was committed or sent to GitHub, CI, ChatGPT, or any external service.

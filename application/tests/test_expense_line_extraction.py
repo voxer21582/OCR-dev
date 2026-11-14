@@ -57,6 +57,41 @@ class ExpenseLineExtractionTests(unittest.TestCase):
         )
         self.assertEqual(amount["evidence"][0]["source_sha256"], self.digest)
 
+    def test_unicode_minus_sign_is_preserved_in_negative_amount(self):
+        result = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "−12,34", .1, .1, .3, .15)])
+        ])
+
+        amount = result[0]["amount"]
+        self.assertEqual(amount["status"], "observed")
+        self.assertEqual(amount["value"], "-12.34")
+        self.assertEqual(amount["normalization"]["original_literal"], "−12,34")
+        self.assertEqual(amount["evidence"][0]["literal"], "−12,34")
+
+    def test_unicode_minus_as_separate_token_stays_bound_to_negative_amount(self):
+        result = extract_expense_lines([
+            self.page(1, [
+                _token("p1-minus", "−", .1, .1, .13, .15),
+                _token("p1-amount", "12,34", .14, .1, .3, .15),
+            ])
+        ])
+
+        amount = result[0]["amount"]
+        self.assertEqual(amount["status"], "observed")
+        self.assertEqual(amount["value"], "-12.34")
+        self.assertEqual(amount["normalization"]["original_literal"], "− 12,34")
+        self.assertEqual(amount["evidence"][0]["token_ids"], ["p1-minus", "p1-amount"])
+
+    def test_unicode_minus_followed_by_tab_stays_bound_to_negative_amount(self):
+        result = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "−\t12,34", .1, .1, .3, .15)])
+        ])
+
+        amount = result[0]["amount"]
+        self.assertEqual(amount["status"], "observed")
+        self.assertEqual(amount["value"], "-12.34")
+        self.assertEqual(amount["normalization"]["original_literal"], "−\t12,34")
+
     def test_each_page_gets_stable_unique_line_ids_and_explicit_missing_values(self):
         result = extract_expense_lines([
             self.page(1, [_token("p1-t1", "Spese viaggio", .1, .1, .5, .15)]),
@@ -95,6 +130,29 @@ class ExpenseLineExtractionTests(unittest.TestCase):
         ])[0]["currency"]
         self.assertEqual(identified["status"], "observed")
         self.assertEqual(identified["value"], "USD")
+
+    def test_explicit_currency_code_does_not_hide_ambiguous_dollar_symbol(self):
+        result = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "EUR $ 50.00", .1, .1, .5, .15)])
+        ])
+
+        currency = result[0]["currency"]
+        self.assertEqual(currency["status"], "uncertain")
+        self.assertIsNone(currency["value"])
+        self.assertEqual(
+            [item["value"] for item in currency["alternatives"]], ["EUR", "$"],
+        )
+
+    def test_matching_dollar_currency_codes_resolve_the_symbol(self):
+        for code in ("USD", "CAD", "AUD"):
+            with self.subTest(code=code):
+                currency = extract_expense_lines([
+                    self.page(1, [_token("p1-t1", f"{code} $ 50.00", .1, .1, .5, .15)])
+                ])[0]["currency"]
+
+                self.assertEqual(currency["status"], "observed")
+                self.assertEqual(currency["value"], code)
+                self.assertEqual(currency["alternatives"], [])
 
     def _uncertain_amount_line(self):
         result = extract_expense_lines([
