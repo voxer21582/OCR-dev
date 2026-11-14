@@ -188,6 +188,45 @@ def _evidence_region_error(region):
     return None
 
 
+def _evidence_validation_issues(item, source_hash, page_numbers, encoded_page, path, *, alternative=False):
+    label = "alternative evidence" if alternative else "evidence"
+    message = "alternative evidence is not source-bound" if alternative else "evidence must bind to this source and an inventoried page"
+    if not isinstance(item, dict):
+        return [f"{path}: {message}"]
+    evidence_page = item.get("page_number")
+    if (
+        item.get("source_sha256") != source_hash
+        or not isinstance(evidence_page, int)
+        or isinstance(evidence_page, bool)
+        or evidence_page not in page_numbers
+    ):
+        return [f"{path}: {message}"]
+
+    issues = []
+    if encoded_page != evidence_page:
+        message = "alternative evidence page differs from its line ID" if alternative else "line ID page differs from its evidence page"
+        issues.append(f"{path}: {message}")
+
+    literal = item.get("literal")
+    token_ids = item.get("token_ids")
+    if (
+        not isinstance(literal, str)
+        or len(literal) > _MAX_LINE_TEXT_CHARS
+        or not isinstance(token_ids, list)
+        or not token_ids
+        or any(not isinstance(token_id, str) or not token_id or len(token_id) > 256 for token_id in token_ids)
+        or len(set(token_ids)) != len(token_ids)
+    ):
+        issues.append(f"{path}: {label} requires literal and token IDs")
+
+    if not _valid_evidence_producer(item.get("producer")):
+        issues.append(f"{path}: {label} producer is invalid")
+    region_error = _evidence_region_error(item.get("region"))
+    if region_error:
+        issues.append(f"{path}: {label} {region_error}")
+    return issues
+
+
 def extract_expense_lines(pages: Iterable[OCRPageResult]) -> list[dict[str, Any]]:
     """Group OCR tokens by visual row and propose values without confirming them."""
     result = []
@@ -248,12 +287,15 @@ def validate_expense_lines(lines, source_hash: str, page_numbers: set[int]) -> l
             issues.append(f"{prefix}: invalid line shape")
             continue
         line_id = line.get("line_id")
-        if not isinstance(line_id, str) or not re.fullmatch(r"line-p\d{4}-\d{5}", line_id) or line_id in seen:
+        if not isinstance(line_id, str) or not re.fullmatch(r"line-p\d{4}-\d{5}", line_id):
+            issues.append(f"{prefix}.line_id: invalid or duplicate")
+            encoded_page = None
+        elif line_id in seen:
             issues.append(f"{prefix}.line_id: invalid or duplicate")
             encoded_page = None
         else:
             encoded_page = int(line_id[6:10])
-        seen.add(line_id)
+            seen.add(line_id)
         for field in ("description", "amount", "currency", "date", "merchant"):
             candidate = line.get(field)
             path = f"{prefix}.{field}"
@@ -271,20 +313,7 @@ def validate_expense_lines(lines, source_hash: str, page_numbers: set[int]) -> l
             if candidate["status"] in {"observed", "uncertain", "unreadable", "rejected"} and not evidence:
                 issues.append(f"{path}: non-absent candidate requires evidence")
             for item in evidence:
-                if not isinstance(item, dict) or item.get("source_sha256") != source_hash or item.get("page_number") not in page_numbers:
-                    issues.append(f"{path}: evidence must bind to this source and an inventoried page")
-                    continue
-                if encoded_page != item.get("page_number"):
-                    issues.append(f"{path}: line ID page differs from its evidence page")
-                if not isinstance(item.get("literal"), str) or len(item["literal"]) > _MAX_LINE_TEXT_CHARS or not isinstance(item.get("token_ids"), list) or not item["token_ids"] or any(not isinstance(token_id, str) or not token_id or len(token_id) > 256 for token_id in item.get("token_ids", [])) or len(set(item.get("token_ids", []))) != len(item.get("token_ids", [])):
-                    issues.append(f"{path}: evidence requires literal and token IDs")
-                producer = item.get("producer")
-                if not _valid_evidence_producer(producer):
-                    issues.append(f"{path}: evidence producer is invalid")
-                region = item.get("region")
-                region_error = _evidence_region_error(region)
-                if region_error:
-                    issues.append(f"{path}: evidence {region_error}")
+                issues.extend(_evidence_validation_issues(item, source_hash, page_numbers, encoded_page, path))
             normalization = candidate.get("normalization")
             if normalization is not None and (not isinstance(normalization, dict) or normalization.get("normalized_value") != candidate.get("value")):
                 issues.append(f"{path}: normalization does not match candidate value")
@@ -298,12 +327,5 @@ def validate_expense_lines(lines, source_hash: str, page_numbers: set[int]) -> l
                 if alt_normalization is not None and (not isinstance(alt_normalization, dict) or alt_normalization.get("normalized_value") != alternative.get("value")):
                     issues.append(f"{path}: alternative normalization does not match its value")
                 for item in alternative["evidence"]:
-                    if not isinstance(item, dict) or item.get("source_sha256") != source_hash or item.get("page_number") not in page_numbers or not isinstance(item.get("literal"), str) or not isinstance(item.get("token_ids"), list) or not item["token_ids"]:
-                        issues.append(f"{path}: alternative evidence is not source-bound")
-                        continue
-                    if not _valid_evidence_producer(item.get("producer")):
-                        issues.append(f"{path}: alternative evidence producer is invalid")
-                    region_error = _evidence_region_error(item.get("region"))
-                    if region_error:
-                        issues.append(f"{path}: alternative evidence {region_error}")
+                    issues.extend(_evidence_validation_issues(item, source_hash, page_numbers, encoded_page, path, alternative=True))
     return issues

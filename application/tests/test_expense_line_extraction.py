@@ -1,4 +1,5 @@
 """Synthetic evidence-bound tests for OCR statement-line proposals."""
+import copy
 import hashlib
 import unittest
 
@@ -179,6 +180,65 @@ class ExpenseLineExtractionTests(unittest.TestCase):
 
         self.assertTrue(any("alternative evidence producer is invalid" in issue for issue in issues))
 
+
+    def test_non_string_unhashable_line_id_returns_validation_issue(self):
+        lines = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "Taxi 12,34", .1, .1, .5, .15)])
+        ])
+        lines[0]["line_id"] = ["not", "hashable"]
+
+        issues = validate_expense_lines(lines, self.digest, {1})
+
+        self.assertTrue(any(".line_id: invalid or duplicate" in issue for issue in issues))
+
+    def test_alternative_evidence_enforces_the_primary_evidence_constraints(self):
+        mutations = (
+            ("cross-page", lambda item: item.update(page_number=2), {1, 2}),
+            ("oversized-literal", lambda item: item.update(literal="x" * 16_385), {1}),
+            ("non-string-token-id", lambda item: item.update(token_ids=[["nested"]]), {1}),
+            ("duplicate-token-id", lambda item: item.update(token_ids=["same", "same"]), {1}),
+            ("oversized-token-id", lambda item: item.update(token_ids=["x" * 257]), {1}),
+        )
+        for label, mutate, page_numbers in mutations:
+            with self.subTest(label=label):
+                lines = self._uncertain_amount_line()
+                evidence = copy.deepcopy(lines[0]["amount"]["evidence"][0])
+                lines[0]["amount"]["alternatives"][0]["evidence"] = [evidence]
+                mutate(evidence)
+
+                issues = validate_expense_lines(lines, self.digest, page_numbers)
+
+                self.assertTrue(issues, f"malformed {label} alternative evidence was accepted")
+
+    def test_unhashable_primary_page_number_returns_validation_issue(self):
+        lines = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "Taxi 12,34", .1, .1, .5, .15)])
+        ])
+        lines[0]["amount"]["evidence"][0]["page_number"] = []
+
+        issues = validate_expense_lines(lines, self.digest, {1})
+
+        self.assertTrue(any("source and an inventoried page" in issue for issue in issues))
+
+    def test_boolean_primary_page_number_is_not_treated_as_page_one(self):
+        lines = extract_expense_lines([
+            self.page(1, [_token("p1-t1", "Taxi 12,34", .1, .1, .5, .15)])
+        ])
+        lines[0]["amount"]["evidence"][0]["page_number"] = True
+
+        issues = validate_expense_lines(lines, self.digest, {1})
+
+        self.assertTrue(any("source and an inventoried page" in issue for issue in issues))
+
+    def test_unhashable_alternative_page_number_returns_validation_issue(self):
+        lines = self._uncertain_amount_line()
+        evidence = copy.deepcopy(lines[0]["amount"]["evidence"][0])
+        lines[0]["amount"]["alternatives"][0]["evidence"] = [evidence]
+        evidence["page_number"] = []
+
+        issues = validate_expense_lines(lines, self.digest, {1})
+
+        self.assertTrue(any("alternative evidence is not source-bound" in issue for issue in issues))
 
 if __name__ == "__main__":
     unittest.main()
