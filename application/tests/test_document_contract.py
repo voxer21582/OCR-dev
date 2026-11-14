@@ -5,6 +5,7 @@ from pathlib import Path
 
 from alfa_document_intelligence.contracts import validate_document_record
 from alfa_document_intelligence.document_family_catalog import load_custom_family_catalog
+from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).parents[1]
 SCHEMA_PATH = ROOT / "src" / "alfa_document_intelligence" / "schemas" / "document.schema.json"
@@ -362,5 +363,34 @@ class DocumentContractTests(unittest.TestCase):
         invalid = copy.deepcopy(self.fixture)
         invalid["fields"]["total_amount"]["normalization"]["normalized_value"] = "999.99"
         self.assertTrue(any("normalized_value must equal candidate value" in issue for issue in validate_document_record(invalid)))
+
+    def _expense_report_record(self, extraction_status):
+        record = copy.deepcopy(self.fixture)
+        record["schema_version"] = "0.3.0"
+        record["document_family"] = "expense_report"
+        record["processing"]["semantic_extraction"]["status"] = extraction_status
+        return record
+
+    def _assert_schema_runtime_validity_agree(self, record, expected_valid):
+        schema_issues = list(Draft202012Validator(self.schema).iter_errors(record))
+        runtime_issues = validate_document_record(record)
+        self.assertEqual(not schema_issues, expected_valid)
+        self.assertEqual(not runtime_issues, expected_valid)
+
+    def test_expense_lines_contract_matches_schema_and_runtime(self):
+        incomplete = self._expense_report_record("in_progress")
+        self._assert_schema_runtime_validity_agree(incomplete, True)
+
+        completed_without_lines = self._expense_report_record("completed")
+        self._assert_schema_runtime_validity_agree(completed_without_lines, False)
+
+        explicit_null = self._expense_report_record("in_progress")
+        explicit_null["expense_lines"] = None
+        self._assert_schema_runtime_validity_agree(explicit_null, False)
+
+        completed_with_lines = self._expense_report_record("completed")
+        completed_with_lines["expense_lines"] = []
+        self._assert_schema_runtime_validity_agree(completed_with_lines, True)
+
 if __name__ == "__main__":
     unittest.main()
