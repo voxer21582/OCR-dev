@@ -228,6 +228,9 @@ def _candidate_possible_values(candidate: dict[str, Any], normalize) -> list[tup
     if candidate.get("status") != "uncertain":
         return []
     result = []
+    value = normalize(candidate.get("value"))
+    if value is not None:
+        result.append((value, candidate, True))
     for alternative in candidate.get("alternatives", []):
         if not isinstance(alternative, dict) or alternative.get("status") not in {"observed", "uncertain"}:
             continue
@@ -420,8 +423,8 @@ def build_reconciliation(
                 reasons.append(
                     "possible_amount_and_currency_match" if is_possible else "amount_and_currency_match"
                 )
-                matched_fields[match_amount_name] = deepcopy(amount_pair[0][1] if amount_pair[0][2] else amount_pair[1][1])
-                matched_fields[match_currency_name] = deepcopy(currency_pair[0][1] if currency_pair[0][2] else currency_pair[1][1])
+                matched_fields[match_amount_name] = deepcopy(amount_pair[1][1])
+                matched_fields[match_currency_name] = deepcopy(currency_pair[1][1])
             if date_equal:
                 reasons.append("date_match")
                 matched_fields[date_name] = deepcopy(date_candidate)
@@ -454,10 +457,16 @@ def build_reconciliation(
                     "source_sha256": binding["source_sha256"],
                     "reasons": reasons,
                     "supporting_fields": matched_fields,
-                    "signal_count": len(reasons),
+                    "signal_count": sum(not reason.endswith("_conflict") for reason in reasons),
                 })
                 suggested_document_ids.add(binding["document_id"])
-        suggestions.sort(key=lambda item: (-item["signal_count"], item["document_id"]))
+        # Preserve equal-signal ambiguity while displaying stronger evidence first.
+        suggestions.sort(key=lambda item: (
+            -item["signal_count"],
+            sum(reason.endswith("_conflict") for reason in item["reasons"]),
+            sum(reason.startswith("possible_") for reason in item["reasons"]),
+            item["document_id"],
+        ))
         findings = []
         if not suggestions:
             findings.append("missing_support")
@@ -752,3 +761,4 @@ def append_line_review(
     if expected_revision != result.get("case_revision"):
         raise ReconciliationError("case revision digest does not match its source bindings")
     return result
+
