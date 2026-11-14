@@ -69,6 +69,11 @@ def test_local_processing_binds_decoder_pages_and_returns_uncertain_fields():
         "stage": "ocr", "name": "PaddleOCR", "version": "3.7.0"
     }
     assert result["processing"]["semantic_extraction"]["status"] == "completed"
+    assert result["schema_version"] == "0.3.0"
+    assert len(result["expense_lines"]) == 1
+    assert result["expense_lines"][0]["description"]["value"] == "Totale EUR 12,34"
+    assert result["expense_lines"][0]["amount"]["value"] == "12.34"
+    assert result["expense_lines"][0]["amount"]["evidence"][0]["source_sha256"] == original["source"]["sha256"]
     assert result["fields"]["total_amount"]["value"] is None
     assert result["fields"]["total_amount"]["alternatives"][0]["value"] == "12.34"
     assert result["fields"]["total_amount"]["status"] == "uncertain"

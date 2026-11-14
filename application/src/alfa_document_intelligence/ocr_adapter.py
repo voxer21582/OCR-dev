@@ -37,6 +37,36 @@ class OCRToken:
 
 
 @dataclass(frozen=True)
+class OCRRecognitionResult:
+    """Typed adapter output for complete or explicitly incomplete recognition."""
+    tokens: tuple[OCRToken, ...]
+    status: Literal["complete", "partial", "failed"] = "complete"
+    error_code: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.tokens, tuple):
+            raise OCRContractError("tokens must be an immutable tuple")
+        seen_ids: set[str] = set()
+        for token in self.tokens:
+            _validate_token(token, seen_ids)
+        if type(self.status) is not str or self.status not in (
+            "complete", "partial", "failed"
+        ):
+            raise OCRContractError("status must be complete, partial, or failed")
+        if self.error_code is not None and (
+            type(self.error_code) is not str
+            or self.error_code not in _OCR_ERROR_CODES
+        ):
+            raise OCRContractError("error_code must be a stable non-sensitive code")
+        if self.status == "complete" and self.error_code is not None:
+            raise OCRContractError("complete result cannot have an error_code")
+        if self.status != "complete" and self.error_code is None:
+            raise OCRContractError("partial or failed result requires an error_code")
+        if self.status == "failed" and self.tokens:
+            raise OCRContractError("failed result cannot contain OCR observations")
+
+
+@dataclass(frozen=True)
 class OCRPageResult:
     source_sha256: str
     page_number: int
@@ -87,8 +117,10 @@ class OCREngineAdapter(Protocol):
     name: str
     version: str
 
-    def recognize(self, page: RasterPage, languages: tuple[str, ...]) -> Sequence[OCRToken]:
-        """Recognize visible text on one already-decoded page."""
+    def recognize(
+        self, page: RasterPage, languages: tuple[str, ...]
+    ) -> Sequence[OCRToken] | OCRRecognitionResult:
+        """Return all tokens or raise, or return typed tokens with page status."""
         ...
 
 
@@ -169,7 +201,15 @@ def run_ocr(
         if page.page_number in seen_pages:
             raise OCRContractError("page_number must be unique in a document")
         seen_pages.add(page.page_number)
-        tokens = adapter.recognize(page, languages)
+        recognition = adapter.recognize(page, languages)
+        if isinstance(recognition, OCRRecognitionResult):
+            tokens = recognition.tokens
+            status = recognition.status
+            error_code = recognition.error_code
+        else:
+            tokens = recognition
+            status = "complete"
+            error_code = None
         if isinstance(tokens, (str, bytes)) or not isinstance(tokens, Sequence):
             raise OCRContractError("adapter must return a sequence of OCRToken values")
         seen_ids: set[str] = set()
@@ -182,5 +222,8 @@ def run_ocr(
             engine_version=adapter.version,
             language="+".join(languages),
             tokens=tuple(tokens),
+            status=status,
+            error_code=error_code,
         ))
     return tuple(results)
+
