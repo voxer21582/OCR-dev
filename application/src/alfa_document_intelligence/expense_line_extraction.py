@@ -9,7 +9,12 @@ from typing import Any, Iterable
 
 from .ocr_adapter import OCRPageResult
 
-_AMOUNT = re.compile(r"(?<![\w.,])((?:[+\-\u2212]\s?)?(?:\d{1,3}(?:[., ]\d{3})+|\d+)[.,]\d{2})(?![\w.,])")
+# OCR often joins a currency code and its amount ("EUR11,37"); a standalone code
+# directly before the number is allowed, any other preceding letter still blocks it.
+_AMOUNT = re.compile(
+    r"(?:(?<![\w.,])|(?<=(?<![A-Za-z])(?i:EUR|USD|GBP|CHF|CAD|AUD|JPY)))"
+    r"((?:[+\-\u2212]\s?)?(?:\d{1,3}(?:[., ]\d{3})+|\d+)[.,]\d{2})(?![\w.,])"
+)
 _DATE = re.compile(r"(?<!\d)(\d{4}-\d{2}-\d{2}|\d{1,2}[/. -]\d{1,2}[/. -]\d{4})(?!\d)")
 _CURRENCY = re.compile(r"(?i)(?<![A-Z])(?:EUR|USD|GBP|CHF|CAD|AUD|JPY)(?![A-Z])|€|\$|£")
 _CURRENCY_CODES = {"€": "EUR", "£": "GBP"}
