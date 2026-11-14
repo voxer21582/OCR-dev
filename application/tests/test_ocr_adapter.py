@@ -1,4 +1,7 @@
 import unittest
+import importlib
+
+import alfa_document_intelligence.ocr_adapter as ocr_adapter
 
 from alfa_document_intelligence.ocr_adapter import (
     OCRContractError,
@@ -213,5 +216,98 @@ class OCRPageResultStatusTests(unittest.TestCase):
             run_ocr(adapter, pages, source_sha256=SOURCE_HASH)
 
 
+class OCRRecognitionResultContractTests(unittest.TestCase):
+    def setUp(self):
+        self.pages = [RasterPage(1, 100, 200, b"synthetic-raster")]
+
+    def _recognition_type(self):
+        recognition_type = getattr(ocr_adapter, "OCRRecognitionResult", None)
+        self.assertIsNotNone(
+            recognition_type,
+            "typed OCR recognition results must preserve incompleteness and its stable code",
+        )
+        return recognition_type
+
+    def test_run_ocr_propagates_partial_status_and_error_code(self):
+        recognition_type = self._recognition_type()
+        token = OCRToken("t1", "EUR 12,50", POLYGON, 0.97)
+
+        class PartialAdapter(FakeAdapter):
+            def recognize(self, page, languages):
+                return recognition_type(
+                    (token,), status="partial", error_code="page_timeout"
+                )
+
+        result = run_ocr(
+            PartialAdapter(), self.pages, source_sha256=SOURCE_HASH
+        )[0]
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(result.error_code, "page_timeout")
+        self.assertEqual(result.tokens, (token,))
+
+    def test_run_ocr_propagates_failed_status_and_error_code_without_tokens(self):
+        recognition_type = self._recognition_type()
+
+        class FailedAdapter(FakeAdapter):
+            def recognize(self, page, languages):
+                return recognition_type(
+                    (), status="failed", error_code="engine_unavailable"
+                )
+
+        result = run_ocr(
+            FailedAdapter(), self.pages, source_sha256=SOURCE_HASH
+        )[0]
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.error_code, "engine_unavailable")
+        self.assertEqual(result.tokens, ())
+
+    def test_failed_result_requires_stable_code_and_no_observations(self):
+        recognition_type = self._recognition_type()
+        token = OCRToken("t1", "EUR 12,50", POLYGON, 0.97)
+        failed = recognition_type((), status="failed", error_code="engine_unavailable")
+        self.assertEqual(failed.status, "failed")
+        self.assertEqual(failed.error_code, "engine_unavailable")
+        self.assertEqual(failed.tokens, ())
+
+        invalid = (
+            {"status": "partial"},
+            {"status": "failed", "error_code": "engine_error", "tokens": (token,)},
+            {"status": "complete", "error_code": "engine_error"},
+            {"status": "partial", "error_code": "private_path_credential"},
+            {"status": "unknown"},
+        )
+        for fields in invalid:
+            with self.subTest(fields=fields), self.assertRaises(OCRContractError):
+                recognition_type(**({"tokens": ()} | fields))
+
+    def test_output_bound_preserves_code_and_counts_its_bytes(self):
+        recognition_type = self._recognition_type()
+        processing = importlib.import_module(
+            "alfa_document_intelligence.ocr_processing"
+        )
+        token = OCRToken("t1", "EUR 12,50", POLYGON, 0.97)
+
+        class PartialAdapter(FakeAdapter):
+            def recognize(self, page, languages):
+                return recognition_type(
+                    (token,), status="partial", error_code="page_timeout"
+                )
+
+        bounded = processing._OutputBoundAdapter(
+            PartialAdapter(), maximum_bytes=279
+        )
+        result = bounded.recognize(self.pages[0], ("it", "en"))
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(result.error_code, "page_timeout")
+
+        oversized = processing._OutputBoundAdapter(
+            PartialAdapter(), maximum_bytes=278
+        )
+        with self.assertRaises(processing._PageOutputLimitError):
+            oversized.recognize(self.pages[0], ("it", "en"))
+        self.assertTrue(oversized.exceeded)
+
+
 if __name__ == "__main__":
     unittest.main()
+

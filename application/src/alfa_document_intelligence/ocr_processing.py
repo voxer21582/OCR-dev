@@ -20,6 +20,8 @@ import time
 import uuid
 from typing import Any, Mapping
 
+from .ocr_adapter import OCRRecognitionResult
+
 
 PROTOCOL_VERSION = 1
 _MAX_NESTING = 16
@@ -160,9 +162,13 @@ class _OutputBoundAdapter:
         self.version = adapter.version
 
     def recognize(self, page, languages):
-        tokens = self._adapter.recognize(page, languages)
+        recognition = self._adapter.recognize(page, languages)
+        if isinstance(recognition, OCRRecognitionResult):
+            tokens = recognition.tokens
+        else:
+            tokens = recognition
         if isinstance(tokens, (str, bytes)) or not isinstance(tokens, (list, tuple)):
-            return tokens
+            return recognition
         used = 0
         for token in tokens:
             text = getattr(token, "text", "")
@@ -179,6 +185,20 @@ class _OutputBoundAdapter:
             if used > self._maximum_bytes:
                 self.exceeded = True
                 raise _PageOutputLimitError
+        if (
+            isinstance(recognition, OCRRecognitionResult)
+            and recognition.error_code is not None
+        ):
+            used += len(recognition.error_code.encode("utf-8", errors="strict"))
+            if used > self._maximum_bytes:
+                self.exceeded = True
+                raise _PageOutputLimitError
+        if isinstance(recognition, OCRRecognitionResult):
+            return OCRRecognitionResult(
+                tuple(tokens),
+                status=recognition.status,
+                error_code=recognition.error_code,
+            )
         return tokens
 
 
@@ -1080,3 +1100,4 @@ class OCRProcessingManager:
             if job.supervisor.is_alive():
                 self._stop_process(job)
                 job.supervisor.join(float(self._limits.cleanup_grace_seconds))
+

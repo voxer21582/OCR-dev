@@ -2,6 +2,14 @@
 
 Updated: 2026-11-14
 
+## OCR status-contract reconciliation — PR #125 (2026-11-14)
+
+PR #129 was squash-merged into the draft #125 branch at `73b4d4efc2300538ee4f62e87b090669856cf94d`; neither PR is merged to `main`. The base branch `codex/ci-expense-reconciliation-tests` advanced to `27ed156b0087d086c749bd6180cdcf9a9edf4500` while #125 still targeted its earlier base, causing a merge conflict. Commit `fb879749ae0053d7ab9cc8801e1f3403247b7a0b` incorporates the current base and reconciles the contract; GitHub now reports #125 as mergeable.
+
+`OCRRecognitionResult` carries a stable allowed error code for partial or failed recognition. `run_ocr()` propagates status and code into `OCRPageResult`; the output-byte limit includes error-code bytes; semantic analysis rejects non-complete pages before proposing fields.
+
+On CPython 3.13.15, the explicit local synthetic selectors `test_ocr_adapter.py` and `test_analysis_pipeline.py` each passed 15 tests (30 total); `git diff --check` passed. Independent read-only code review returned READY. GitHub Actions passed on both the push and PR events: [push 43570746693](https://github.com/voxer21582/OCR-dev/actions/runs/43570746693) and [PR 43570750447](https://github.com/voxer21582/OCR-dev/actions/runs/43570750447), each running 22 taxonomy tests and 345 explicitly selected synthetic application tests. No real documents, OCR runtime/models, storage/worker/browser/Windows tests, or R7/R8 components were used. PR #125 remains draft/open and product acceptance remains open.
+
 ## Isolated parent-fixes verification — 2026-11-14
 
 The isolated branch `codex/expense-reconciliation-parent-fixes` was assembled from the open PR #106 head `95fbd611f8516dec2cf5530f3fb62cae1a36ae28`. It contains the selected schema-0.3 expense-line contract, currency ambiguity, and Unicode-minus fixes; it deliberately excludes the stable token-ordering commit already represented by PR #127. The source branch and remote PR were not changed during this local assembly.
