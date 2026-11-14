@@ -180,5 +180,43 @@ class ExpenseLineExtractionTests(unittest.TestCase):
         self.assertTrue(any("alternative evidence producer is invalid" in issue for issue in issues))
 
 
+class AdjacentCurrencyAmountTests(unittest.TestCase):
+    """OCR often joins a currency code and its amount without a space."""
+
+    def setUp(self):
+        self.digest = hashlib.sha256(b"synthetic statement").hexdigest()
+
+    def page(self, number, tokens):
+        return OCRPageResult(self.digest, number, "FakeOCR", "1", "it+en", tuple(tokens))
+
+    def _amount_of(self, text):
+        lines = extract_expense_lines([self.page(1, [_token("p1-t1", text, .05, .10, .90, .14)])])
+        return lines[0]["amount"], lines[0]["currency"]
+
+    def test_amount_attached_to_currency_code_is_read(self):
+        for text in ("Ricevuta n.001 EUR11,37", "Ricevuta n.001 eur11,37", "Ricevuta n.001 USD11,37"):
+            with self.subTest(text=text):
+                amount, _ = self._amount_of(text)
+                self.assertEqual((amount["status"], amount["value"]), ("observed", "11.37"))
+
+    def test_attached_form_matches_spaced_and_symbol_forms(self):
+        values = {
+            text: self._amount_of(text)[0]["value"]
+            for text in ("Taxi EUR11,37", "Taxi EUR 11,37", "Taxi €11,37")
+        }
+        self.assertEqual(set(values.values()), {"11.37"})
+
+    def test_attached_amount_keeps_the_row_text_as_evidence(self):
+        amount, currency = self._amount_of("Taxi EUR11,37")
+        self.assertEqual(amount["evidence"][0]["literal"], "Taxi EUR11,37")
+        self.assertEqual(currency["value"], "EUR")
+
+    def test_letters_that_are_not_a_currency_code_still_block_the_amount(self):
+        for text in ("Taxi ABC11,37", "Taxi XEUR11,37", "Taxi EURO11,37"):
+            with self.subTest(text=text):
+                amount, _ = self._amount_of(text)
+                self.assertEqual(amount["status"], "absent")
+
+
 if __name__ == "__main__":
     unittest.main()
