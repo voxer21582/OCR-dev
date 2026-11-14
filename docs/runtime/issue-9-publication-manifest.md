@@ -1,35 +1,36 @@
-# Issue #9 publication manifest
+# Issue #9 acceptance-plan refresh manifest
 
-**Prepared:** 2026-11-05
+**Prepared:** 2026-11-13
 
-**Base:** `main` at `b9f1e021a4fc720a3388849b1d0b2b31586e7b85`
+**Initial branch base:** `main` at `4a2206a6b6c53f784277a45e195552dc33e66ed5`
 
-**Candidate branch:** `codex/issue-9-win11-acceptance-plan`
-**Scope:** documentation-only update for [issue #9](https://github.com/voxer21582/OCR-dev/issues/9). This manifest does not mark the issue complete or accept gate A4.
+**Synchronized PR base:** `main` at `ba3cc28bbe08c97f86b38e01011195d027e39e86`
 
-## Included content files
+**Candidate branch:** `codex/issue-9-runtime-plan-refresh`
+**Scope:** documentation-only refresh for [issue #9](https://github.com/voxer21582/OCR-dev/issues/9). This manifest and the plan do not mark the issue complete or accept gate A4.
 
-| File | SHA-256 | Owner | Provenance | Review and inclusion reason |
-| --- | --- | --- | --- | --- |
-| `README.md` | `FF76FE58A6B9867A0134A5A0728E6AF2018B3EACD770291D037DE2A035ADE90F` | OCR2 development coordinator | Current public `main` plus a link to the new acceptance plan | Independent review PASS on the exact README change. Included so repository users can find the plan and understand its limited status. |
-| `docs/runtime/windows11-acceptance-plan.md` | `86DAC2C7E72C35DD99961D6F5FEBC30984075FDDB379CCB260C985B5C37FF73F` | OCR2 development coordinator | Authored for this issue from the accepted OCR2 A4 criteria and the current public repository boundary; no code, model, configuration, test output, or private dossier was copied | Independent review PASS on the exact file. Included as a public, actionable checklist that states current gaps and authorization boundaries. |
+## Included content
+
+| File | SHA-256 of canonical Git content (LF) | Owner | Provenance and reason |
+| --- | --- | --- | --- |
+| `docs/runtime/windows11-acceptance-plan.md` | 24D8AFFD71F5047BACC5E3492A3A25DBA4FFCB59E57A065EF348D33DE8BC3453 | OCR2 development coordinator | Current public plan refreshed against the selectively migrated application and owner-approved evaluation direction recorded on [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6718473055). It records upstream model references and runtime metadata, plus the separately authorized one-off synthetic smoke summary from [issue #9](https://github.com/voxer21582/OCR-dev/issues/9#issuecomment-6818743640), with explicit non-acceptance limits. No code, runtime, model, local Windows identifier, private log, test output, dossier, or previous-project artifact is copied. |
 
 ## Control record
 
-This manifest is publication control metadata and is not part of the two content-file hashes above. The independent reviewer must inspect this manifest with the final diff before the branch is published. Record the manifest's own SHA-256 in the pull request description or review evidence after its final edit.
+This manifest is publication control metadata and is not part of the content-file hash above. Record the manifest's own SHA-256 in the pull request description or review evidence after its final edit.
 
 ## Excluded material
 
-- OCR2 application source, dependency locks, runtime bundles, native binaries, and model files: outside issue scope and not present in the new public checkout.
-- Local ECC dossiers, run logs, Windows observations, benchmark material, and prior-project artifacts: excluded; no local evidence bundle is being published.
-- Real or derived documents, OCR text, personal data, credentials, and confidential values: excluded; none was intentionally used in these files.
+- Application source, dependency locks, runtime bundles, native binaries, and model files: outside this plan refresh.
+- Local ECC dossiers, run logs, device identifiers, benchmark material, and prior-project artifacts: excluded.
+- Real or derived documents, OCR text, personal data, credentials, and confidential values: excluded; none was used.
 - R7/R8 implementation, tests, workflows, branch protection, and Project governance: excluded and unchanged.
 
 ## Review and verification boundary
 
-- Independent review of the README and plan: PASS, read-only; no product tests or runtime operations were performed.
-- The complete staged diff passed `git diff --cached --check`; independent review evidence is tracked separately and must cover this manifest before publication. No functional tests are applicable to this documentation-only change.
-- Automated secret/DLP scanning: not run. The review was scoped to the exact two content files; it is not a guarantee that all sensitive content can be detected.
-- The existing taxonomy CI may run after a pull request is opened. It uses the repository's pinned Actions and synthetic taxonomy tests; it does not validate Windows runtime acceptance.
+- Independent read-only review of the prior plan text and manifest returned READY on 2026-11-13 at plan head `d51ef6d25d54b208d046088216631fa9a865ebb9`; that review verified the then-current plan hash. This revision clarifies that artifact acquisition/hash verification was not part of the documentation update and distinguishes it from the separately authorized smoke. Follow-up independent review of the final plan and manifest is required before integration. No runtime or functional tests were run.
+- `git diff --check` is required before publication. No functional tests apply to this documentation-only change; no runtime or Windows operation is performed.
+- Automated secret/DLP scanning is not included. The review is scoped to the listed files and is not a guarantee that all sensitive content can be detected.
+- The existing taxonomy and application CI do not validate Windows runtime acceptance.
 
-The candidate remains a planning deliverable. Runtime/model selection, license closure, native Windows 11 evidence, and authorized technical/security sign-offs remain open.
+The candidate remains a planning deliverable. Exact runtime/model artifacts, license closure, native Windows 11 evidence, install/update/rollback, and authorized technical/security sign-offs remain open. A4 remains open.
