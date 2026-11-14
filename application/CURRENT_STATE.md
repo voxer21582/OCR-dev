@@ -1,5 +1,17 @@
 # Document Intelligence current state
 
+Updated: 2026-11-14
+
+## Explicit OCR page completion status — PR #129 (2026-11-14)
+
+Independent review of PR #125 found that its analysis guard read a fallback `status="complete"`, but `OCRPageResult` had no status field. Normal results therefore bypassed the incomplete-page guard, while the earlier regression test manufactured status using `object.__setattr__`.
+
+Draft follow-up [PR #129](https://github.com/voxer21582/OCR-dev/pull/129), stacked on #125, adds a constrained `complete|partial|failed` status to the public page-result dataclass, keeps `complete` as the backward-compatible default for successful `run_ocr` results, rejects unknown status values, and blocks partial/failed pages before semantic proposal functions. The regression test now constructs those values through the supported dataclass constructor and verifies proposal functions are not called.
+
+Evidence at code head `a1693b200dddccff1bc860207a63f6f830061ee4`: the test-only RED run [43545122999](https://github.com/voxer21582/OCR-dev/actions/runs/43545122999) failed on the expected missing `status` assertion; push run [43545428301](https://github.com/voxer21582/OCR-dev/actions/runs/43545428301) and PR run [43545433264](https://github.com/voxer21582/OCR-dev/actions/runs/43545433264) passed, each with 22 taxonomy and 290 explicitly selected synthetic application tests. Independent static review returned READY for this narrow fix at the same code head.
+
+Limit: `run_ocr()` currently constructs complete results when an engine returns a token sequence. A future adapter that can produce partial results must propagate its completion status explicitly. No real documents, OCR engine execution, storage/worker tests, or R7/R8 components were used. PR #129 remains draft and unmerged; PR #125 and the broader product acceptance remain open.
+
 Updated: 2026-11-12
 
 ## Expense reconciliation candidate — PR #106 (2026-11-12)
