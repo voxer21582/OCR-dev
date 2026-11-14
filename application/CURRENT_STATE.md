@@ -10,7 +10,7 @@ Draft follow-up [PR #129](https://github.com/voxer21582/OCR-dev/pull/129), stack
 
 Evidence at code head `a1693b200dddccff1bc860207a63f6f830061ee4`: the test-only RED run [43545122999](https://github.com/voxer21582/OCR-dev/actions/runs/43545122999) failed on the expected missing `status` assertion; push run [43545428301](https://github.com/voxer21582/OCR-dev/actions/runs/43545428301) and PR run [43545433264](https://github.com/voxer21582/OCR-dev/actions/runs/43545433264) passed, each with 22 taxonomy and 290 explicitly selected synthetic application tests. Independent static review returned READY for this narrow fix at the same code head.
 
-Limit: `run_ocr()` currently constructs complete results when an engine returns a token sequence. A future adapter that can produce partial results must propagate its completion status explicitly. No real documents, OCR engine execution, storage/worker tests, or R7/R8 components were used. PR #129 remains draft and unmerged; PR #125 and the broader product acceptance remain open.
+Limit: `run_ocr()` currently constructs complete results when an engine returns a token sequence. A future adapter that can produce partial results must propagate its completion status explicitly. No real documents, OCR engine execution, storage/worker tests, or R7/R8 components were used. PR #129 is ready for review and unmerged; PR #125 remains draft until the guard fix is integrated. The broader product acceptance remains open.
 
 Updated: 2026-11-12
 
