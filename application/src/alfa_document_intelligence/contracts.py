@@ -201,7 +201,7 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
             else:
                 from .expense_line_extraction import validate_expense_lines
                 issues.extend(validate_expense_lines(expense_lines, source_hash or "", page_numbers))
-    elif expense_lines is not None:
+    elif "expense_lines" in record:
         issues.append("expense_lines: requires document schema 0.3.0")
 
     fields = record.get("fields")

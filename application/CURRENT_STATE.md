@@ -2,6 +2,16 @@
 
 Updated: 2026-11-14
 
+## Expense-lines schema/runtime parity — PR #128 (2026-11-14)
+
+Review of PR #106 found a versioned-contract gap: legacy 0.1.0/0.2.0 records could carry `expense_lines` inconsistently, and completed 0.3.0 expense reports require the field. PR #128 adds matching schema and runtime rules plus a synthetic parity regression.
+
+The independent static review of PR #128 head `ad47b389424547190b715926009da9114c111c91` is READY for this narrow contract and its v0.2 regression. It confirms that v0.3 completed records require the field, and legacy v0.1/v0.2 records reject both an array and explicit null. The test compares JSON Schema and runtime behavior for incomplete/completed v0.3, missing/null/array values, and valid v0.1/v0.2 baselines. The previous PR #128 Actions runs passed 22 taxonomy and 300 explicit synthetic application tests; they predate the base synchronization.
+
+The PR branch was fast-forwarded to include the current #106 base `0ef4acc5020d6eb3f7ee9d6a64ddfbfc819ee285`, preserving its seven updated files. On final code head `ad47b389424547190b715926009da9114c111c91`, push run [43562408367](https://github.com/voxer21582/OCR-dev/actions/runs/43562408367) and PR run [43562413758](https://github.com/voxer21582/OCR-dev/actions/runs/43562413758) passed; the PR log shows 22 taxonomy and 304 explicitly selected synthetic application tests, including `test_expense_lines_contract_matches_schema_and_runtime`. The latest static independent review found no issue in the v0.2 coverage addition. These checks cover the selected contracts only.
+
+PR #128 remains draft, open, and unmerged, stacked on #106. This correction does not accept the expense workflow or cover storage, worker, browser, native OCR, Windows runtime, or R7/R8.
+
 ## Isolated parent-fixes verification — 2026-11-14
 
 The isolated branch `codex/expense-reconciliation-parent-fixes` was assembled from the open PR #106 head `95fbd611f8516dec2cf5530f3fb62cae1a36ae28`. It contains the selected schema-0.3 expense-line contract, currency ambiguity, and Unicode-minus fixes; it deliberately excludes the stable token-ordering commit already represented by PR #127. The source branch and remote PR were not changed during this local assembly.

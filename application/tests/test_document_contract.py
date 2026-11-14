@@ -431,5 +431,64 @@ class DocumentContractTests(unittest.TestCase):
         invalid = copy.deepcopy(self.fixture)
         invalid["fields"]["total_amount"]["normalization"]["normalized_value"] = "999.99"
         self.assertTrue(any("normalized_value must equal candidate value" in issue for issue in validate_document_record(invalid)))
+
+    @unittest.skipIf(Draft202012Validator is None, "jsonschema is unavailable")
+    def test_expense_lines_contract_matches_schema_and_runtime(self):
+        def assert_both_validators_agree(record, expected_valid):
+            schema_issues = list(Draft202012Validator(self.schema).iter_errors(record))
+            runtime_issues = validate_document_record(record)
+            self.assertEqual(not schema_issues, expected_valid)
+            self.assertEqual(not runtime_issues, expected_valid)
+
+        incomplete = copy.deepcopy(self.fixture)
+        incomplete["schema_version"] = "0.3.0"
+        incomplete["document_family"] = "expense_report"
+        incomplete["processing"]["semantic_extraction"]["status"] = "in_progress"
+        assert_both_validators_agree(incomplete, True)
+
+        completed_without_lines = copy.deepcopy(incomplete)
+        completed_without_lines["processing"]["semantic_extraction"]["status"] = "completed"
+        assert_both_validators_agree(completed_without_lines, False)
+
+        explicit_null = copy.deepcopy(incomplete)
+        explicit_null["expense_lines"] = None
+        assert_both_validators_agree(explicit_null, False)
+
+        completed_with_lines = copy.deepcopy(completed_without_lines)
+        completed_with_lines["expense_lines"] = []
+        assert_both_validators_agree(completed_with_lines, True)
+
+        legacy_with_lines = copy.deepcopy(self.fixture)
+        legacy_with_lines["expense_lines"] = []
+        assert_both_validators_agree(legacy_with_lines, False)
+
+        legacy_with_null = copy.deepcopy(self.fixture)
+        legacy_with_null["expense_lines"] = None
+        assert_both_validators_agree(legacy_with_null, False)
+        v2_catalog = load_custom_family_catalog(json.dumps({
+            "catalog_version": "1",
+            "families": [{
+                "id": "custom_taxi_receipt",
+                "label": "Ricevuta taxi",
+                "title_cues": ["RICEVUTA TAXI"],
+                "fields": [],
+            }],
+        }, ensure_ascii=False))
+        legacy_v2 = copy.deepcopy(self.fixture)
+        legacy_v2["schema_version"] = "0.2.0"
+        legacy_v2["document_family"] = "custom_taxi_receipt"
+        legacy_v2["document_family_definitions"] = [
+            v2_catalog.snapshot_for("custom_taxi_receipt")
+        ]
+        assert_both_validators_agree(legacy_v2, True)
+
+        legacy_v2_with_lines = copy.deepcopy(legacy_v2)
+        legacy_v2_with_lines["expense_lines"] = []
+        assert_both_validators_agree(legacy_v2_with_lines, False)
+
+        legacy_v2_with_null = copy.deepcopy(legacy_v2)
+        legacy_v2_with_null["expense_lines"] = None
+        assert_both_validators_agree(legacy_v2_with_null, False)
+
 if __name__ == "__main__":
     unittest.main()
