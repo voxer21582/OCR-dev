@@ -2,15 +2,13 @@
 
 Updated: 2026-11-14
 
-## Explicit OCR page completion status — PR #129 (2026-11-14)
+## OCR adapter completion-status propagation — PR #129 (2026-11-14)
 
-Independent review of PR #125 found that its analysis guard read a fallback `status="complete"`, but `OCRPageResult` had no status field. Normal results therefore bypassed the incomplete-page guard, while the earlier regression test manufactured status using `object.__setattr__`.
+Independent review identified that the page-status guard did not receive status from `OCREngineAdapter.recognize`. The adapter contract now accepts either a legacy token sequence (defined as a complete result; adapters must raise on incomplete recognition) or `OCRRecognitionResult`, which carries immutable tokens and an explicit `complete|partial|failed` status. `run_ocr()` validates the typed result and preserves its status in `OCRPageResult`; semantic analysis rejects partial and failed results before proposal generation. Tests exercise adapter-to-page propagation and the guard using only synthetic raster bytes/tokens.
 
-Draft follow-up [PR #129](https://github.com/voxer21582/OCR-dev/pull/129), stacked on #125, adds a constrained `complete|partial|failed` status to the public page-result dataclass, keeps `complete` as the backward-compatible default for successful `run_ocr` results, rejects unknown status values, and blocks partial/failed pages before semantic proposal functions. The regression test now constructs those values through the supported dataclass constructor and verifies proposal functions are not called.
+At local revision, 23 adapter/analysis tests and 12 RapidOCR adapter contract tests passed; compile checks and `git diff --check` passed. The RapidOCR tests use injected/fake components and do not execute the engine or load models. GitHub Actions verification for this follow-up is pending. PR #129 remains open and unmerged, stacked on draft PR #125. Independent review of this follow-up is pending.
 
-Evidence at code head `a1693b200dddccff1bc860207a63f6f830061ee4`: the test-only RED run [43545122999](https://github.com/voxer21582/OCR-dev/actions/runs/43545122999) failed on the expected missing `status` assertion; push run [43545428301](https://github.com/voxer21582/OCR-dev/actions/runs/43545428301) and PR run [43545433264](https://github.com/voxer21582/OCR-dev/actions/runs/43545433264) passed, each with 22 taxonomy and 290 explicitly selected synthetic application tests. Independent static review returned READY for this narrow fix at the same code head.
-
-Limit: `run_ocr()` currently constructs complete results when an engine returns a token sequence. A future adapter that can produce partial results must propagate its completion status explicitly. No real documents, OCR engine execution, storage/worker tests, or R7/R8 components were used. PR #129 is ready for review and unmerged; PR #125 remains draft until the guard fix is integrated. The broader product acceptance remains open.
+Limit: legacy sequence adapters cannot express a partial result through the old return type; their contract is now explicitly all-tokens-or-raise. Adapters that support partial recognition must return `OCRRecognitionResult`. No real documents, OCR engine execution, storage/worker tests, or R7/R8 components were used. Product acceptance remains open.
 
 Updated: 2026-11-12
 

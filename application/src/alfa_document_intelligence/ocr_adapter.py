@@ -37,6 +37,19 @@ class OCRToken:
 
 
 @dataclass(frozen=True)
+class OCRRecognitionResult:
+    """Typed adapter output when recognition can report incomplete coverage."""
+    tokens: tuple[OCRToken, ...]
+    status: OCRPageStatus = "complete"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.tokens, tuple):
+            raise OCRContractError("recognition tokens must be an immutable tuple")
+        if not isinstance(self.status, str) or self.status not in ("complete", "partial", "failed"):
+            raise OCRContractError("status must be complete, partial, or failed")
+
+
+@dataclass(frozen=True)
 class OCRPageResult:
     source_sha256: str
     page_number: int
@@ -56,8 +69,10 @@ class OCREngineAdapter(Protocol):
     name: str
     version: str
 
-    def recognize(self, page: RasterPage, languages: tuple[str, ...]) -> Sequence[OCRToken]:
-        """Recognize visible text on one already-decoded page."""
+    def recognize(
+        self, page: RasterPage, languages: tuple[str, ...]
+    ) -> Sequence[OCRToken] | OCRRecognitionResult:
+        """Return all tokens or raise, or return typed tokens with page status."""
         ...
 
 
@@ -136,7 +151,13 @@ def run_ocr(
         if page.page_number in seen_pages:
             raise OCRContractError("page_number must be unique in a document")
         seen_pages.add(page.page_number)
-        tokens = adapter.recognize(page, languages)
+        recognition = adapter.recognize(page, languages)
+        if isinstance(recognition, OCRRecognitionResult):
+            tokens = recognition.tokens
+            status = recognition.status
+        else:
+            tokens = recognition
+            status = "complete"
         if isinstance(tokens, (str, bytes)) or not isinstance(tokens, Sequence):
             raise OCRContractError("adapter must return a sequence of OCRToken values")
         seen_ids: set[str] = set()
@@ -149,5 +170,6 @@ def run_ocr(
             engine_version=adapter.version,
             language="+".join(languages),
             tokens=tuple(tokens),
+            status=status,
         ))
     return tuple(results)

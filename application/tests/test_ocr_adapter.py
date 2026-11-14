@@ -3,6 +3,7 @@ import unittest
 from alfa_document_intelligence.ocr_adapter import (
     OCRContractError,
     OCRPageResult,
+    OCRRecognitionResult,
     OCRToken,
     RasterPage,
     run_ocr,
@@ -45,6 +46,23 @@ class OCRAdapterTests(unittest.TestCase):
         self.assertEqual(result[0].language, "it+en")
         self.assertEqual(result[0].tokens[0].text, "EUR 12,50")
         self.assertEqual(self.adapter.calls, [(1, ("it", "en"))])
+
+    def test_run_ocr_preserves_adapter_status(self):
+        for status in ("partial", "failed"):
+            class StatusAdapter(FakeAdapter):
+                def recognize(self, page, languages):
+                    self.calls.append((page.page_number, languages))
+                    return OCRRecognitionResult(tuple(self.tokens), status=status)
+
+            adapter = StatusAdapter()
+            result = run_ocr(adapter, self.pages, source_sha256=SOURCE_HASH)[0]
+
+            self.assertEqual(result.status, status)
+            self.assertEqual(result.tokens, tuple(adapter.tokens))
+
+    def test_recognition_result_rejects_unknown_status(self):
+        with self.assertRaisesRegex(ValueError, "status must be complete, partial, or failed"):
+            OCRRecognitionResult((), status="unknown")
 
     def test_page_status_is_explicit_and_rejects_unknown_values(self):
         result = run_ocr(
