@@ -92,7 +92,7 @@ The upstream packaging note means the runtime package's *entire distributed cont
 
 1. Independently review and reconcile the candidate lock and its source evidence before treating the dependency closure as accepted. The existing local wheelhouse has been rechecked against all 21 hash entries, but the lock remains evaluation-only and its detailed source inventory is not public.
 2. Reconcile the exact installer file set against every included dependency, native binary, data file, bundled model, license and notice. Include bundled-but-unused artifacts unless the final package demonstrably omits them.
-3. Produce and validate a CycloneDX SBOM for the exact package candidate; the previously prepared local draft was not schema-validated and is not evidence of a complete installer SBOM.
+3. The existing local CycloneDX 1.6 evaluation draft was re-parsed read-only on 2026-11-14: 24 components have unique references, all 24 root dependency references resolve, and every component has a valid SHA-256 entry. Validation against the CycloneDX JSON Schema and reconciliation with the final installer file set remain outstanding; this draft is not a complete installer SBOM.
 4. Obtain independent licensing review for the complete, hash-bound bundle before any redistribution or release claim.
 5. Keep the recognizer metadata observation tied to its exact hash; if the selected artifact changes, repeat the metadata gate under an approved procedure. Separately verify offline behavior using an approved bounded plan; source configuration, explicit local model paths, and one local artifact inspection do not prove that the full runtime makes no network requests.
 
