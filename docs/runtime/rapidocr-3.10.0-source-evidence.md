@@ -1,6 +1,6 @@
 # RapidOCR 3.10.0 candidate: upstream source evidence
 
-**Reviewed:** 2026-11-12
+**Reviewed:** 2026-11-14
 **Status:** partial source review; not a legal opinion, redistribution approval, or runtime acceptance
 **Related:** [issue #9](https://github.com/voxer21582/OCR-dev/issues/9)
 
@@ -32,6 +32,26 @@ The existing demo environment is CPython 3.13.15, Windows 11 x64 (`AMD64`). PyPI
 | --- | --- | --- | --- |
 | RapidOCR 3.10.0 | [`rapidocr-3.10.0-py3-none-any.whl`](https://pypi.org/pypi/rapidocr/3.10.0/json) (27,288,134 bytes) | `2fc34e26cd0f48514804a94f8832283039c7334076bff60768b1fed9ad068050` | Universal wheel filename; digest is an expected archive identity from PyPI JSON, not locally verified. |
 | ONNX Runtime 1.31.1 | [`onnxruntime-1.31.1-cp313-cp313-win_amd64.whl`](https://pypi.org/project/onnxruntime/1.31.1/#files) | `0558f29d5f6ac09957390c9c5495931485ee8ae7f0ce781ccee86a0ae5c2348b` | Filename matches CPython 3.13 Windows AMD64; PyPI lists the file without provenance. Digest is not locally verified. |
+
+## Direct dependency declarations in the tagged source
+
+The v3.10.0 [`pyproject.toml`](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/python/pyproject.toml) declares dependencies dynamically from [`requirements.txt`](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/python/requirements.txt). That file lists the following direct requirements:
+
+| Direct requirement | Upstream constraint | Pin status |
+| --- | --- | --- |
+| `pyclipper` | `>=1.2.0` | Lower bound only |
+| `opencv-python-headless` | `>=4.5.1.48` | Lower bound only |
+| `numpy` | `>=1.19.5,<3.0.0` | Bounded range, not a single version |
+| `six` | `>=1.15.0` | Lower bound only |
+| `Shapely` | `>=1.7.1,!=2.0.4` | Lower bound plus exclusion |
+| `PyYAML` | No version constraint | Unpinned |
+| `Pillow` | No version constraint | Unpinned |
+| `tqdm` | No version constraint | Unpinned |
+| `omegaconf` | `!=2.2.1` | Exclusion only |
+| `requests` | No version constraint | Unpinned |
+| `colorlog` | No version constraint | Unpinned |
+
+The selected ONNX Runtime CPU distribution is a separate OCR2 evaluation dependency; it is not listed in this RapidOCR `requirements.txt`. These source declarations are not an install lock: they do not identify the resolved transitive graph, selected Windows CPython 3.13 AMD64 wheels, artifact hashes, or the license and notice set for the exact bundle. No dependency versions or hashes are inferred here.
 
 These two records do not constitute the candidate's complete dependency lock: the transitive dependency closure, platform-specific wheel selection for every dependency, and hashes for each selected artifact still need to be captured and reviewed before a reproducible package can be claimed.
 
