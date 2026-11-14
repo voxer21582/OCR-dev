@@ -120,5 +120,73 @@ class RapidOCRRuntimeFactoryTests(unittest.TestCase):
 
 
 
+class RapidOCRStartupCheckTests(unittest.TestCase):
+    """The start-up check reports an unusable runtime without importing RapidOCR."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.package_root = Path(self.temp.name) / "rapidocr"
+        model_root = self.package_root / "models"
+        model_root.mkdir(parents=True)
+        self.files = {"detector.onnx": b"synthetic detector", "recognizer.onnx": b"synthetic recognizer"}
+        for name, data in self.files.items():
+            (model_root / name).write_bytes(data)
+        self.artifacts = tuple(
+            (name, hashlib.sha256(data).hexdigest()) for name, data in self.files.items()
+        )
+        self.installed = {"rapidocr", "onnxruntime", "numpy", "PIL", "pypdfium2"}
+
+    def _locate(self, name):
+        if name not in self.installed:
+            return None
+        return types.SimpleNamespace(origin=str(self.package_root / "__init__.py"))
+
+    def _check(self, *, version="3.10.0", artifacts=None, not_installed=False):
+        versions = (
+            patch.object(runtime_factory, "package_version",
+                         side_effect=runtime_factory.metadata.PackageNotFoundError("rapidocr"))
+            if not_installed else
+            patch.object(runtime_factory, "package_version", return_value=version)
+        )
+        with patch.object(runtime_factory, "MODEL_ARTIFACTS", artifacts or self.artifacts), versions,                 patch.object(runtime_factory, "import_module",
+                             side_effect=AssertionError("RapidOCR must not be imported")):
+            return runtime_factory.check_rapidocr_runtime(locate=self._locate)
+
+    def test_complete_runtime_has_no_problems_or_warnings(self):
+        report = self._check()
+        self.assertTrue(report.ok)
+        self.assertEqual((report.problems, report.warnings), ((), ()))
+
+    def test_missing_package_is_reported(self):
+        report = self._check(not_installed=True)
+        self.assertFalse(report.ok)
+        self.assertTrue(any("non è installato" in item and "RapidOCR" in item for item in report.problems))
+
+    def test_unexpected_version_names_both_versions(self):
+        report = self._check(version="3.9.0")
+        self.assertFalse(report.ok)
+        self.assertTrue(any("3.9.0" in item and "3.10.0" in item for item in report.problems))
+
+    def test_missing_and_altered_models_are_reported(self):
+        (self.package_root / "models" / "detector.onnx").unlink()
+        self.assertTrue(any("detector.onnx" in item for item in self._check().problems))
+        (self.package_root / "models" / "detector.onnx").write_bytes(b"altered")
+        self.assertTrue(any("hash mismatch" in item for item in self._check().problems))
+
+    def test_each_missing_runtime_dependency_is_a_problem(self):
+        for name in ("onnxruntime", "numpy", "PIL"):
+            with self.subTest(name=name):
+                self.installed.discard(name)
+                self.assertFalse(self._check().ok)
+                self.installed.add(name)
+
+    def test_missing_pdf_renderer_is_only_a_warning(self):
+        self.installed.discard("pypdfium2")
+        report = self._check()
+        self.assertTrue(report.ok)
+        self.assertTrue(any("PDF" in item for item in report.warnings))
+
+
 if __name__ == "__main__":
     unittest.main()

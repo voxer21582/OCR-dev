@@ -7,9 +7,11 @@ selects a trusted factory reference.
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from importlib import import_module, metadata
+from importlib.util import find_spec
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 from .rapidocr_adapter import RapidOCRAdapter
 
@@ -63,6 +65,54 @@ def _verified_models(package: ModuleType) -> tuple[Path, tuple[Path, Path]]:
     if len(verified) != 2:
         raise RapidOCRFactoryError("the pinned detector and recognizer models are required")
     return model_root, (verified[0], verified[1])
+
+
+@dataclass(frozen=True)
+class RuntimeReport:
+    """Result of the start-up check: blocking problems and non-blocking warnings."""
+
+    problems: tuple[str, ...]
+    warnings: tuple[str, ...]
+
+    @property
+    def ok(self) -> bool:
+        return not self.problems
+
+
+def check_rapidocr_runtime(*, locate=find_spec) -> RuntimeReport:
+    """Report whether the pinned local runtime is usable, without importing RapidOCR.
+
+    Checks the exact package version, the two pinned model hashes (through the same
+    verification the worker uses) and the other packages OCR needs. A missing PDF
+    renderer is a warning because image documents still work.
+    """
+    problems: list[str] = []
+    warnings: list[str] = []
+    try:
+        installed_version = package_version("rapidocr")
+    except metadata.PackageNotFoundError:
+        installed_version = None
+        problems.append("RapidOCR non è installato")
+    if installed_version is not None and installed_version != RAPIDOCR_VERSION:
+        problems.append(
+            f"versione di RapidOCR non supportata: installata {installed_version}, richiesta {RAPIDOCR_VERSION}"
+        )
+    elif installed_version is not None:
+        spec = locate("rapidocr")
+        origin = getattr(spec, "origin", None) if spec is not None else None
+        if not isinstance(origin, str) or not origin:
+            problems.append("posizione del pacchetto RapidOCR non determinabile")
+        else:
+            try:
+                _verified_models(SimpleNamespace(__file__=origin))
+            except RapidOCRFactoryError as exc:
+                problems.append(str(exc))
+    for module_name, label in (("onnxruntime", "ONNX Runtime"), ("numpy", "NumPy"), ("PIL", "Pillow")):
+        if locate(module_name) is None:
+            problems.append(f"{label} non è installato")
+    if locate("pypdfium2") is None:
+        warnings.append("pypdfium2 non è installato: i PDF non possono essere letti")
+    return RuntimeReport(tuple(problems), tuple(warnings))
 
 
 def create_rapidocr_v6_multilingual_adapter() -> RapidOCRAdapter:
