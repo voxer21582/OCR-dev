@@ -39,6 +39,12 @@ jobs:
           --only-binary=:all: --require-hashes
           -r requirements/ci-taxonomy-cp313-ubuntu-24_04.lock
 
+      - name: Install the locked pytest runtime
+        run: >-
+          python -m pip install --disable-pip-version-check --no-input
+          --only-binary=:all: --require-hashes
+          -r requirements/ci-pytest-cp313-ubuntu-24_04.lock
+
       - name: Run synthetic taxonomy contract tests
         run: >-
           python -B -m unittest -v
@@ -79,3 +85,19 @@ jobs:
           test_catalog_pipeline.RequiredCustomFieldValidationTests
           test_catalog_pipeline.CatalogDocumentProcessingTests
           test_region_review_keyboard
+
+      - name: Run explicitly allowed synthetic pytest modules
+        working-directory: application
+        env:
+          PYTHONPATH: ${{ github.workspace }}/application/src:${{ github.workspace }}/application/tests
+        run: >-
+          python -B -m pytest -q -rs -p no:cacheprovider
+          tests/test_chatgpt_handoff.py
+          tests/test_document_decoder.py
+          tests/test_expense_report_intake_session.py
+          tests/test_expense_reports.py
+          tests/test_hashed_lock.py
+          tests/test_isolated_decoder.py
+          tests/test_materialized_upload_batch.py
+          tests/test_paddle_adapter.py
+          tests/test_review_ui.py
