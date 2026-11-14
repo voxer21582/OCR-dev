@@ -1,6 +1,58 @@
 # Document Intelligence current state
 
-Updated: 2026-11-12
+Updated: 2026-11-14
+
+## Isolated parent-fixes verification — 2026-11-14
+
+The isolated branch `codex/expense-reconciliation-parent-fixes` was assembled from the open PR #106 head `95fbd611f8516dec2cf5530f3fb62cae1a36ae28`. It contains the selected schema-0.3 expense-line contract, currency ambiguity, and Unicode-minus fixes; it deliberately excludes the stable token-ordering commit already represented by PR #127. The source branch and remote PR were not changed during this local assembly.
+
+On CPython 3.13.15, these exact synthetic test selectors passed from `application/` with `PYTHONPATH=src`: `test_expense_line_extraction.py` (12 tests), `test_expense_reconciliation.py` (22 tests), and `test_document_contract.py` (32 tests, one skipped because `jsonschema` is unavailable in this local interpreter). Across the three invocations, 66 tests ran: 65 passed and 1 was skipped. `git diff --check` passed. The schema validator test remains covered by the hash-locked CI environment, but this local run did not execute that one test.
+
+The first extraction-selector invocation omitted `PYTHONPATH=src` and stopped at import before running any test; the same selector was then run with the package path set and passed. No dependency was installed. No discovery beyond the three exact filenames was used. The selected test modules do not import the blocked archive/store or OCR worker modules. No R7/R8 test or implementation, real expense document, OCR runtime, browser, Windows configuration, or Google deployment was accessed. These are local synthetic checks only; no GitHub Actions run or product acceptance is claimed for this branch.
+
+## Focused local verification — expense extraction and reconciliation (2026-11-14)
+
+On local branch `codex/expense-reconciliation` at `1fbbc4bdc06acc2b741957005f66183f1300f50e` (CPython 3.13.15), the explicit synthetic `unittest` selectors passed: `test_expense_line_extraction.py` (11 tests) and `test_expense_reconciliation.py` (22 tests), 33 passed total. The run used `PYTHONPATH=src` and `python -B -m unittest discover` with one exact filename pattern per command. `pytest` is not installed in the default interpreter; no dependencies were installed. `git diff --check 95fbd611f8516dec2cf5530f3fb62cae1a36ae28...HEAD` also passed.
+
+The explicit extraction/reconciliation selectors verify only those synthetic contracts, including deterministic token ordering, Unicode-minus parsing, ambiguous currency handling, and current review invariants. One earlier broad `test_expense*.py` discovery was scoped incorrectly: it ran 90 tests including storage/worker/UI modules and ended with two import errors because `pytest` is absent. This was an unintended run into storage/worker-related test areas; do not repeat it. No dependency was installed. Later verification used only the two explicit extraction/reconciliation module names. The branch remains local; no GitHub Actions run occurred, and no conclusion is made about R7/R8 acceptance, OCR runtime, real documents, Windows end-to-end, or product readiness. The pre-existing untracked `.superpowers/` directory was preserved.
+
+## Current local follow-up — PR #106 (2026-11-14)
+
+The open draft PR #106 still points to remote head `95fbd611f8516dec2cf5530f3fb62cae1a36ae28` (read-only rechecked 2026-11-14). The isolated local branch `codex/expense-reconciliation` has four product fixes based on that head: `e0cf791` aligns schema 0.3 validation for `expense_lines`, `d0e7eeb` makes extraction deterministic when OCR tokens share identical geometry, `18e269e` preserves Unicode minus signs in negative amounts, and `12635a0` retains ambiguous currency evidence instead of selecting a contradictory explicit code. Commit `1dab6bb` records an earlier status update. None of these local commits is present on the remote PR branch. A Git push failed because this runtime could not resolve `github.com`; an API-based branch update was interrupted before any ref update. The read-only PR check confirms the remote head remains unchanged. No change was made to `main`.
+
+The remote follow-up chain was rechecked on 2026-11-14: CI PR [#114](https://github.com/voxer21582/OCR-dev/pull/114) remains open and is based on the remote #106 head above; its two named extraction/reconciliation selectors passed in the reported 328-test application run alongside 22 taxonomy tests ([PR run 43523880028](https://github.com/voxer21582/OCR-dev/actions/runs/43523880028)). Validation PRs [#115](https://github.com/voxer21582/OCR-dev/pull/115) and [#116](https://github.com/voxer21582/OCR-dev/pull/116) remain open as a sequential stack after #114. They are not merged, and their current head checks were not revalidated in this session. The new local ordering regression is within the `test_expense_line_extraction` selector added by #114, but has not been run on GitHub Actions.
+
+The full explicitly allowlisted application selector from the #114 workflow was executed locally on this branch (workflow blob `fcaecda3eec44535f7e1910e50d8cfe07a159513`): **335 tests ran, 334 passed, and 1 was skipped** because `jsonschema` is absent. The application command used `PYTHONPATH=src;tests` and `python -B -m unittest` with the workflow's explicit application selector list; no discovery was used. A separate attempt to run the two root taxonomy selectors stopped at import with `ModuleNotFoundError: jsonschema`; neither taxonomy test executed locally. No package was installed. This broad local run includes the new extraction regressions, but does not establish GitHub CI for the local commits or full product acceptance.
+
+For the schema follow-up, the explicitly selected local command over `test_document_contract`, `test_analysis_pipeline`, `test_expense_line_extraction`, and `test_expense_reconciliation` ran 73 tests: 72 passed and one skipped because `jsonschema` is unavailable in that local interpreter. The JSON schema parsed and the changed Python module compiled. Separately, `python -B -m unittest -v test_public_data_guard` passed all 7 public-data guard tests. Independent read-only contract/schema review was READY; the existing hash-locked CI installs the required schema validator, but this local follow-up has not run on GitHub Actions.
+
+For the stable ordering follow-up, the new synthetic regression first failed as expected: reversing two tokens at identical coordinates changed the proposed description from `Alpha Beta` to `Beta Alpha`. After the stable `token_id` tie-break, the explicit command from `application/` passed 30 tests:
+
+```powershell
+$env:PYTHONPATH='src;tests'
+python -B -m unittest -v test_expense_line_extraction test_expense_reconciliation
+python -B -m py_compile src/alfa_document_intelligence/expense_line_extraction.py tests/test_expense_line_extraction.py
+git diff --check
+```
+
+Independent read-only review of the ordering change was READY, with no ordering regression found under the OCR token contract's string ID requirement. A separate static review of reconciliation HTML rendering and POST validation was READY for that narrow scope. It noted that the screen exposes only the first literal evidence snippet per line; end-to-end route/store/worker behavior was not reviewed. UI tests remain excluded from this run because they import the blocked local archive/store path. R7/R8 were not modified or tested. The PR remains draft, and this local work has not been published or accepted as product-complete.
+
+## Unicode negative amount follow-up (2026-11-14)
+
+A synthetic OCR row containing `−12,34` (U+2212) previously produced a positive `12.34`, which could misstate a credit/refund. Initial regression covered that glyph within one OCR token. Independent review then found the sign was still lost when OCR returned `−` and `12,34` as adjacent tokens, because row assembly inserted a space. A new two-token regression reproduced the defect (RED: `12.34` instead of `-12.34`). The amount matcher now allows one optional whitespace only after an explicit sign; Decimal normalization removes whitespace consistently, while token-level source evidence retains both IDs and the original literal (`− 12,34`, or the original tab-separated string). The explicit synthetic modules `test_expense_line_extraction` and `test_expense_reconciliation` passed **35 tests** after the fix; `git diff --check` passed. No OCR engine, real note, storage, worker or browser verification was performed for this fix. Independent review found no other concrete regressions in the seven-file local diff; no GitHub Actions run has verified the latest fix, and it is not published to PR #106.
+
+## Currency ambiguity follow-up (2026-11-14)
+
+A synthetic row containing `EUR $ 50.00` previously treated the explicit `EUR` code as if it resolved the ambiguous `$` symbol, reporting the currency as observed. The added regression failed before the fix. Currency extraction now combines explicit codes and mapped symbols: a matching explicit `USD`, `CAD` or `AUD` can resolve `$`, while a conflicting code such as `EUR` leaves the currency uncertain and retains the symbol as alternative evidence. A row with `$` and no resolving code also remains uncertain. The targeted extraction/reconciliation command passed **32 tests**; the full explicit #114 application selector passed **335 tests: 334 passed, 1 skipped** because local `jsonschema` is unavailable. `py_compile` and `git diff --check` passed. Independent read-only review was READY. These are local synthetic results only; no GitHub Actions run, real document, OCR runtime or product acceptance is claimed.
+
+The permitted synthetic format-inventory and decoder-contract selectors were also re-run on 2026-11-14:
+
+```powershell
+$env:PYTHONPATH='src;tests'
+python -B -m unittest -v test_document_decoder_contract test_ingestion test_tiff_offset_fixture.TiffOffsetFixtureTests test_tiff_offset_fixture.TiffBoundaryTests test_tiff_offset_fixture.TiffReviewTests
+```
+
+All 52 selected tests passed. The fixture sources were inspected: raster/PDF decoder contract tests use in-memory stand-ins and ingestion/TIFF tests generate tiny synthetic headers and archives. These results verify metadata limits, format dispatch contracts, multipage TIFF inventory, and ZIP handling; they do not prove native PDF, PNG, JPEG, WebP or TIFF pixel decoding by installed libraries. No external or real document was read.
 
 ## Expense reconciliation candidate — PR #106 (2026-11-12)
 

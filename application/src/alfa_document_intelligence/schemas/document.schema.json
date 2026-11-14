@@ -1168,6 +1168,45 @@
           "document_family_definitions"
         ]
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "0.3.0"
+          },
+          "document_family": {
+            "const": "expense_report"
+          },
+          "processing": {
+            "properties": {
+              "semantic_extraction": {
+                "properties": {
+                  "status": {
+                    "const": "completed"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              }
+            },
+            "required": [
+              "semantic_extraction"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "document_family",
+          "processing"
+        ]
+      },
+      "then": {
+        "required": [
+          "expense_lines"
+        ]
+      }
     }
   ]
 }
