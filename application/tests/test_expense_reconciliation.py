@@ -101,6 +101,68 @@ class ExpenseReconciliationTests(unittest.TestCase):
             source_set_revision="c" * 64,
         )
 
+    def test_conflict_does_not_increase_match_rank(self):
+        line, docs = _case()
+        docs['receipt-1'] = _document('receipt-1', 'b' * 64, amount='99.00')
+        docs['receipt-2'] = _document('receipt-2', 'c' * 64)
+        for field in ('transaction_date', 'issue_date', 'invoice_date', 'document_date'):
+            docs['receipt-2']['fields'].pop(field, None)
+        result = self.build(line, docs, [
+            {'document_id': 'receipt-1', 'included': True},
+            {'document_id': 'receipt-2', 'included': True},
+        ])
+        suggestions = result['lines'][0]['suggestions']
+        self.assertIn('ambiguous_candidates', result['lines'][0]['findings'])
+        self.assertIn('amount_conflict', suggestions[1]['reasons'])
+
+    def test_amount_conflict_contains_date_evidence_from_receipt(self):
+        line, docs = _case()
+        docs['receipt-1']['fields']['total_amount'] = _candidate('99.00', 'b' * 64)
+        suggestion = self.build(line, docs)['lines'][0]['suggestions'][0]
+        self.assertIn('amount_conflict', suggestion['reasons'])
+        self.assertEqual(suggestion['supporting_fields']['issue_date']['evidence'][0]['source_sha256'], 'b' * 64)
+
+    def test_equal_signal_ranking_prefers_observed_without_conflict(self):
+        line, docs = _case()
+        docs['receipt-1']['fields']['total_amount'] = _candidate('99.00', 'b' * 64)
+        docs['receipt-2'] = _document('receipt-2', 'c' * 64)
+        for name in ('transaction_date', 'issue_date', 'invoice_date', 'document_date'):
+            docs['receipt-2']['fields'].pop(name, None)
+        result = self.build(line, docs, [
+            {'document_id': 'receipt-1', 'included': True},
+            {'document_id': 'receipt-2', 'included': True},
+        ])
+        self.assertEqual(result['lines'][0]['suggestions'][0]['document_id'], 'receipt-2')
+        self.assertIn('ambiguous_candidates', result['lines'][0]['findings'])
+
+    def test_equal_signal_ranking_prefers_observed_to_possible(self):
+        line, docs = _case()
+        docs['receipt-1']['fields']['total_amount'] = _candidate('42.50', 'b' * 64, status='uncertain')
+        docs['receipt-2'] = _document('receipt-2', 'c' * 64)
+        result = self.build(line, docs, [
+            {'document_id': 'receipt-1', 'included': True},
+            {'document_id': 'receipt-2', 'included': True},
+        ])
+        self.assertEqual(result['lines'][0]['suggestions'][0]['document_id'], 'receipt-2')
+        self.assertIn('ambiguous_candidates', result['lines'][0]['findings'])
+
+    def test_statement_alternatives_keep_supporting_evidence_bound_to_receipt(self):
+        line, docs = _case()
+        for field, value in [('amount', '42.50'), ('currency', 'EUR')]:
+            line[field] = _candidate(None, 'a' * 64, status='uncertain')
+            line[field]['alternatives'] = [_candidate(value, 'a' * 64)]
+        suggestion = self.build(line, docs)['lines'][0]['suggestions'][0]
+        self.assertIn('possible_amount_and_currency_match', suggestion['reasons'])
+        for name in ('total_amount', 'currency'):
+            self.assertEqual(suggestion['supporting_fields'][name]['evidence'][0]['source_sha256'], 'b' * 64)
+
+    def test_uncertain_primary_without_alternatives_is_a_possible_match(self):
+        line, docs = _case()
+        line['amount'] = _candidate('42.50', 'a' * 64, status='uncertain')
+        suggestion = self.build(line, docs)['lines'][0]['suggestions'][0]
+        self.assertIn('possible_amount_and_currency_match', suggestion['reasons'])
+        self.assertNotIn('amount_and_currency_match', suggestion['reasons'])
+
     def test_exact_amount_and_currency_match_ranks_first_with_explainable_reasons(self):
         result = self.build()
         suggestion = result["lines"][0]["suggestions"][0]
@@ -460,3 +522,4 @@ class ExpenseReconciliationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
