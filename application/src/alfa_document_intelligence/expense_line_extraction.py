@@ -9,7 +9,7 @@ from typing import Any, Iterable
 
 from .ocr_adapter import OCRPageResult
 
-_AMOUNT = re.compile(r"(?<![\w.,])([+-]?(?:\d{1,3}(?:[., ]\d{3})+|\d+)[.,]\d{2})(?![\w.,])")
+_AMOUNT = re.compile(r"(?<![\w.,])((?:[+\-\u2212]\s?)?(?:\d{1,3}(?:[., ]\d{3})+|\d+)[.,]\d{2})(?![\w.,])")
 _DATE = re.compile(r"(?<!\d)(\d{4}-\d{2}-\d{2}|\d{1,2}[/. -]\d{1,2}[/. -]\d{4})(?!\d)")
 _CURRENCY = re.compile(r"(?i)(?<![A-Z])(?:EUR|USD|GBP|CHF|CAD|AUD|JPY)(?![A-Z])|€|\$|£")
 _CURRENCY_CODES = {"€": "EUR", "£": "GBP"}
@@ -67,7 +67,9 @@ def _region(row):
 
 
 def _decimal_amount(literal: str) -> str | None:
-    compact = literal.replace(" ", "")
+    compact = re.sub(r"\s+", "", literal)
+    if compact.startswith("−"):
+        compact = "-" + compact[1:]
     separator = "," if compact.rfind(",") > compact.rfind(".") else "."
     decimal_index = compact.rfind(separator)
     integer = re.sub(r"[.,]", "", compact[:decimal_index])
@@ -135,7 +137,20 @@ def _currency_candidate(text, evidence):
     matches = [match.group(0) for match in _CURRENCY.finditer(text)]
     explicit_codes = [(value, value.upper()) for value in matches if value.isalpha()]
     if explicit_codes:
-        return _candidate(explicit_codes, evidence, normalization_rule="currency-code")
+        symbols = [(value, _CURRENCY_CODES.get(value, value)) for value in matches if not value.isalpha()]
+        dollar_symbols = [(literal, value) for literal, value in symbols if literal == '$']
+        values = [*explicit_codes, *(item for item in symbols if item[0] != '$')]
+        if dollar_symbols:
+            unique_values = {value for _, value in values}
+            explicit_values = {value for _, value in explicit_codes}
+            if len(unique_values) == 1 and explicit_values <= {"USD", "CAD", "AUD"}:
+                return _candidate(values, evidence, normalization_rule="currency-code")
+            alternatives = []
+            for _, value in [*values, *dollar_symbols]:
+                if value not in {item["value"] for item in alternatives}:
+                    alternatives.append({"value": value, "status": "uncertain", "evidence": [evidence]})
+            return {"value": None, "status": "uncertain", "alternatives": alternatives, "evidence": [evidence]}
+        return _candidate(values, evidence, normalization_rule="currency-code")
 
     symbols = [(value, _CURRENCY_CODES.get(value, value)) for value in matches]
     if any(literal == "$" for literal, _ in symbols):
