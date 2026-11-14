@@ -20,7 +20,7 @@ _RAPIDOCR_FACTORY = (
 def _rapidocr_limits() -> OCRProcessLimits:
     """Explicit provisional bounds for the opt-in local RapidOCR worker."""
     return OCRProcessLimits(
-        job_timeout_seconds=300,
+        job_timeout_seconds=900,
         cleanup_grace_seconds=3,
         child_memory_limit_bytes=2 * 1024 * 1024 * 1024 - 1,
         max_input_frame_bytes=64 * 1024 * 1024,
