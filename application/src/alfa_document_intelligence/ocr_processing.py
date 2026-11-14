@@ -185,8 +185,20 @@ class _OutputBoundAdapter:
             if used > self._maximum_bytes:
                 self.exceeded = True
                 raise _PageOutputLimitError
+        if (
+            isinstance(recognition, OCRRecognitionResult)
+            and recognition.error_code is not None
+        ):
+            used += len(recognition.error_code.encode("utf-8", errors="strict"))
+            if used > self._maximum_bytes:
+                self.exceeded = True
+                raise _PageOutputLimitError
         if isinstance(recognition, OCRRecognitionResult):
-            return OCRRecognitionResult(tuple(tokens), status=recognition.status)
+            return OCRRecognitionResult(
+                tuple(tokens),
+                status=recognition.status,
+                error_code=recognition.error_code,
+            )
         return tokens
 
 
@@ -1088,3 +1100,4 @@ class OCRProcessingManager:
             if job.supervisor.is_alive():
                 self._stop_process(job)
                 job.supervisor.join(float(self._limits.cleanup_grace_seconds))
+

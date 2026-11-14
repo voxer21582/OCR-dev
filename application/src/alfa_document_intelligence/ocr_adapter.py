@@ -7,6 +7,7 @@ import re
 from typing import Literal, Protocol, Sequence
 
 _SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
+_OCR_ERROR_CODES = frozenset({"engine_error", "engine_unavailable", "page_timeout"})
 MAX_OCR_PAGES_PER_DOCUMENT = 100
 MAX_OCR_TOKENS_PER_PAGE = 10_000
 MAX_OCR_TOKENS_PER_DOCUMENT = 100_000
@@ -15,7 +16,6 @@ MAX_OCR_TOKEN_TEXT_CHARS = 4_096
 MAX_OCR_POLYGON_VERTICES = 256
 Point = tuple[float, float]
 Polygon = tuple[Point, ...]
-OCRPageStatus = Literal["complete", "partial", "failed"]
 
 
 @dataclass(frozen=True)
@@ -38,15 +38,32 @@ class OCRToken:
 
 @dataclass(frozen=True)
 class OCRRecognitionResult:
-    """Typed adapter output when recognition can report incomplete coverage."""
+    """Typed adapter output for complete or explicitly incomplete recognition."""
     tokens: tuple[OCRToken, ...]
-    status: OCRPageStatus = "complete"
+    status: Literal["complete", "partial", "failed"] = "complete"
+    error_code: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.tokens, tuple):
-            raise OCRContractError("recognition tokens must be an immutable tuple")
-        if not isinstance(self.status, str) or self.status not in ("complete", "partial", "failed"):
+            raise OCRContractError("tokens must be an immutable tuple")
+        seen_ids: set[str] = set()
+        for token in self.tokens:
+            _validate_token(token, seen_ids)
+        if type(self.status) is not str or self.status not in (
+            "complete", "partial", "failed"
+        ):
             raise OCRContractError("status must be complete, partial, or failed")
+        if self.error_code is not None and (
+            type(self.error_code) is not str
+            or self.error_code not in _OCR_ERROR_CODES
+        ):
+            raise OCRContractError("error_code must be a stable non-sensitive code")
+        if self.status == "complete" and self.error_code is not None:
+            raise OCRContractError("complete result cannot have an error_code")
+        if self.status != "complete" and self.error_code is None:
+            raise OCRContractError("partial or failed result requires an error_code")
+        if self.status == "failed" and self.tokens:
+            raise OCRContractError("failed result cannot contain OCR observations")
 
 
 @dataclass(frozen=True)
@@ -57,11 +74,42 @@ class OCRPageResult:
     engine_version: str
     language: str
     tokens: tuple[OCRToken, ...]
-    status: OCRPageStatus = "complete"
+    status: Literal["complete", "partial", "failed"] = "complete"
+    error_code: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.status, str) or self.status not in ("complete", "partial", "failed"):
-            raise ValueError("status must be complete, partial, or failed")
+        if not isinstance(self.source_sha256, str) or not _SHA256.fullmatch(self.source_sha256):
+            raise OCRContractError("source_sha256 must be 64 hexadecimal characters")
+        if type(self.page_number) is not int or self.page_number < 1:
+            raise OCRContractError("page_number must be a positive integer")
+        if type(self.engine_name) is not str or not self.engine_name.strip():
+            raise OCRContractError("adapter name is required")
+        if type(self.engine_version) is not str or not self.engine_version.strip():
+            raise OCRContractError("adapter version is required")
+        if type(self.language) is not str:
+            raise OCRContractError("language must contain only it/en")
+        languages = self.language.split("+")
+        if (not languages or any(language not in {"it", "en"} for language in languages)
+                or len(set(languages)) != len(languages)):
+            raise OCRContractError("language must contain unique it/en codes")
+        if not isinstance(self.tokens, tuple):
+            raise OCRContractError("tokens must be an immutable tuple")
+        seen_ids: set[str] = set()
+        for token in self.tokens:
+            _validate_token(token, seen_ids)
+        if type(self.status) is not str or self.status not in ("complete", "partial", "failed"):
+            raise OCRContractError("status must be complete, partial, or failed")
+        if self.error_code is not None and (
+            type(self.error_code) is not str
+            or self.error_code not in _OCR_ERROR_CODES
+        ):
+            raise OCRContractError("error_code must be a stable non-sensitive code")
+        if self.status == "complete" and self.error_code is not None:
+            raise OCRContractError("complete result cannot have an error_code")
+        if self.status != "complete" and self.error_code is None:
+            raise OCRContractError("partial or failed result requires an error_code")
+        if self.status == "failed" and self.tokens:
+            raise OCRContractError("failed result cannot contain OCR observations")
 
 
 class OCREngineAdapter(Protocol):
@@ -91,6 +139,12 @@ def _validate_page(page: RasterPage) -> None:
         raise OCRContractError("image_bytes must be non-empty decoded page bytes")
 
 
+def _within_unit_interval(value: object) -> bool:
+    if type(value) is int:
+        return 0 <= value <= 1
+    return type(value) is float and math.isfinite(value) and 0 <= value <= 1
+
+
 def _validate_token(token: OCRToken, seen_ids: set[str]) -> None:
     if not isinstance(token, OCRToken):
         raise OCRContractError("adapter output must contain OCRToken values")
@@ -107,15 +161,11 @@ def _validate_token(token: OCRToken, seen_ids: set[str]) -> None:
         if not isinstance(point, tuple) or len(point) != 2:
             raise OCRContractError("each polygon point must be an x,y tuple")
         x, y = point
-        if (not isinstance(x, (int, float)) or isinstance(x, bool)
-                or not isinstance(y, (int, float)) or isinstance(y, bool)
-                or not math.isfinite(x) or not math.isfinite(y)
-                or not 0 <= x <= 1 or not 0 <= y <= 1):
+        if not _within_unit_interval(x) or not _within_unit_interval(y):
             raise OCRContractError("polygon coordinates must be finite and normalized to [0, 1]")
     if token.confidence is not None:
         confidence = token.confidence
-        if (not isinstance(confidence, (int, float)) or isinstance(confidence, bool)
-                or not math.isfinite(confidence) or not 0 <= confidence <= 1):
+        if not _within_unit_interval(confidence):
             raise OCRContractError("confidence must be finite and in [0, 1]")
 
 
@@ -155,9 +205,11 @@ def run_ocr(
         if isinstance(recognition, OCRRecognitionResult):
             tokens = recognition.tokens
             status = recognition.status
+            error_code = recognition.error_code
         else:
             tokens = recognition
             status = "complete"
+            error_code = None
         if isinstance(tokens, (str, bytes)) or not isinstance(tokens, Sequence):
             raise OCRContractError("adapter must return a sequence of OCRToken values")
         seen_ids: set[str] = set()
@@ -171,5 +223,7 @@ def run_ocr(
             language="+".join(languages),
             tokens=tuple(tokens),
             status=status,
+            error_code=error_code,
         ))
     return tuple(results)
+

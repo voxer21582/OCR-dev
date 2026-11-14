@@ -195,9 +195,12 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
         semantic_stage = processing.get("semantic_extraction") if isinstance(processing, dict) else None
         if family == "expense_report" and isinstance(semantic_stage, dict) and semantic_stage.get("status") == "completed" and "expense_lines" not in record:
             issues.append("expense_lines: completed expense-report analysis requires line proposals")
-        if expense_lines is not None:
-            from .expense_line_extraction import validate_expense_lines
-            issues.extend(validate_expense_lines(expense_lines, source_hash or "", page_numbers))
+        if "expense_lines" in record:
+            if not isinstance(expense_lines, list):
+                issues.append("expense_lines: expected array")
+            else:
+                from .expense_line_extraction import validate_expense_lines
+                issues.extend(validate_expense_lines(expense_lines, source_hash or "", page_numbers))
     elif expense_lines is not None:
         issues.append("expense_lines: requires document schema 0.3.0")
 

@@ -10,11 +10,11 @@ from alfa_document_intelligence.analysis_pipeline import (
 )
 from alfa_document_intelligence.ocr_adapter import (
     OCRPageResult,
-    OCRRecognitionResult,
     OCRToken,
     RasterPage,
     run_ocr,
 )
+import alfa_document_intelligence.ocr_adapter as ocr_adapter
 
 FIXTURE = Path(__file__).parent / "fixtures" / "synthetic_hotel_document.json"
 POLYGON = ((0.1, 0.2), (0.8, 0.2), (0.8, 0.4), (0.1, 0.4))
@@ -91,14 +91,18 @@ class AnalysisPipelineTests(unittest.TestCase):
         self.assertEqual(getattr(self.page, "status", None), "complete")
         for status in ("partial", "failed"):
             with self.subTest(status=status):
+                error_code = (
+                    "page_timeout" if status == "partial" else "engine_unavailable"
+                )
                 page = OCRPageResult(
                     source_sha256=self.page.source_sha256,
                     page_number=self.page.page_number,
                     engine_name=self.page.engine_name,
                     engine_version=self.page.engine_version,
                     language=self.page.language,
-                    tokens=self.page.tokens,
+                    tokens=self.page.tokens if status == "partial" else (),
                     status=status,
+                    error_code=error_code,
                 )
                 with patch(
                     "alfa_document_intelligence.analysis_pipeline.propose_common_fields"
@@ -114,12 +118,22 @@ class AnalysisPipelineTests(unittest.TestCase):
                 self.assertEqual(self.document, self.original)
 
     def test_partial_adapter_status_is_blocked_before_semantic_proposals(self):
+        recognition_type = getattr(ocr_adapter, "OCRRecognitionResult", None)
+        self.assertIsNotNone(
+            recognition_type,
+            "adapters must propagate incomplete recognition with its stable error code",
+        )
+
         class PartialAdapter:
             name = "synthetic-partial-adapter"
             version = "1"
 
             def recognize(self, page, languages):
-                return OCRRecognitionResult(self.page.tokens, status="partial")
+                return recognition_type(
+                    self.page.tokens,
+                    status="partial",
+                    error_code="page_timeout",
+                )
 
         adapter = PartialAdapter()
         adapter.page = self.page
@@ -129,6 +143,7 @@ class AnalysisPipelineTests(unittest.TestCase):
             source_sha256=self.document["source"]["sha256"],
         )[0]
         self.assertEqual(page.status, "partial")
+        self.assertEqual(page.error_code, "page_timeout")
 
         with patch(
             "alfa_document_intelligence.analysis_pipeline.propose_common_fields"
@@ -174,3 +189,4 @@ class OverflowPipelineTests(AnalysisPipelineTests):
 
 if __name__ == "__main__":
     unittest.main()
+
