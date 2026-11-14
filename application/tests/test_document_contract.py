@@ -322,6 +322,15 @@ class DocumentContractTests(unittest.TestCase):
         invalid = copy.deepcopy(self.fixture)
         invalid["fiscal_document_state"] = {"status": "payment_evidence", "evidence": []}
         self.assertTrue(any("required for payment_evidence classification" in issue for issue in validate_document_record(invalid)))
+    def test_unsupported_fiscal_status_is_rejected_even_without_evidence(self):
+        invalid = copy.deepcopy(self.fixture)
+        invalid["fiscal_document_state"] = {"status": "bogus", "evidence": []}
+
+        self.assertTrue(any(
+            issue == "fiscal_document_state.status: unsupported status"
+            for issue in validate_document_record(invalid)
+        ))
+
 
     def test_unknown_fiscal_state_may_have_no_evidence(self):
         valid = copy.deepcopy(self.fixture)

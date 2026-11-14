@@ -302,7 +302,8 @@ def validate_expense_lines(lines, source_hash: str, page_numbers: set[int]) -> l
             if not isinstance(candidate, dict) or set(candidate) - {"value", "status", "alternatives", "evidence", "normalization"}:
                 issues.append(f"{path}: invalid candidate")
                 continue
-            if candidate.get("status") not in allowed_status or not isinstance(candidate.get("alternatives"), list) or not isinstance(candidate.get("evidence"), list):
+            status = candidate.get("status")
+            if not isinstance(status, str) or status not in allowed_status or not isinstance(candidate.get("alternatives"), list) or not isinstance(candidate.get("evidence"), list):
                 issues.append(f"{path}: invalid candidate status or evidence arrays")
                 continue
             if candidate["status"] == "observed" and not isinstance(candidate.get("value"), str):
@@ -320,7 +321,7 @@ def validate_expense_lines(lines, source_hash: str, page_numbers: set[int]) -> l
             if candidate["status"] == "uncertain" and candidate.get("value") is None and not candidate["alternatives"]:
                 issues.append(f"{path}: uncertain candidate requires alternatives")
             for alternative in candidate["alternatives"]:
-                if not isinstance(alternative, dict) or set(alternative) - {"value", "status", "evidence", "normalization"} or alternative.get("status") not in {"observed", "uncertain", "unreadable", "rejected"} or not isinstance(alternative.get("value"), str) or not isinstance(alternative.get("evidence"), list) or not alternative["evidence"]:
+                if not isinstance(alternative, dict) or set(alternative) - {"value", "status", "evidence", "normalization"} or not isinstance(alternative.get("status"), str) or alternative.get("status") not in {"observed", "uncertain", "unreadable", "rejected"} or not isinstance(alternative.get("value"), str) or not isinstance(alternative.get("evidence"), list) or not alternative["evidence"]:
                     issues.append(f"{path}: alternative candidate is invalid")
                     continue
                 alt_normalization = alternative.get("normalization")

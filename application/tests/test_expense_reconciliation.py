@@ -275,6 +275,34 @@ class ExpenseReconciliationTests(unittest.TestCase):
         self.assertEqual(second["lines"][0]["status"], "rejected")
         self.assertEqual(second["lines"][0]["current_review_event_id"], "event-second")
 
+    def test_boolean_review_event_sequence_is_rejected(self):
+        result = self.build()
+        line = result["lines"][0]
+        reviewed = append_line_review(
+            result, expected_case_revision=result["case_revision"],
+            line_id=line["line_id"], expected_line_evidence_sha256=line["evidence_sha256"],
+            action="confirmed", candidate_sources=[{"document_id": "receipt-1", "source_sha256": "b" * 64}],
+            event_id="event-bool-sequence", reviewer_note=None,
+        )
+        reviewed["review_events"][0]["sequence"] = True
+
+        with self.assertRaisesRegex(ReconciliationError, "review event sequence is invalid"):
+            validate_reconciliation(reviewed, _case()[1])
+
+    def test_boolean_source_set_inclusion_sequence_is_rejected(self):
+        body = {
+            "event_id": "event-bool-inclusion", "case_revision": "c" * 64,
+            "document_id": "receipt-1", "source_sha256": "b" * 64,
+            "included": True, "reason": "Synthetic review",
+        }
+        digest = hashlib.sha256(json.dumps(
+            body, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")).hexdigest()
+        events = [{**body, "sequence": True, "event_sha256": digest}]
+
+        with self.assertRaisesRegex(ReconciliationError, "source-set inclusion history is invalid"):
+            case_source_set_revision("statement", "a" * 64, [], events)
+
     def test_tampered_review_event_digest_is_rejected(self):
         result = self.build()
         line = result["lines"][0]
@@ -457,6 +485,92 @@ class ExpenseReconciliationTests(unittest.TestCase):
         self.assertTrue(all(isinstance(key, str) for key in result["lines"][0]["suggestions"][0]["supporting_fields"]))
         json.dumps(result, ensure_ascii=False, sort_keys=True)
 
+
+
+    def test_unhashable_statement_candidate_status_is_a_contract_error(self):
+        line, docs = _case()
+        line["amount"]["status"] = []
+
+        with self.assertRaisesRegex(ReconciliationError, "candidate status is invalid"):
+            self.build(line, docs)
+
+    def test_unhashable_document_candidate_status_is_a_contract_error(self):
+        line, docs = _case()
+        docs["receipt-1"]["fields"]["total_amount"]["status"] = []
+
+        with self.assertRaisesRegex(ReconciliationError, "document record violates the evidence contract"):
+            self.build(line, docs)
+
+    def test_unhashable_document_family_is_a_contract_error(self):
+        line, docs = _case()
+        docs["receipt-1"]["document_family"] = []
+
+        with self.assertRaisesRegex(ReconciliationError, "document record violates the evidence contract"):
+            self.build(line, docs)
+
+    def test_unhashable_alternative_status_is_a_contract_error(self):
+        line, docs = _case()
+        line["amount"]["status"] = "uncertain"
+        line["amount"]["value"] = None
+        line["amount"]["alternatives"] = [{
+            "value": "42.50", "status": [], "evidence": copy.deepcopy(line["amount"]["evidence"]),
+        }]
+
+        with self.assertRaisesRegex(ReconciliationError, "alternative is invalid"):
+            self.build(line, docs)
+
+    def test_unhashable_stored_review_action_is_a_contract_error(self):
+        line, docs = _case()
+        result = self.build(line, docs)
+        current = result["lines"][0]
+        reviewed = append_line_review(
+            result,
+            expected_case_revision=result["case_revision"],
+            line_id=current["line_id"],
+            expected_line_evidence_sha256=current["evidence_sha256"],
+            action="confirmed",
+            candidate_sources=[{"document_id": "receipt-1", "source_sha256": "b" * 64}],
+            event_id="event-bad-action",
+            reviewer_note=None,
+        )
+        reviewed["review_events"][0]["action"] = []
+
+        with self.assertRaisesRegex(ReconciliationError, "review event action is invalid"):
+            validate_reconciliation(reviewed, docs)
+
+    def test_unhashable_append_review_action_is_a_contract_error(self):
+        result = self.build()
+        current = result["lines"][0]
+
+        with self.assertRaisesRegex(ReconciliationError, "review action or candidate sources"):
+            append_line_review(
+                result,
+                expected_case_revision=result["case_revision"],
+                line_id=current["line_id"],
+                expected_line_evidence_sha256=current["evidence_sha256"],
+                action=[],
+                candidate_sources=[],
+                event_id="event-bad-action",
+                reviewer_note=None,
+            )
+
+
+    def test_unhashable_document_alternative_status_is_a_contract_error(self):
+        line, docs = _case()
+        candidate = docs["receipt-1"]["fields"]["total_amount"]
+        candidate["alternatives"] = [{
+            "value": "43.00", "status": [], "evidence": copy.deepcopy(candidate["evidence"]),
+        }]
+
+        with self.assertRaisesRegex(ReconciliationError, "document record violates the evidence contract"):
+            self.build(line, docs)
+
+    def test_unhashable_fiscal_document_status_is_a_contract_error(self):
+        line, docs = _case()
+        docs["receipt-1"]["fiscal_document_state"]["status"] = []
+
+        with self.assertRaisesRegex(ReconciliationError, "document record violates the evidence contract"):
+            self.build(line, docs)
 
 if __name__ == "__main__":
     unittest.main()
