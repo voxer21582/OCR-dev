@@ -1,6 +1,6 @@
 # RapidOCR 3.10.0 candidate: upstream source evidence
 
-**Reviewed:** 2026-11-12
+**Reviewed:** 2026-11-14
 **Status:** partial source review; not a legal opinion, redistribution approval, or runtime acceptance
 **Related:** [issue #9](https://github.com/voxer21582/OCR-dev/issues/9)
 
@@ -26,19 +26,51 @@ This note records public, upstream evidence for the already selected evaluation 
 
 These observations come from the already-existing local demo environment; no package or model was acquired for this review.
 
-The existing demo environment is CPython 3.13.15, Windows 11 x64 (`AMD64`). PyPI's release metadata identifies the candidate archive files and expected SHA-256 values below. These are index metadata only: neither wheel archive was downloaded or compared with these digests, so they do not establish the identity of the installed distributions.
+The existing demo environment is CPython 3.13.15, Windows 11 x64 (`AMD64`). PyPI's release metadata identifies the candidate archive files and expected SHA-256 values below. Those index values alone do not establish which archive produced the installed distributions. A separate local candidate wheelhouse recheck is recorded below; it does not by itself bind the installed environment or final installer to those archives.
 
 | Distribution | Candidate wheel from PyPI | Expected SHA-256 from PyPI metadata | Scope |
 | --- | --- | --- | --- |
-| RapidOCR 3.10.0 | [`rapidocr-3.10.0-py3-none-any.whl`](https://pypi.org/pypi/rapidocr/3.10.0/json) (27,288,134 bytes) | `2fc34e26cd0f48514804a94f8832283039c7334076bff60768b1fed9ad068050` | Universal wheel filename; digest is an expected archive identity from PyPI JSON, not locally verified. |
-| ONNX Runtime 1.31.1 | [`onnxruntime-1.31.1-cp313-cp313-win_amd64.whl`](https://pypi.org/project/onnxruntime/1.31.1/#files) | `0558f29d5f6ac09957390c9c5495931485ee8ae7f0ce781ccee86a0ae5c2348b` | Filename matches CPython 3.13 Windows AMD64; PyPI lists the file without provenance. Digest is not locally verified. |
+| RapidOCR 3.10.0 | [`rapidocr-3.10.0-py3-none-any.whl`](https://pypi.org/pypi/rapidocr/3.10.0/json) (27,288,134 bytes) | `2fc34e26cd0f48514804a94f8832283039c7334076bff60768b1fed9ad068050` | Universal wheel filename; the local candidate archive matched the evaluation lock below, and the local inventory records its digest as matching PyPI JSON metadata. |
+| ONNX Runtime 1.31.1 | [`onnxruntime-1.31.1-cp313-cp313-win_amd64.whl`](https://pypi.org/project/onnxruntime/1.31.1/#files) | `0558f29d5f6ac09957390c9c5495931485ee8ae7f0ce781ccee86a0ae5c2348b` | Filename matches CPython 3.13 Windows AMD64; the local candidate archive matched the evaluation lock below, and the local inventory records its digest as matching PyPI JSON metadata. PyPI lists the file without provenance. |
 
-These two records do not constitute the candidate's complete dependency lock: the transitive dependency closure, platform-specific wheel selection for every dependency, and hashes for each selected artifact still need to be captured and reviewed before a reproducible package can be claimed.
+## Local candidate wheelhouse recheck — 2026-11-14
+
+A read-only check of the existing isolated CPython 3.13.15 / Windows AMD64 evaluation wheelhouse hashed each wheel and compared it with the candidate lock now included in this PR: **21 of 21 wheel files matched 21 of 21 lock entries; no mismatches**. The pre-existing local artifact inventory records that those expected lock hashes were compared with the exact PyPI JSON release records. This recheck did not contact PyPI, install packages, extract or import wheels, run OCR, or access real documents. The wheelhouse and detailed local inventory remain outside the public repository.
+
+The lock is a reproducible evaluation candidate, not a frozen product runtime or installer bill of materials. The local hash check establishes correspondence between the existing wheel files and this lock; it does not establish signed build provenance, licensing approval, installer inclusion, or product acceptance.
+
+## Direct dependency declarations in the tagged source
+
+The v3.10.0 [`pyproject.toml`](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/python/pyproject.toml) declares dependencies dynamically from [`requirements.txt`](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/python/requirements.txt). That file lists the following direct requirements:
+
+| Direct requirement | Upstream constraint | Pin status |
+| --- | --- | --- |
+| `pyclipper` | `>=1.2.0` | Lower bound only |
+| `opencv-python-headless` | `>=4.5.1.48` | Lower bound only |
+| `numpy` | `>=1.19.5,<3.0.0` | Bounded range, not a single version |
+| `six` | `>=1.15.0` | Lower bound only |
+| `Shapely` | `>=1.7.1,!=2.0.4` | Lower bound plus exclusion |
+| `PyYAML` | No version constraint | Unpinned |
+| `Pillow` | No version constraint | Unpinned |
+| `tqdm` | No version constraint | Unpinned |
+| `omegaconf` | `!=2.2.1` | Exclusion only |
+| `requests` | No version constraint | Unpinned |
+| `colorlog` | No version constraint | Unpinned |
+
+The selected ONNX Runtime CPU distribution is a separate OCR2 evaluation dependency; it is not listed in this RapidOCR `requirements.txt`. These source declarations alone are not an install lock: they do not identify a resolved transitive graph, selected Windows CPython 3.13 AMD64 wheels, artifact hashes, or the license/notice set for a bundle. The separate evaluation lock and local notice inventory below record candidate artifacts, but neither establishes product acceptance.
+
+The two wheel rows above were not, by themselves, a dependency lock. A CPython 3.13.15 / Windows AMD64 evaluation lock covering 21 wheels is now included in [`rapidocr-3.10.0-cp313-win-amd64-evaluation.lock`](rapidocr-3.10.0-cp313-win-amd64-evaluation.lock). The local recheck matched all 21 wheel files to their lock entries; independent review and reconciliation against the final product runtime, installer, licenses, and notices remain open. This candidate is not yet an accepted reproducible product package.
 
 | Distribution | Installed metadata and files observed | What remains unproven |
 | --- | --- | --- |
-| RapidOCR 3.10.0 | `importlib.metadata` reports `License-Expression: Apache-2.0`, `License-File: LICENSE` and `MODEL_LICENSES.md`, and 187 files recorded for the installed distribution. The installed `MODEL_LICENSES.md` (SHA-256 `C5FD0E8603D3DF743355B546121E6FE0F4EF8FF455C5A85C1681FD3AE520E153`) separates source-code and model copyrights, states Apache-2.0 for its listed models, and includes the three ONNX filenames and expected hashes below. The installed source license file SHA-256 is `3E0AF25FDD06AA9586AE97ADB00EA927EBE5A3805AC77D2D3A81CE5F55693333`. | These installed files do not identify the original wheel archive hash or prove that the final OCR2 installer retains all required notices. The notice's attribution and redistribution conditions still need an independent licensing review. |
+| RapidOCR 3.10.0 | `importlib.metadata` reports `License-Expression: Apache-2.0`, `License-File: LICENSE` and `MODEL_LICENSES.md`, and 187 files recorded for the installed distribution. The installed `MODEL_LICENSES.md` (SHA-256 `C5FD0E8603D3DF743355B546121E6FE0F4EF8FF455C5A85C1681FD3AE520E153`) separates source-code and model copyrights, states Apache-2.0 for its listed models, and includes the three ONNX filenames and expected hashes below. The installed source license file SHA-256 is `3E0AF25FDD06AA9586AE97ADB00EA927EBE5A3805AC77D2D3A81CE5F55693333`. | Installed metadata alone does not identify its originating wheel archive. The separate wheelhouse recheck below verifies candidate archive bytes against the evaluation lock, but does not bind this installed environment or a future installer to those archives. The notice's attribution and redistribution conditions still need independent review. |
 | ONNX Runtime 1.31.1 | Installed metadata reports `MIT License`, 629 files recorded, and both `LICENSE` (SHA-256 `C250D6278F0B47A6439FB7592B08B58A55EB9F535AA49A1DB63211C3F982B674`) and `ThirdPartyNotices.txt` (SHA-256 `C53A76501EF60DB6F865F20599F220761201AC4057683ACEFDAB37D861B86622`, 344,457 bytes). | Presence and hashes do not validate every notice entry against the final packaged native DLLs or prove installer compliance. |
+
+## Local candidate license/notice copy audit — 2026-11-14
+
+A read-only check compared the private internal notice draft with the recorded paths, byte sizes, and SHA-256 values for the 21-wheel evaluation candidate: **50 of 50 indexed copies matched; none were missing or mismatched**. The internal inventory records one additional FlatBuffers license supplement from the v25.12.19 upstream tag because the wheel contains no notice file; its local copy matches the recorded 11,358-byte size and SHA-256. The notice texts and detailed local inventory remain private and are not included in this repository.
+
+The inventory notes that Colorama and OmegaConf wheels lack a declared license field despite carrying license text, and OmegaConf includes an ANTLR attribution. This is a flag for review, not a legal interpretation. The copy audit does not establish applicability, completeness of all native/model/CPython notices, final installer inclusion, or redistribution rights. No license texts were published by this change.
 
 The three `.onnx` files present in that installation were hashed locally and match both the v3.10.0 model registry and the installed model notice:
 
@@ -48,7 +80,7 @@ The three `.onnx` files present in that installation were hashed locally and mat
 | `PP-OCRv6_rec_small.onnx` | 21,234,383 | `6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884` | Recognizer, used by the candidate |
 | `ch_ppocr_mobile_v2.0_cls_mobile.onnx` | 585,532 | `e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c` | Classifier artifact present in the package; OCR2's candidate factory disables it |
 
-The model notice attributes upstream model weights to Baidu and/or PaddleOCR rights holders and points to upstream model records. This is provenance and license evidence from the installed distribution, not legal advice or permission for OCR2 redistribution. The installed distribution's complete `RECORD` file, original wheel hash, transitive package/license closure, and the exact OCR2 installer file set have not been audited.
+The model notice attributes upstream model weights to Baidu and/or PaddleOCR rights holders and points to upstream model records. This is provenance evidence, not legal advice or permission for OCR2 redistribution. The separate candidate lock and notice-copy audit are not tied to the final installer and do not resolve legal obligations. The installed distribution's complete `RECORD` file and exact OCR2 installer file set remain unaudited.
 
 ## Reconciliation with the OCR2 candidate
 
@@ -58,9 +90,9 @@ The upstream packaging note means the runtime package's *entire distributed cont
 
 ## Remaining gate work
 
-1. Capture and verify the original Windows wheel archive hash and the complete hash-bound dependency closure for the candidate; the installed demo environment does not establish those archive identities.
+1. Independently review and reconcile the candidate lock and its source evidence before treating the dependency closure as accepted. The existing local wheelhouse has been rechecked against all 21 hash entries, but the lock remains evaluation-only and its detailed source inventory is not public.
 2. Reconcile the exact installer file set against every included dependency, native binary, data file, bundled model, license and notice. Include bundled-but-unused artifacts unless the final package demonstrably omits them.
-3. Produce and validate a CycloneDX SBOM for the exact package candidate; the previously prepared local draft was not schema-validated and is not evidence of a complete installer SBOM.
+3. The existing local CycloneDX 1.6 evaluation draft was re-parsed read-only on 2026-11-14: 24 components have unique references, all 24 root dependency references resolve, and every component has a valid SHA-256 entry. Validation against the CycloneDX JSON Schema and reconciliation with the final installer file set remain outstanding; this draft is not a complete installer SBOM.
 4. Obtain independent licensing review for the complete, hash-bound bundle before any redistribution or release claim.
 5. Keep the recognizer metadata observation tied to its exact hash; if the selected artifact changes, repeat the metadata gate under an approved procedure. Separately verify offline behavior using an approved bounded plan; source configuration, explicit local model paths, and one local artifact inspection do not prove that the full runtime makes no network requests.
 
