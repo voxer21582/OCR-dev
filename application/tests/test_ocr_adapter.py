@@ -8,6 +8,10 @@ from alfa_document_intelligence.ocr_adapter import (
     RasterPage,
     run_ocr,
 )
+from alfa_document_intelligence.ocr_processing import (
+    _OutputBoundAdapter,
+    _PageOutputLimitError,
+)
 
 
 SOURCE_HASH = "a" * 64
@@ -59,6 +63,21 @@ class OCRAdapterTests(unittest.TestCase):
 
             self.assertEqual(result.status, status)
             self.assertEqual(result.tokens, tuple(adapter.tokens))
+
+    def test_output_bound_preserves_status_and_limits_typed_results(self):
+        class PartialAdapter(FakeAdapter):
+            def recognize(self, page, languages):
+                return OCRRecognitionResult(tuple(self.tokens), status="partial")
+
+        typed = _OutputBoundAdapter(PartialAdapter(), maximum_bytes=267)
+        result = typed.recognize(self.pages[0], ("it", "en"))
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(result.tokens[0].text, "EUR 12,50")
+
+        oversized = _OutputBoundAdapter(PartialAdapter(), maximum_bytes=266)
+        with self.assertRaises(_PageOutputLimitError):
+            oversized.recognize(self.pages[0], ("it", "en"))
+        self.assertTrue(oversized.exceeded)
 
     def test_recognition_result_rejects_unknown_status(self):
         with self.assertRaisesRegex(ValueError, "status must be complete, partial, or failed"):
