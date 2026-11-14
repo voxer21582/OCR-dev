@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 from typing import Sequence
 
 from .local_intake_app import serve_expense_report_local
 from .local_document_store import LocalDocumentStore
 from .ocr_processing import OCRProcessLimits, OCRProcessingManager
+from .rapidocr_runtime_factory import check_rapidocr_runtime
 
 
 _RAPIDOCR_FACTORY = (
@@ -50,6 +52,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="optional local OCR worker (default: disabled; rapidocr-v6 requires verified local package and models)",
     )
     args = parser.parse_args(argv)
+
+    if args.ocr_engine == "rapidocr-v6":
+        runtime = check_rapidocr_runtime()
+        for warning in runtime.warnings:
+            print(f"Attenzione: {warning}.", file=sys.stderr)
+        if not runtime.ok:
+            parser.error("OCR locale non utilizzabile: " + "; ".join(runtime.problems))
 
     archive_store = None
     if os.name == "nt":
