@@ -465,6 +465,30 @@ class DocumentContractTests(unittest.TestCase):
         legacy_with_null = copy.deepcopy(self.fixture)
         legacy_with_null["expense_lines"] = None
         assert_both_validators_agree(legacy_with_null, False)
+        v2_catalog = load_custom_family_catalog(json.dumps({
+            "catalog_version": "1",
+            "families": [{
+                "id": "custom_taxi_receipt",
+                "label": "Ricevuta taxi",
+                "title_cues": ["RICEVUTA TAXI"],
+                "fields": [],
+            }],
+        }, ensure_ascii=False))
+        legacy_v2 = copy.deepcopy(self.fixture)
+        legacy_v2["schema_version"] = "0.2.0"
+        legacy_v2["document_family"] = "custom_taxi_receipt"
+        legacy_v2["document_family_definitions"] = [
+            v2_catalog.snapshot_for("custom_taxi_receipt")
+        ]
+        assert_both_validators_agree(legacy_v2, True)
+
+        legacy_v2_with_lines = copy.deepcopy(legacy_v2)
+        legacy_v2_with_lines["expense_lines"] = []
+        assert_both_validators_agree(legacy_v2_with_lines, False)
+
+        legacy_v2_with_null = copy.deepcopy(legacy_v2)
+        legacy_v2_with_null["expense_lines"] = None
+        assert_both_validators_agree(legacy_v2_with_null, False)
 
 if __name__ == "__main__":
     unittest.main()
