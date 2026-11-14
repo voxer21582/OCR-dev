@@ -392,5 +392,13 @@ class DocumentContractTests(unittest.TestCase):
         completed_with_lines["expense_lines"] = []
         self._assert_schema_runtime_validity_agree(completed_with_lines, True)
 
+        legacy_with_lines = copy.deepcopy(self.fixture)
+        legacy_with_lines["expense_lines"] = []
+        self._assert_schema_runtime_validity_agree(legacy_with_lines, False)
+
+        legacy_with_null = copy.deepcopy(self.fixture)
+        legacy_with_null["expense_lines"] = None
+        self._assert_schema_runtime_validity_agree(legacy_with_null, False)
+
 if __name__ == "__main__":
     unittest.main()
