@@ -19,7 +19,7 @@ from .image_safety import ImageHeaderError, ImageInfo, inspect_image_header, ins
 @dataclass(frozen=True)
 class IngestionLimits:
     max_upload_bytes: int = 25 * 1024 * 1024
-    max_archive_entries: int = 100
+    max_archive_entries: int = 150
     max_archive_uncompressed_bytes: int = 100 * 1024 * 1024
     max_entry_uncompressed_bytes: int = 25 * 1024 * 1024
     max_compression_ratio: float = 100.0

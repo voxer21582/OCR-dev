@@ -65,7 +65,7 @@ class OCRLauncherContractTests(unittest.TestCase):
         self.assertEqual(len(_FakeManager.instances), 1)
         manager = _FakeManager.instances[0]
         self.assertEqual(manager.factory_ref, launcher._RAPIDOCR_FACTORY)
-        self.assertEqual(manager.limits.job_timeout_seconds, 300)
+        self.assertEqual(manager.limits.job_timeout_seconds, 900)
         self.assertEqual(manager.limits.cleanup_grace_seconds, 3)
         self.assertEqual(manager.limits.child_memory_limit_bytes, 2 * 1024 * 1024 * 1024 - 1)
         self.assertEqual(manager.limits.max_input_frame_bytes, 64 * 1024 * 1024)
