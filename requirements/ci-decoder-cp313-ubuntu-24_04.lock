@@ -1,0 +1,8 @@
+# OCR2 decoder CI dependency closure, so the real raster and PDF decoder tests run instead of skipping.
+# Target: CPython 3.13, Linux x86_64, Ubuntu 24.04 (glibc 2.39). Binary artifacts only.
+# pip must require these exact SHA-256 hashes; each is the hash of the single matching wheel in the
+# PyPI JSON release data (not yanked). Neither package has required runtime dependencies.
+# pillow 13.0.0 (MIT-CMU) and pypdfium2 5.15.2 (BSD-3-Clause, Apache-2.0 and bundled dependency licences)
+# are the same versions used in the Windows runtime lock; notice review for redistribution is open.
+pillow==13.0.0 --hash=sha256:5f56499c1a74d2b862beb0c33b8016f99d095858455df9d21583bbbc1c15b582
+pypdfium2==5.15.2 --hash=sha256:dc31aea5b0fb9fefc9b537a65f4113980b2c40798445736a7e6565bc85161e37
