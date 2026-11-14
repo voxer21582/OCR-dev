@@ -30,8 +30,14 @@ The existing demo environment is CPython 3.13.15, Windows 11 x64 (`AMD64`). PyPI
 
 | Distribution | Candidate wheel from PyPI | Expected SHA-256 from PyPI metadata | Scope |
 | --- | --- | --- | --- |
-| RapidOCR 3.10.0 | [`rapidocr-3.10.0-py3-none-any.whl`](https://pypi.org/pypi/rapidocr/3.10.0/json) (27,288,134 bytes) | `2fc34e26cd0f48514804a94f8832283039c7334076bff60768b1fed9ad068050` | Universal wheel filename; digest is an expected archive identity from PyPI JSON, not locally verified. |
-| ONNX Runtime 1.31.1 | [`onnxruntime-1.31.1-cp313-cp313-win_amd64.whl`](https://pypi.org/project/onnxruntime/1.31.1/#files) | `0558f29d5f6ac09957390c9c5495931485ee8ae7f0ce781ccee86a0ae5c2348b` | Filename matches CPython 3.13 Windows AMD64; PyPI lists the file without provenance. Digest is not locally verified. |
+| RapidOCR 3.10.0 | [`rapidocr-3.10.0-py3-none-any.whl`](https://pypi.org/pypi/rapidocr/3.10.0/json) (27,288,134 bytes) | `2fc34e26cd0f48514804a94f8832283039c7334076bff60768b1fed9ad068050` | Universal wheel filename; local candidate wheelhouse archive matched the evaluation lock in the read-only recheck below. |
+| ONNX Runtime 1.31.1 | [`onnxruntime-1.31.1-cp313-cp313-win_amd64.whl`](https://pypi.org/project/onnxruntime/1.31.1/#files) | `0558f29d5f6ac09957390c9c5495931485ee8ae7f0ce781ccee86a0ae5c2348b` | Filename matches CPython 3.13 Windows AMD64; local candidate wheelhouse archive matched the evaluation lock below. PyPI lists the file without provenance. |
+
+## Local candidate wheelhouse recheck — 2026-11-14
+
+A read-only check of the existing isolated CPython 3.13.15 / Windows AMD64 evaluation wheelhouse hashed each wheel and compared it with the candidate lock now included in this PR: **21 of 21 wheel files matched 21 of 21 lock entries; no mismatches**. The pre-existing local artifact inventory records that those expected lock hashes were compared with the exact PyPI JSON release records. This recheck did not contact PyPI, install packages, extract or import wheels, run OCR, or access real documents. The wheelhouse and detailed local inventory remain outside the public repository.
+
+The lock is a reproducible evaluation candidate, not a frozen product runtime or installer bill of materials. The local hash check establishes correspondence between the existing wheel files and this lock; it does not establish signed build provenance, licensing approval, installer inclusion, or product acceptance.
 
 ## Direct dependency declarations in the tagged source
 
@@ -78,7 +84,7 @@ The upstream packaging note means the runtime package's *entire distributed cont
 
 ## Remaining gate work
 
-1. Capture and verify the original Windows wheel archive hash and the complete hash-bound dependency closure for the candidate; the installed demo environment does not establish those archive identities.
+1. Independently review and reconcile the candidate lock and its source evidence before treating the dependency closure as accepted. The existing local wheelhouse has been rechecked against all 21 hash entries, but the lock remains evaluation-only and its detailed source inventory is not public.
 2. Reconcile the exact installer file set against every included dependency, native binary, data file, bundled model, license and notice. Include bundled-but-unused artifacts unless the final package demonstrably omits them.
 3. Produce and validate a CycloneDX SBOM for the exact package candidate; the previously prepared local draft was not schema-validated and is not evidence of a complete installer SBOM.
 4. Obtain independent licensing review for the complete, hash-bound bundle before any redistribution or release claim.
