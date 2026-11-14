@@ -1,0 +1,74 @@
+# Expense reconciliation candidate evidence
+
+Date: 2026-11-12
+
+State: published for review in open draft PR #106; not merged or product-accepted.
+
+## Implemented in the isolated branch
+
+- One encrypted local case binds one final expense statement and up to 100 supporting documents. Attachments are uploaded in bounded batches of at most 20, with the existing per-request byte limit and resumable chunk identity.
+- OCR is explicit and local. The default CLI engine remains `disabled`; case processing requires an explicit `--ocr-engine rapidocr-v6` selection.
+- OCR tokens produce versioned (0.3.0) statement-line proposals with source hash, page, region, token IDs, producer, literal text, and uncertainty. Unsupported or ambiguous values remain unresolved; in particular, `$` is not assumed to mean USD unless an explicit currency code disambiguates it.
+- Deterministic reconciliation compares statement lines against included supporting records. An uncertain receipt alternative may be shown as a possible match, never as a confirmed match. Each human choice is append-only and bound to the current reconciliation revision and source hashes. The revision also binds a digest of immutable upload-chunk and attachment-inclusion history (excluding review events), so exclude/reinclude/reprocess cannot reactivate an earlier confirmation.
+- The OCR line extractor leaves merchant absent unless a future evidence-backed extractor can determine it. Amount/currency/date conflict and possible-duplicate signals still work with merchant absent as weaker evidence; a known merchant disagreement suppresses those weaker signals. All remain review prompts, not decisions.
+- The local review screen displays statement lines, source-page links, candidate signals, conflicts, unmatched receipts, duplicate sources, and review status. Attachment inclusion/exclusion requires a reason and retains event history. Stale OCR results cannot be reconciled after source membership changes.
+- A user-initiated JSON download keeps machine suggestions, human review state, and evidence references in distinct fields. The preview and download routes are local case-bound routes; they do not link to or populate `/chatgpt`.
+
+## Verification evidence
+
+Run from `application/` in PowerShell:
+
+```powershell
+$env:PYTHONPATH = 'src;tests'
+python -m unittest -q test_expense_line_extraction test_expense_reconciliation test_expense_reconciliation_ui test_expense_case_store test_expense_case_intake_routes test_expense_case_processing test_local_document_store test_local_intake_app test_ocr_processing test_ocr_job_ui test_ocr_launcher_contract test_public_data_guard test_document_processing test_document_contract test_catalog_pipeline test_analysis_pipeline test_semantic_proposals test_document_validation
+python -m compileall -q src tests
+git -C .. diff --check
+```
+
+Result on 2026-11-11: **263 synthetic unittest cases passed** across the 18 explicitly selected modules after the independent-review corrections for stale review projection, missing-merchant integration, and JSON-safe date-conflict evidence; `python -m compileall -q src tests` and `git -C .. diff --check` also passed. These are local results, not a GitHub Actions run. `pytest` was not installed, so only the explicitly selected unittest modules ran. Some launcher tests print the loopback address and temporary sandbox archive path; those outputs were not added to the repository.
+
+### Independent review follow-up — 2026-11-12
+
+An additional static review found two contract gaps in statement-line extraction: `$` was being normalized as USD without disambiguating evidence, and alternative OCR evidence did not require the same producer metadata and normalized-page region as primary evidence. Three synthetic regression tests were added. Each failed against the prior implementation as expected; after the minimal correction, the focused command `python -B -m unittest -v test_expense_line_extraction test_expense_reconciliation` passed **28 tests**. `git diff --check` passed, and an independent review of the final code/test diff returned READY. This is a local targeted result and is not included in the earlier 263-test count or a GitHub Actions run. The workflow change remains pending because PR #105's required CI check has two worker lifecycle/error-classification failures under investigation.
+
+The tests cover extraction-to-reconciliation paths for amount/currency/date conflicts and possible duplicate statement lines when merchant is absent, JSON serialization of a date-conflict result without merchant evidence, and the WSGI reconciliation page, all review outcomes, idempotent review replay, stale revision and source-binding rejection, local source-page route membership, HTML escaping, append-only attachment inclusion history, explicit JSON download, separation from the ChatGPT handoff, and exclusion/reinclusion after a human confirmation without restoring that old decision. Page rendering is mocked in the route test; native PDF/image decoding and browser visual/accessibility behavior are not proven.
+
+### Focused current-commit verification — 2026-11-12
+
+On commit `2d829028bb58bbea33853ec1b113d7cf579519f1`, CPython 3.13.15 passed **83 synthetic unittest cases** using this explicit command from `application/`:
+
+```powershell
+$env:PYTHONPATH = 'src;tests'
+python -B -m unittest -v test_expense_line_extraction test_expense_reconciliation test_expense_reconciliation_ui test_expense_case_store test_expense_case_intake_routes test_expense_case_processing
+```
+
+This run deliberately excluded worker/launcher modules involved in PR #105 and `test_local_document_store`; it does not verify those components. The selected case-processing tests use an in-process fake worker and synthetic records. No real documents or runtime models were read or loaded. This local run does not replace GitHub Actions and is not a product acceptance result.
+
+### Source-hash consistency guard — 2026-11-13
+
+- A synthetic regression showed that `extract_expense_lines` accepted pages bound to different source hashes in one result. Such a result cannot be consistently bound to the single definitive statement expected by reconciliation.
+- The regression failed before the change because no error was raised. The extractor now rejects non-typed page results before attribute access and rejects a page batch whose source hashes differ.
+- From `application/`, `python -B -m unittest -v test_expense_line_extraction test_expense_reconciliation` passed **29 synthetic tests**. `py_compile` for the changed module and test passed; `git diff --check` passed.
+- This change does not access document storage, start an OCR worker, use real documents, or modify R7/R8. It does not verify native OCR accuracy or Windows end-to-end behavior.
+
+### Dollar-symbol disambiguation coverage — 2026-11-14
+
+- Added a synthetic table-driven case for `USD $`, `CAD $`, and `AUD $`, asserting that each matching explicit currency code resolves the symbol while retaining no unresolved alternatives. The existing conflict case `EUR $` remains uncertain, and `$` without a code remains uncertain.
+- From `application/`, `PYTHONPATH=src;tests python -B -m unittest -v test_expense_line_extraction` passed **11 tests**. The full explicit application selector set from the current workflow plus the two selectors added by stacked CI PR #114 passed **336 tests: 335 passed, 1 skipped** because `jsonschema` is not installed locally. The command used the complete named selector list; no test discovery was used. `git diff --check` passed.
+- This is local synthetic verification only. The new test has not run in GitHub Actions or received a separate independent review. The surrounding currency implementation has an independent READY review recorded in `CURRENT_STATE.md`; that review predates this additional coverage.
+- No real documents, OCR runtime, archive/store, worker, Windows configuration, or R7/R8 component was accessed or tested.
+
+### Isolated parent-fixes branch verification — 2026-11-14
+
+- Branch `codex/expense-reconciliation-parent-fixes` is based on PR #106 head `95fbd611f8516dec2cf5530f3fb62cae1a36ae28`. It includes the schema-0.3 expense-lines contract, currency ambiguity, and Unicode-minus fixes. The stable token-ordering commit owned by PR #127 is intentionally excluded to avoid duplicating that change.
+- Exact local synthetic selectors from `application/` with `PYTHONPATH=src`: `test_expense_line_extraction.py` (12), `test_expense_reconciliation.py` (22), and `test_document_contract.py` (32). Total: 66 run, 65 passed, 1 skipped because `jsonschema` is unavailable locally. `git diff --check` passed. The skipped JSON Schema validation case requires the existing hash-locked CI environment and has not been re-run locally.
+- This evidence is local only. It does not demonstrate a GitHub Actions run, native Windows/OCR behavior, real-document accuracy, storage/worker behavior, or product acceptance. The first import attempt omitted `PYTHONPATH=src` and ran zero tests; the exact selector passed after setting the local source path. No dependency was installed.
+
+## Privacy and acceptance limits
+
+- The owner has identified a local reference sample for future real-document evaluation. The implementation and test runs documented here use synthetic documents; no real filename, OCR value, source hash, screenshot, or derived value was committed or sent to GitHub, CI, ChatGPT, or any external service.
+- Automated tests use synthetic records and fake OCR adapters only. They do not measure real OCR accuracy.
+- Windows runtime/model availability, install/upgrade behavior, CPU/memory use, 100-document performance, and a real-note comparison on the reference PC remain unverified.
+- This candidate is not a fiscal review, reimbursement decision, payment authorization, or accounting posting. Every suggested match needs human review.
+- Do not use this candidate for a live expense report until the owner verifies the local OCR runtime and compares its output with a real final note inside the local app.
+- The branch `codex/expense-reconciliation` is public and reviewable in [PR #106](https://github.com/voxer21582/OCR-dev/pull/106); it has not been merged. GitHub Actions passed 279 pre-existing synthetic contracts, but the explicit selector did not include these expense-case modules. The separate [PR #105](https://github.com/voxer21582/OCR-dev/pull/105) worker-test CI has one reviewed diagnostic run (#43220041764) failing two Linux worker-startup assertions. No child bootstrap marker appeared, so the root cause is unknown; no retry is authorized under the current stop condition. R7/R8 and their stop/no-retry restrictions were not touched.

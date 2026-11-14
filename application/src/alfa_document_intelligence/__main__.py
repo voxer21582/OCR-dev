@@ -8,6 +8,8 @@ from typing import Sequence
 
 from .local_intake_app import serve_expense_report_local
 from .local_document_store import LocalDocumentStore
+from .document_decoder import DecodeLimits
+from .expense_case_processing import ExpenseCaseProcessingManager
 from .ocr_processing import OCRProcessLimits, OCRProcessingManager
 
 
@@ -62,10 +64,20 @@ def main(argv: Sequence[str] | None = None) -> None:
     ocr_manager = None
     if args.ocr_engine == "rapidocr-v6":
         ocr_manager = OCRProcessingManager(_RAPIDOCR_FACTORY, _rapidocr_limits())
+    case_processing_manager = None
+    if archive_store is not None and ocr_manager is not None:
+        case_processing_manager = ExpenseCaseProcessingManager(
+            archive_store,
+            ocr_manager,
+            _rapidocr_limits(),
+            DecodeLimits(),
+            close_worker_on_close=False,
+        )
     server = serve_expense_report_local(
         port=args.port,
         archive_store=archive_store,
         ocr_processing_manager=ocr_manager,
+        expense_case_processing_manager=case_processing_manager,
     )
     host, port = server.server_address[:2]
     print(f"Apri http://{host}:{port}/ nel browser. Il server ascolta solo su loopback.")

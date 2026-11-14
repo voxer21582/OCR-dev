@@ -21,7 +21,9 @@ def valid_limits() -> dict[str, int | float]:
     return {
         "job_timeout_seconds": 60.0,
         "cleanup_grace_seconds": 2.0,
-        "child_memory_limit_bytes": 256 * 1024 * 1024,
+        # Leave room for CPython and the test module to initialize on POSIX
+        # before the worker reaches the engine; production uses the same cap.
+        "child_memory_limit_bytes": 2 * 1024 * 1024 * 1024 - 1,
         "max_input_frame_bytes": 1024 * 1024,
         "max_status_frame_bytes": 4096,
         "max_result_frame_bytes": 1024 * 1024,
@@ -105,6 +107,32 @@ class OCRProcessLimitsTests(unittest.TestCase):
 
 
 class OCRFrameProtocolTests(unittest.TestCase):
+    def test_input_protocol_accepts_legacy_frames_and_valid_case_budgets(self):
+        legacy = valid_input()
+        self.assertEqual(
+            decode_frame(encode_frame(legacy, max_bytes=4096), max_bytes=4096, expected_kind="input"),
+            legacy,
+        )
+        current = valid_input()
+        current["payload"] = dict(current["payload"], case_budget={
+            "max_pages": 500, "max_total_pixels": 2_000_000_000,
+        })
+        self.assertEqual(
+            decode_frame(encode_frame(current, max_bytes=4096), max_bytes=4096, expected_kind="input"),
+            current,
+        )
+
+    def test_input_protocol_rejects_invalid_case_budget(self):
+        for budget in (
+            {"max_pages": True, "max_total_pixels": 100},
+            {"max_pages": 1, "max_total_pixels": 0},
+            {"max_pages": 1, "max_total_pixels": 100, "extra": 0},
+        ):
+            current = valid_input()
+            current["payload"] = dict(current["payload"], case_budget=budget)
+            with self.subTest(budget=budget), self.assertRaises(OCRJobProtocolError):
+                encode_frame(current, max_bytes=4096)
+
     def test_worker_kind_peek_accepts_only_deterministic_kind_prefix(self):
         from alfa_document_intelligence.ocr_processing import _peek_canonical_kind
 

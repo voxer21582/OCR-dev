@@ -68,8 +68,8 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
     if not isinstance(record, dict):
         return ["record: expected object"]
     schema_version = record.get("schema_version")
-    if schema_version not in ("0.1.0", "0.2.0"):
-        issues.append("schema_version: expected 0.1.0 or 0.2.0")
+    if schema_version not in ("0.1.0", "0.2.0", "0.3.0"):
+        issues.append("schema_version: expected 0.1.0, 0.2.0, or 0.3.0")
 
     source = record.get("source")
     source_hash = source.get("sha256") if isinstance(source, dict) else None
@@ -157,6 +157,8 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
         issues.append("document_family_definitions: custom families require schema 0.2.0")
     if schema_version == "0.2.0" and not definitions:
         issues.append("document_family_definitions: schema 0.2.0 requires a snapshot")
+    if schema_version == "0.3.0" and custom_candidate_ids and not definitions:
+        issues.append("document_family_definitions: custom family candidates require a snapshot")
     for custom_id in custom_candidate_ids:
         if custom_id not in family_snapshots:
             issues.append("document_family_definitions: custom family candidate requires its snapshot")
@@ -187,6 +189,20 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
                 issues.append(f"{path}: requires region, text_span, or token_ids")
     if family == "pos_slip" and isinstance(fiscal, dict) and fiscal.get("status") == "fiscal_document":
         issues.append("fiscal_document_state: a POS slip alone cannot establish fiscal-document status")
+
+    expense_lines = record.get("expense_lines")
+    if schema_version == "0.3.0":
+        semantic_stage = processing.get("semantic_extraction") if isinstance(processing, dict) else None
+        if family == "expense_report" and isinstance(semantic_stage, dict) and semantic_stage.get("status") == "completed" and "expense_lines" not in record:
+            issues.append("expense_lines: completed expense-report analysis requires line proposals")
+        if "expense_lines" in record:
+            if not isinstance(expense_lines, list):
+                issues.append("expense_lines: expected array")
+            else:
+                from .expense_line_extraction import validate_expense_lines
+                issues.extend(validate_expense_lines(expense_lines, source_hash or "", page_numbers))
+    elif expense_lines is not None:
+        issues.append("expense_lines: requires document schema 0.3.0")
 
     fields = record.get("fields")
     if not isinstance(fields, dict):

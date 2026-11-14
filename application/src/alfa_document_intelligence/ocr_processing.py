@@ -36,8 +36,9 @@ _STATUS_KEYS = frozenset({
     "current_page", "total_pages", "error_code",
 })
 _INPUT_KEYS = frozenset({
-    "job_id", "generation_id", "documents", "decode_limits", "catalog",
+    "job_id", "generation_id", "documents", "decode_limits", "catalog", "case_budget",
 })
+_LEGACY_INPUT_KEYS = _INPUT_KEYS - {"case_budget"}
 _RESULT_KEYS = frozenset({"job_id", "generation_id", "documents"})
 _TERMINAL_KEYS = frozenset({"job_id", "generation_id", "phase", "error_code"})
 _PAYLOAD_KEYS = {
@@ -88,6 +89,28 @@ class OCRProcessLimits:
             value = getattr(self, name)
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
+
+
+@dataclass(frozen=True)
+class OCRCaseBudget:
+    """Optional cumulative page and pixel budget for one isolated worker job."""
+
+    max_pages: int
+    max_total_pixels: int
+
+    def __post_init__(self) -> None:
+        for name in ("max_pages", "max_total_pixels"):
+            value = getattr(self, name)
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+
+
+class _CaseBudgetExceeded(RuntimeError):
+    def __init__(self, error_code: str):
+        if error_code not in {"case_page_limit", "case_pixel_limit"}:
+            raise ValueError("unsupported case budget error code")
+        self.error_code = error_code
+        super().__init__(error_code)
 
 
 @dataclass(frozen=True)
@@ -179,6 +202,25 @@ def _process_input_documents(
     if not isinstance(decode_limits_raw, dict):
         raise OCRJobProtocolError("invalid decode limits")
     decode_limits = DecodeLimits(**decode_limits_raw)
+    raw_case_budget = input_payload.get("case_budget")
+    if raw_case_budget is not None:
+        if (
+            not isinstance(raw_case_budget, dict)
+            or set(raw_case_budget) != {"max_pages", "max_total_pixels"}
+            or not _nonnegative_integer(raw_case_budget.get("max_pages"))
+            or raw_case_budget["max_pages"] <= 0
+            or not _nonnegative_integer(raw_case_budget.get("max_total_pixels"))
+            or raw_case_budget["max_total_pixels"] <= 0
+        ):
+            raise OCRJobProtocolError("invalid case processing budget")
+        case_page_limit = raw_case_budget["max_pages"]
+        case_pixel_limit = raw_case_budget["max_total_pixels"]
+    else:
+        case_page_limit = None
+        case_pixel_limit = None
+    case_pages_decoded = 0
+    case_pixels_decoded = 0
+    case_budget_error: str | None = None
     catalog = None
     catalog_raw = input_payload["catalog"]
     if catalog_raw is not None:
@@ -234,15 +276,44 @@ def _process_input_documents(
                 completed_pages_total + completed, aggregate_total,
             )
 
+        document_decoder = decoder
+        if case_page_limit is not None and case_pixel_limit is not None:
+            def document_decoder(source, media_kind, *, source_sha256, limits):
+                nonlocal case_pages_decoded, case_pixels_decoded, case_budget_error
+                for decoded in decoder(
+                    source, media_kind, source_sha256=source_sha256, limits=limits,
+                ):
+                    raster = getattr(decoded, "raster", None)
+                    width = getattr(raster, "width_px", None)
+                    height = getattr(raster, "height_px", None)
+                    if (
+                        isinstance(width, int) and not isinstance(width, bool) and width > 0
+                        and isinstance(height, int) and not isinstance(height, bool) and height > 0
+                    ):
+                        if case_pages_decoded >= case_page_limit:
+                            case_budget_error = "case_page_limit"
+                            from .document_decoder import DocumentDecodeError
+                            raise DocumentDecodeError("case-wide decoded page budget exceeded")
+                        pixels = width * height
+                        if case_pixels_decoded + pixels > case_pixel_limit:
+                            case_budget_error = "case_pixel_limit"
+                            from .document_decoder import DocumentDecodeError
+                            raise DocumentDecodeError("case-wide decoded pixel budget exceeded")
+                        case_pages_decoded += 1
+                        case_pixels_decoded += pixels
+                    yield decoded
+
         processed = process_document_record(
             record,
             source_bytes,
             adapter,
-            decoder=decoder,
+            decoder=document_decoder,
             decode_limits=decode_limits,
             custom_family_catalog=catalog,
             progress_callback=on_progress,
         )
+        if case_budget_error is not None:
+            raise _CaseBudgetExceeded(case_budget_error)
         if isinstance(adapter, _OutputBoundAdapter) and adapter.exceeded:
             raise _PageOutputLimitError
         if processed.get("processing", {}).get("ocr", {}).get("status") != "completed":
@@ -346,7 +417,13 @@ def _validate_envelope(value: object, *, expected_kind: str | None) -> None:
         raise OCRJobProtocolError("invalid worker message")
     if expected_kind is not None and kind != expected_kind:
         raise OCRJobProtocolError("invalid worker message")
-    if not isinstance(payload, dict) or set(payload) != _PAYLOAD_KEYS[kind]:
+    if not isinstance(payload, dict):
+        raise OCRJobProtocolError("invalid worker message")
+    payload_keys = set(payload)
+    if kind == "input":
+        if payload_keys not in {_INPUT_KEYS, _LEGACY_INPUT_KEYS}:
+            raise OCRJobProtocolError("invalid worker message")
+    elif payload_keys != _PAYLOAD_KEYS[kind]:
         raise OCRJobProtocolError("invalid worker message")
     _validate_payload(kind, payload)
     _validate_json_value(value, depth=0, node_budget=[_MAX_TOTAL_NODES])
@@ -372,6 +449,16 @@ def _validate_payload(kind: str, payload: dict[str, object]) -> None:
         if (not isinstance(payload["documents"], list)
                 or not isinstance(payload["decode_limits"], dict)
                 or (payload["catalog"] is not None and not isinstance(payload["catalog"], dict))):
+            raise OCRJobProtocolError("invalid worker message")
+        case_budget = payload.get("case_budget")
+        if case_budget is not None and (
+            not isinstance(case_budget, dict)
+            or set(case_budget) != {"max_pages", "max_total_pixels"}
+            or not _nonnegative_integer(case_budget.get("max_pages"))
+            or case_budget["max_pages"] <= 0
+            or not _nonnegative_integer(case_budget.get("max_total_pixels"))
+            or case_budget["max_total_pixels"] <= 0
+        ):
             raise OCRJobProtocolError("invalid worker message")
     elif kind == "result":
         if not isinstance(payload["documents"], dict):
@@ -610,6 +697,8 @@ def _ocr_worker_entry(input_receiver, output_sender, start_gate, factory_ref: st
     except BaseException as exc:
         if isinstance(exc, _PageOutputLimitError):
             error_code = "page_output_limit"
+        elif isinstance(exc, _CaseBudgetExceeded):
+            error_code = exc.error_code
         elif isinstance(exc, OCRJobProtocolError):
             error_code = "worker_protocol_failed"
         else:
@@ -678,7 +767,10 @@ class OCRProcessingManager:
         self._job: _ManagedJob | None = None
         self._closed = False
 
-    def start(self, generation_id, intake, *, decode_limits, custom_family_catalog=None) -> str:
+    def start(
+        self, generation_id, intake, *, decode_limits, custom_family_catalog=None,
+        case_budget: OCRCaseBudget | None = None,
+    ) -> str:
         from .document_decoder import DecodeLimits
         from .expense_reports import ExpenseReportIntakeSession
 
@@ -689,6 +781,8 @@ class OCRProcessingManager:
             raise ValueError("invalid intake session")
         if not isinstance(decode_limits, DecodeLimits):
             raise ValueError("invalid decode limits")
+        if case_budget is not None and not isinstance(case_budget, OCRCaseBudget):
+            raise ValueError("invalid case processing budget")
         if not intake.documents or set(intake.documents) != set(intake.source_bytes):
             raise ValueError("intake documents and source bytes do not match")
         job_id = uuid.uuid4().hex
@@ -715,16 +809,19 @@ class OCRProcessingManager:
                 "version": custom_family_catalog.version,
                 "sha256": custom_family_catalog.sha256,
             }
+        input_payload = {
+            "job_id": job_id,
+            "generation_id": generation_id,
+            "documents": documents,
+            "decode_limits": asdict(decode_limits),
+            "catalog": catalog_payload,
+        }
+        if case_budget is not None:
+            input_payload["case_budget"] = asdict(case_budget)
         frame = encode_frame({
             "version": PROTOCOL_VERSION,
             "kind": "input",
-            "payload": {
-                "job_id": job_id,
-                "generation_id": generation_id,
-                "documents": documents,
-                "decode_limits": asdict(decode_limits),
-                "catalog": catalog_payload,
-            },
+            "payload": input_payload,
         }, max_bytes=self._limits.max_input_frame_bytes)
         with self._lock:
             if self._closed:
