@@ -96,11 +96,24 @@ def analyze_ocr_results(
                     raise AnalysisPipelineError(
                         "custom document-family identifier was reused for a changed definition"
                     )
-        proposals = propose_common_fields(
-            materialized_pages,
-            document_family=document["document_family"],
-            custom_family_catalog=active_catalog,
-        )
+        omitted_field_limit_code = None
+        try:
+            proposals = propose_common_fields(
+                materialized_pages,
+                document_family=document["document_family"],
+                custom_family_catalog=active_catalog,
+            )
+        except SemanticProposalLimitError as exc:
+            # A long expense statement carries its evidence in per-line proposals.
+            # Overflowing a common-field review list must not discard them, and no
+            # partial common fields are kept; the omission is recorded below.
+            if (
+                document.get("document_family") != "expense_report"
+                or exc.code != "semantic_proposal_field_limit"
+            ):
+                raise
+            proposals = {}
+            omitted_field_limit_code = exc.code
         expense_lines = (
             extract_expense_lines(materialized_pages)
             if document.get("document_family") == "expense_report" else None
@@ -149,7 +162,14 @@ def analyze_ocr_results(
         raise AnalysisPipelineError(f"document validation failed: {exc}") from exc
 
     result_document["validation_findings"] = findings
-    result_document["processing"]["semantic_extraction"]["status"] = "completed"
+    if omitted_field_limit_code is None:
+        result_document["processing"]["semantic_extraction"]["status"] = "completed"
+    else:
+        # Common fields were omitted, so the stage stays failed (and reviewers see the
+        # manual-verification warning) while the per-line proposals are retained.
+        result_document["processing"]["semantic_extraction"] = {
+            "status": "failed", "error_code": omitted_field_limit_code,
+        }
     result_document["processing"]["document_validation"]["status"] = "completed"
     final_issues = validate_document_record(result_document)
     if final_issues:

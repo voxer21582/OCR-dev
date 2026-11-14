@@ -187,6 +187,57 @@ class OverflowPipelineTests(AnalysisPipelineTests):
         self.assertEqual(self.document, self.original)
 
 
+class ExpenseStatementOverflowTests(unittest.TestCase):
+    """A long statement must keep its line proposals when common fields overflow."""
+
+    def _statement(self, line_count):
+        document = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        document["processing"]["ocr"]["status"] = "completed"
+        document["document_family"] = "expense_report"
+        tokens = []
+        for index in range(line_count):
+            top = 0.01 + index * 0.008
+            bottom = top + 0.006
+            for suffix, text, left, right in (
+                ("d", f"{1 + index % 28:02d}/11/2026", 0.05, 0.20),
+                ("t", f"Ricevuta n. {index + 1:03d}", 0.25, 0.60),
+                ("a", f"{10 + index},37", 0.70, 0.90),
+            ):
+                tokens.append(OCRToken(
+                    f"{suffix}{index}", text,
+                    ((left, top), (right, top), (right, bottom), (left, bottom)), 0.95,
+                ))
+        page = OCRPageResult(
+            document["source"]["sha256"], 1, "synthetic-ocr", "test-1", "it+en", tuple(tokens),
+        )
+        return document, page
+
+    def test_statement_lines_survive_common_field_overflow(self):
+        document, page = self._statement(120)
+        original_fields = copy.deepcopy(document["fields"])
+        result = analyze_ocr_results(document, [page])
+        self.assertEqual(len(result.document["expense_lines"]), 120)
+        stage = result.document["processing"]["semantic_extraction"]
+        self.assertEqual(stage, {"status": "failed", "error_code": "semantic_proposal_field_limit"})
+        self.assertEqual(result.document["fields"], original_fields)
+        self.assertEqual(result.unapplied_proposals, {})
+
+    def test_short_statement_keeps_common_fields_and_has_no_error_code(self):
+        document, page = self._statement(5)
+        result = analyze_ocr_results(document, [page])
+        self.assertEqual(len(result.document["expense_lines"]), 5)
+        self.assertEqual(result.document["processing"]["semantic_extraction"]["status"], "completed")
+        self.assertNotIn("error_code", result.document["processing"]["semantic_extraction"])
+        self.assertIn("amount_candidates", result.document["fields"])
+
+    def test_other_families_still_fail_on_common_field_overflow(self):
+        document, page = self._statement(120)
+        document["document_family"] = "unknown"
+        with self.assertRaises(AnalysisPipelineError) as caught:
+            analyze_ocr_results(document, [page])
+        self.assertEqual(caught.exception.code, "semantic_proposal_field_limit")
+
+
 if __name__ == "__main__":
     unittest.main()
 
