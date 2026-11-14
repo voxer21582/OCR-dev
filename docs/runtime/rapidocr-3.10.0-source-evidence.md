@@ -59,7 +59,7 @@ The v3.10.0 [`pyproject.toml`](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/
 
 The selected ONNX Runtime CPU distribution is a separate OCR2 evaluation dependency; it is not listed in this RapidOCR `requirements.txt`. These source declarations are not an install lock: they do not identify the resolved transitive graph, selected Windows CPython 3.13 AMD64 wheels, artifact hashes, or the license and notice set for the exact bundle. No dependency versions or hashes are inferred here.
 
-These two records do not constitute the candidate's complete dependency lock: the transitive dependency closure, platform-specific wheel selection for every dependency, and hashes for each selected artifact still need to be captured and reviewed before a reproducible package can be claimed.
+The two wheel rows above were not, by themselves, a dependency lock. A CPython 3.13.15 / Windows AMD64 evaluation lock covering 21 wheels is now included in [`rapidocr-3.10.0-cp313-win-amd64-evaluation.lock`](rapidocr-3.10.0-cp313-win-amd64-evaluation.lock). The local recheck matched all 21 wheel files to their lock entries; independent review and reconciliation against the final product runtime, installer, licenses, and notices remain open. This candidate is not yet an accepted reproducible product package.
 
 | Distribution | Installed metadata and files observed | What remains unproven |
 | --- | --- | --- |
