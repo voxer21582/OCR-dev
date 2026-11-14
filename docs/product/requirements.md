@@ -42,7 +42,7 @@ These choices fill gaps in the documentation. Each is reversible; the owner is a
 | A5 | No cloud OCR, no runtime model download, no telemetry or crash upload. | A new requirement with privacy review. |
 | A6 | Italian and English are the first document and UI languages. | Add languages through engine manifests and UI catalogues. |
 | A7 | Additional import formats are admitted by the rule in IMP-5, not by default. | Adjust the rule. |
-| A8 | Ambiguous dates keep every reading as an alternative; no silent normalization. Any preference (for example day/month for Italian documents) is a visible, configurable hint. | Owner decision, issue #135. |
+| A8 | Ambiguous dates keep every reading as an alternative and stay `uncertain` until a person confirms. For documents recognised as Italian or mixed, the day/month reading is **preselected as a visible hint** (rule id `date-dmy-hint`) and the month/day reading remains an alternative; the hint order is a setting (day/month, month/day, none). Adopted on 2026-11-14 as the recommended default after the owner left the choice open (D3). | Change the setting default; no stored value is rewritten. |
 | A9 | Performance budgets in section 9 are proposals derived from the measurements recorded there. | Replace with pilot-derived thresholds (issue #10). |
 
 ## 4. Import and intake (IMP)
@@ -53,7 +53,7 @@ These choices fill gaps in the documentation. Each is reversible; the owner is a
 | IMP-2 | Bounded, fail-closed intake: size, member count, expanded size, compression ratio, pixel and page limits are explicit and configurable; nested archives, traversal and absolute paths are rejected. | MUST | Limit tests at and over each bound; no source written to disk during inventory. | `SYN-CI`. ZIP entry limit 100 → 150 proposed in PR #133 (`IN-PR`). |
 | IMP-3 | One expense statement plus at least 100 supporting documents per case without losing earlier uploads; resumable chunked intake. | MUST | 5×20 chunks accepted, replay is idempotent, 101st attachment rejected, interrupted upload resumes. | `IN-PR` (#106, `SYN-LOCAL`); `LOCAL-RUN` 100 attachments accepted in 5 chunks. In `main` each upload replaces the session. |
 | IMP-4 | Exact duplicates (SHA-256) are reported, never silently removed. | MUST | Duplicate sources and documents listed with both identities. | `SYN-CI`. |
-| IMP-5 | Additional formats are admitted only after evaluation. Rule: licensed, hash-locked decoder; resource limits; synthetic malformed-input tests; provenance preserved. Candidates in order: BMP, single-frame GIF; later HEIC/HEIF, JPEG 2000. Office documents are out of scope (the user exports to PDF). | SHOULD | Per format: decision record, limits, tests. | `OPEN`. |
+| IMP-5 | Additional formats are admitted only after evaluation. Rule: licensed, hash-locked decoder; resource limits; synthetic malformed-input tests; provenance preserved. Evaluated: single-frame GIF and BMP recommended for M4 ([evaluation](format-evaluation-gif-bmp.md)); HEIC/HEIF and JPEG 2000 later. Office documents are out of scope (the user exports to PDF). | SHOULD | Per format: decision record, limits, tests. | Evaluation done (no code); implementation `OPEN`. |
 | IMP-6 | Encrypted or password-protected PDFs are rejected with a clear message. | MUST | Stable error code, no crash. | Implemented in the decoder; tests need `pytest` (`SYN-LOCAL`). |
 | IMP-7 | PDF rendering requires `pypdfium2`; it must be a pinned, hash-locked, licence-recorded dependency. | MUST | Present in the Windows lock with hash and notice. | `IN-PR` (#138): hash-locked in `requirements/ocr2-runtime-cp313-win-amd64.lock`; a fresh venv installed only from that file passes the runtime check (`LOCAL-RUN`). Licence and notice review `OPEN`. |
 
@@ -145,7 +145,7 @@ Measurements come from synthetic files with clean text on one development PC; th
 | INS-1 | Per-user, offline, no-elevation installer (NSIS 3.x with an embedded CPython 3.13 x64, per the Windows plan). | MUST | Clean install, documented file and registry scope, launch. | `OPEN`. |
 | INS-2 | Runtime bundle: pinned wheels with hashes, model files with SHA-256, notices; no download at install or run time. | MUST | Hash verification at install; start-up check. | `OPEN` (evaluation lock only). |
 | INS-3 | Update, interrupted-update recovery, rollback and uninstall; user data survives unless the user removes it. | MUST | Lifecycle test matrix. | `OPEN`. |
-| INS-4 | Signed installer and binaries. | MUST | Signature verifies. | `OPEN`; needs a certificate decision (D1). |
+| INS-4 | Signed installer and binaries. | MUST | Signature verifies; the record names who signed. | `OPEN`; the owner signs with their own certificate (D1). |
 | INS-5 | Single launcher entry (shortcut) with no change to Windows settings beyond per-user shortcuts; version and runtime identity visible in the app. | MUST | Checklist. | `OPEN`. |
 | OPS-1 | Diagnostics that contain no content, exportable on request. | SHOULD | Diagnostics bundle review. | `OPEN`. |
 | OPS-2 | Jobs follow stop/no-retry: a failed job reports a stable code and is not retried without a new observation or explicit user action; cancellation is reliable. | MUST | Cancel and failure tests. | `SYN-CI`/`SYN-LOCAL`; one unreproduced stuck job observed (see issue comment on #106). |
@@ -176,13 +176,21 @@ Evidence recorded so far (all synthetic, one reference PC, 2026-11-14):
 - Issues #134 and #135: reproductions, causes, fixes on the evaluation branch, and what was deliberately not changed.
 - Earlier issue #9 comment (2026-11-12): the RapidOCR smoke summary; its log stays private.
 
-## 13. Open decisions
+## 13. Decisions
 
-Only items that change scope or cost are listed; everything else uses section 3.
+Recorded on 2026-11-14. Only items that change scope, cost or risk are listed; everything else uses section 3.
 
-| ID | Decision | Why it matters | Default if no reply |
-|---|---|---|---|
-| D1 | Code-signing certificate and distribution channel. | Required for a verifiable installer (INS-4); has cost and ownership. | Build unsigned candidates, state it, and block INS-4. |
-| D2 | Redistribution rights for the runtime and models inside the installer. | Needs a legal reading; blocks bundling (INS-2). | Keep an install-from-verified-local-artifacts path. |
-| D3 | Day/month preference for ambiguous dates (EXT-5, issue #135). | Changes proposals shown to reviewers. | Keep all readings uncertain (A8). |
-| D4 | First-release format list beyond IMP-1. | Changes decoder surface and security review. | Only IMP-1 formats; evaluate BMP and GIF in M4. |
+| ID | Decision | Outcome |
+|---|---|---|
+| D1 | Code-signing certificate and signing. | **Owner signs.** The owner holds the certificate and performs the signing; this work never holds signing keys. The build produces unsigned artifacts with checksums and a documented signing step. INS-4 stays open until the owner signs a candidate, and acceptance records who signed and when. This is an interpretation of the owner's reply ("firma mia"); it is to be corrected if a different arrangement was meant. |
+| D2 | Redistribution of runtime and models. | **Recommended and adopted as the reversible default:** the first release is for the owner's own machines (no distribution to third parties), built from the hash-locked wheelhouse with the full licence and notice texts included. Before any distribution beyond that, a legal review must cover the points below. This is a technical recommendation, not legal advice. |
+| D3 | Preference for ambiguous dates. | **Recommended and adopted as the reversible default** (see A8). |
+| D4 | Formats beyond the five. | **Evaluate GIF** (and BMP); see [format-evaluation-gif-bmp.md](format-evaluation-gif-bmp.md). Recommendation: single-frame GIF and BMP in M4; HEIC and JPEG 2000 later. |
+
+**Licence points for the review in D2**, from the installed package metadata of the 22-package runtime lock:
+
+- `opencv-python-headless` 5.0.0.93 ships `cv2/opencv_videoio_ffmpeg500_64.dll`, an FFmpeg library (normally LGPL-2.1) that OCR2 does not use. Options: include it with the LGPL obligations met, or exclude that file from the installer after confirming OCR still works.
+- `certifi` and `tqdm` are MPL-2.0; `numpy` bundles several licences (BSD-3-Clause, 0BSD, MIT, Zlib, CC0-1.0).
+- `pypdfium2` is BSD-3-Clause and Apache-2.0 with bundled dependency licences, including CC-BY-4.0 (attribution).
+- The two PP-OCRv6 models and RapidOCR are declared Apache-2.0 in the installed `MODEL_LICENSES.md`, with attribution to the upstream rights holders; the hashes establish provenance, not permission.
+- Every notice text must ship with the installer.
