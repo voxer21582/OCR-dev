@@ -34,7 +34,7 @@ def _bbox(token):
 
 def _rows(page: OCRPageResult):
     entries = [(token, _bbox(token)) for token in page.tokens]
-    entries.sort(key=lambda item: ((item[1][1] + item[1][3]) / 2, item[1][0]))
+    entries.sort(key=lambda item: ((item[1][1] + item[1][3]) / 2, item[1], item[0].token_id))
     rows: list[list[tuple[Any, tuple[float, float, float, float]]]] = []
     for entry in entries:
         _, box = entry
@@ -54,7 +54,7 @@ def _rows(page: OCRPageResult):
         else:
             rows[best].append(entry)
     for row in rows:
-        row.sort(key=lambda item: item[1][0])
+        row.sort(key=lambda item: (item[1], item[0].token_id))
     return rows
 
 
