@@ -1391,6 +1391,7 @@ def create_expense_report_app(
     ocr_processing_manager: OCRProcessingManager | None = None,
     expense_case_processing_manager: ExpenseCaseProcessingManager | None = None,
     custom_family_catalog: Any | None = None,
+    family_catalog_store: Any | None = None,
 ) -> Callable:
     """Create a loopback WSGI app with an idle-expiring session and optional explicit archive."""
     if not isinstance(idle_timeout_seconds, int) or isinstance(idle_timeout_seconds, bool) or idle_timeout_seconds <= 0:
@@ -2586,6 +2587,7 @@ def serve_expense_report_local(
     ocr_processing_manager: OCRProcessingManager | None = None,
     expense_case_processing_manager: ExpenseCaseProcessingManager | None = None,
     custom_family_catalog: Any | None = None,
+    family_catalog_store: Any | None = None,
 ):
     """Create a local HTTP server bound exclusively to IPv4 loopback."""
     if not isinstance(port, int) or isinstance(port, bool) or not 0 <= port <= 65535:
@@ -2598,6 +2600,7 @@ def serve_expense_report_local(
         ocr_processing_manager=ocr_processing_manager,
         expense_case_processing_manager=expense_case_processing_manager,
         custom_family_catalog=custom_family_catalog,
+        family_catalog_store=family_catalog_store,
     )
     server = make_server("127.0.0.1", port, app)
     server.ocr2_close = app.close

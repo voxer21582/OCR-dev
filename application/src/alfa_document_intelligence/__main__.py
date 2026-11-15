@@ -11,6 +11,7 @@ from typing import Sequence
 from .local_intake_app import serve_expense_report_local
 from .local_document_store import LocalDocumentStore
 from .document_decoder import DecodeLimits
+from .document_family_catalog import DocumentFamilyCatalogError, DocumentFamilyCatalogStore
 from .expense_case_processing import ExpenseCaseProcessingManager
 from .ocr_engine_registry import EngineManifest, EngineRegistryError, discover_engines
 from .ocr_processing import OCRProcessLimits, OCRProcessingManager
@@ -75,6 +76,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 parser.error("OCR locale non utilizzabile: " + "; ".join(runtime.problems))
 
     archive_store = None
+    family_catalog_store = None
+    custom_family_catalog = None
     if os.name == "nt":
         local_app_data = os.environ.get("LOCALAPPDATA")
         if not local_app_data:
@@ -82,6 +85,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         archive_store = LocalDocumentStore(
             Path(local_app_data) / "OCR2" / "document-archive.sqlite3"
         )
+        # The user's document-type catalog (REQ-041) lives next to the archive.
+        family_catalog_store = DocumentFamilyCatalogStore(Path(local_app_data) / "OCR2" / "family-catalog.json")
+        try:
+            custom_family_catalog = family_catalog_store.load()
+        except DocumentFamilyCatalogError:
+            print("Attenzione: catalogo dei tipi non valido: ignorato. Correggilo dalla pagina Catalogo.", file=sys.stderr)
+            custom_family_catalog = None
     ocr_manager = None
     if manifest is not None:
         ocr_manager = OCRProcessingManager(
@@ -95,12 +105,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             _ocr_limits(),
             DecodeLimits(),
             close_worker_on_close=False,
+            custom_family_catalog=custom_family_catalog,
         )
     server = serve_expense_report_local(
         port=args.port,
         archive_store=archive_store,
         ocr_processing_manager=ocr_manager,
         expense_case_processing_manager=case_processing_manager,
+        custom_family_catalog=custom_family_catalog,
+        family_catalog_store=family_catalog_store,
     )
     host, port = server.server_address[:2]
     print(f"Apri http://{host}:{port}/ nel browser. Il server ascolta solo su loopback.")
