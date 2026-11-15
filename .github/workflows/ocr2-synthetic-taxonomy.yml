@@ -95,6 +95,7 @@ jobs:
           tests/test_expense_reconciliation_ui.py
           tests/test_expense_report_intake_session.py
           tests/test_expense_reports.py
+          tests/test_exporter_registry.py
           tests/test_field_benchmark.py
           tests/test_field_status.py
           tests/test_field_status_presentation.py
@@ -214,6 +215,7 @@ jobs:
           tests/test_expense_reconciliation_ui.py
           tests/test_expense_report_intake_session.py
           tests/test_expense_reports.py
+          tests/test_exporter_registry.py
           tests/test_field_benchmark.py
           tests/test_field_status.py
           tests/test_field_status_presentation.py

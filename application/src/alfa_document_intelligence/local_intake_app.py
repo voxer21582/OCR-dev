@@ -31,7 +31,7 @@ from .ingestion import IngestionLimits, MaterializedBatch, UploadRejected, mater
 from .review_ledger import append_review_event, reviewed_overlay, verify_review_ledger
 from .review_identity import local_review_actor
 from .review_ui import create_review_app
-from .document_export import export_document_csv, export_document_json
+from .exporter_registry import ExporterRegistryError, export_case, export_document, selectable_case_exporters, selectable_document_exporters
 from .catalog_editor import (
     CATALOG_FORM_MAX_BYTES, CatalogFormError, catalog_with_family, explain_catalog_error, family_from_form,
     render_catalog_page, save_with_history,
@@ -658,8 +658,10 @@ def _archive_list_page(store: LocalDocumentStore, query: str = "") -> str:
             f'<li><strong>{escape(item.filename)}</strong> — {escape(item.document_family)}; '
             f'{item.page_count} pagine; salvato {escape(item.saved_at)}; SHA-256 {escape(item.source_sha256)} '
             f'<form method="post" action="/archive/open/{identifier}"><button type="submit">Apri</button></form> '
-            f'<a href="/archive/export/{identifier}.json">JSON</a> '
-            f'<a href="/archive/export/{identifier}.csv">CSV</a> '
+            + "".join(
+                f'<a href="/archive/export/{identifier}.{escape(exporter.suffix)}">{escape(exporter.suffix.upper())}</a> '
+                for exporter in selectable_document_exporters()
+            ) +
             f'<a href="/archive/delete/{identifier}">Elimina</a></li>'
         )
     empty = "<p>Nessun documento trovato.</p>" if not rows else ""
@@ -684,8 +686,10 @@ def _archive_document_page(document_id: str, record: dict[str, Any]) -> str:
         f'<p>{filename} — SHA-256 {escape(record["source"]["sha256"])}</p>'
         f'<form method="post" action="/reviews/{safe_id}/open"><button type="submit">Apri revisione</button></form>'
         f'<a href="/reviews/{safe_id}/source">Apri documento originale</a> · '
-        f'<a href="/archive/export/{safe_id}.json">Esporta JSON</a> · '
-        f'<a href="/archive/export/{safe_id}.csv">Esporta CSV</a> · '
+        + "".join(
+            f'<a href="/archive/export/{safe_id}.{escape(exporter.suffix)}">{escape(exporter.label_it)}</a> · '
+            for exporter in selectable_document_exporters()
+        ) +
         '<p>JSON contiene il record completo, CSV è una proiezione tabellare; entrambi escludono i byte del documento originale.</p>'
         f'<a href="/archive/delete/{safe_id}">Elimina documento</a> · <a href="/archive">Archivio</a>'
         + '<form method="post" action="/archive/return"><button type="submit">Torna alla sessione corrente</button></form>'
@@ -1634,8 +1638,10 @@ def _expense_case_reconciliation_page(
         + safe_notice + duplicate_notice + unused_notice
         + f'<p>Righe {page * page_size + 1 if lines else 0}–{min((page + 1) * page_size, len(lines))} di {len(lines)} · pagina {page + 1} / {page_count}</p>'
         + "".join(rows) + "".join(navigation)
-        + f'<p><a href="/cases/{safe_case_id}/export">Esporta confronto locale (JSON)</a> · '
-        + f'<a href="/cases/{safe_case_id}/export?format=csv">Esporta cronologia revisioni (CSV)</a> · '
+        + "<p>" + "".join(
+            f'<a href="/cases/{safe_case_id}/export?format={escape(item.suffix)}">{escape(item.label_it)}</a> · '
+            for item in selectable_case_exporters()
+        )
         + f'<a href="/cases/{safe_case_id}/intake">Torna al fascicolo</a></p></main></html>'
     )
 
@@ -2119,36 +2125,21 @@ def create_expense_report_app(
                     if method != "GET":
                         return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
                     if case_export_route is not None:
-                        payload = {
-                            "export_schema_version": "1.0.0",
-                            "case_id": case_id,
-                            "statement": reconciliation["statement"],
-                            "case_revision": reconciliation["case_revision"],
-                            "attachments": reconciliation["attachments"],
-                            "lines": reconciliation["lines"],
-                            "unused_document_ids": reconciliation["unused_document_ids"],
-                            "duplicate_source_groups": reconciliation["duplicate_source_groups"],
-                            "possible_duplicate_claim_groups": reconciliation["possible_duplicate_claim_groups"],
-                            "review_events": reconciliation["review_events"],
-                        }
                         export_query = environ.get("QUERY_STRING", "")
-                        if export_query == "format=csv":
-                            output = io.StringIO(newline="")
-                            writer = csv.DictWriter(output, fieldnames=("export_format_version", "case_id", "review_event_json"), lineterminator="\r\n")
-                            writer.writeheader()
-                            for event in payload["review_events"] or [None]:
-                                writer.writerow({"export_format_version": "ocr2-case-review-csv-v1", "case_id": case_id,
-                                    "review_event_json": json.dumps(event, ensure_ascii=True, sort_keys=True, separators=(",", ":"))})
-                            return _page(environ, start_response, "200 OK", output.getvalue(),
-                                         "text/csv; charset=utf-8", download_filename="expense-review-events.csv")
-                        if export_query:
+                        export_suffix = "json" if not export_query else export_query.removeprefix("format=")
+                        if export_query and not export_query.startswith("format="):
                             return _page(environ, start_response, "400 Bad Request", "Formato di esportazione non valido")
-                        return _page(
-                            environ, start_response, "200 OK",
-                            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
-                            "application/json; charset=utf-8",
-                            download_filename="expense-reconciliation.json",
+                        try:
+                            output, exporter = export_case(case_id, reconciliation, export_suffix)
+                        except ExporterRegistryError:
+                            return _page(environ, start_response, "400 Bad Request", "Formato di esportazione non valido")
+                        download_name = (
+                            "expense-reconciliation.json" if exporter.exporter_id == "case-json"
+                            else "expense-review-events.csv" if exporter.exporter_id == "case-review-csv"
+                            else f"ocr2-case.{exporter.suffix}"
                         )
+                        return _page(environ, start_response, "200 OK", output, exporter.media_type,
+                                     download_filename=download_name)
                     raw_query = environ.get("QUERY_STRING", "")
                     if len(raw_query) > 128:
                         return _page(environ, start_response, "400 Bad Request", "Pagina non valida")
@@ -2385,20 +2376,20 @@ def create_expense_report_app(
             if len(parts) != 4:
                 return _page(environ, start_response, "404 Not Found", "Risorsa non trovata")
             if len(parts) == 4:
-                document_id = parts[3].removesuffix(".json").removesuffix(".csv")
+                document_id, _, export_suffix = parts[3].partition(".")
                 if not _ARCHIVE_ID.fullmatch(document_id):
                     return _page(environ, start_response, "404 Not Found", "Risorsa non trovata")
                 try:
-                    if method == "GET" and parts[2] == "export" and parts[3].endswith((".json", ".csv")):
+                    if method == "GET" and parts[2] == "export" and export_suffix:
                         stored = archive_store.get(document_id)
                         if stored is None:
                             return _page(environ, start_response, "404 Not Found", "Documento non trovato")
-                        is_json = parts[3].endswith(".json")
-                        output = export_document_json(stored.record) if is_json else export_document_csv(stored.record)
-                        extension = "json" if is_json else "csv"
-                        content_type = "application/json; charset=utf-8" if is_json else "text/csv; charset=utf-8"
-                        return _page(environ, start_response, "200 OK", output, content_type,
-                                     download_filename=f"ocr2-{document_id}.{extension}")
+                        try:
+                            output, exporter = export_document(stored.record, export_suffix)
+                        except ExporterRegistryError:
+                            return _page(environ, start_response, "404 Not Found", "Formato di esportazione non disponibile")
+                        return _page(environ, start_response, "200 OK", output, exporter.media_type,
+                                     download_filename=f"ocr2-{document_id}.{exporter.suffix}")
                     if method == "GET" and parts[2] == "delete":
                         stored = archive_store.get(document_id)
                         if stored is None:
