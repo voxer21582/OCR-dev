@@ -2046,7 +2046,9 @@ def create_expense_report_app(
             environ["_ocr2_app_lifetime"] = app_lifetime
         if _loopback_host_parts(environ.get("HTTP_HOST", "")) is None:
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
-        if app_lifetime is not None:
+        if app_lifetime is not None and environ.get("PATH_INFO", "") not in {"/app/heartbeat", "/app/closing"}:
+            # The window routes record their own signal; a closing beacon must
+            # not count as the request that restores the window it closes.
             app_lifetime.presence.activity()
         if environ.get("REQUEST_METHOD", "") == "POST" and not environ.get("_review_post_validated") and not _validate_loopback_post(environ, csrf_token):
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")

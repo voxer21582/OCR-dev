@@ -234,6 +234,55 @@ def test_script_respects_csp_nonce(app_mode):
     assert "connect-src 'self'" in csp
 
 
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_request_after_closing_beacon_keeps_window_alive():
+    clock = _FakeClock()
+    presence = WindowPresence(clock)
+    app = create_expense_report_app(app_lifetime=AppLifetime(presence, _StopRecorder()))
+    try:
+        _, _, page = _invoke(app, "GET", "/")
+        token = _token(page)
+        status, _, _ = _invoke(app, "GET", "/app/heartbeat", query="w=finestra")
+        assert status.startswith("204")
+        clock.now += 1
+        status, _, _ = _invoke(app, "POST", "/app/closing",
+                               body=urlencode({"w": "finestra", "_ocr2_csrf": token}).encode())
+        assert status.startswith("204")
+        clock.now += 1
+        status, headers, _ = _invoke(app, "GET", "/risorsa-inesistente")
+        assert status.startswith("404")
+        assert headers["Content-Type"].startswith("text/plain")
+        clock.now += 30
+        assert presence.should_stop() is False
+        clock.now += 160
+        assert presence.should_stop() is True
+    finally:
+        app.close()
+
+
+def test_closing_beacon_does_not_restore_its_own_window():
+    clock = _FakeClock()
+    presence = WindowPresence(clock)
+    app = create_expense_report_app(app_lifetime=AppLifetime(presence, _StopRecorder()))
+    try:
+        _, _, page = _invoke(app, "GET", "/")
+        token = _token(page)
+        _invoke(app, "GET", "/app/heartbeat", query="w=finestra")
+        clock.now += 1
+        _invoke(app, "POST", "/app/closing", body=urlencode({"w": "finestra", "_ocr2_csrf": token}).encode())
+        clock.now += 10
+        assert presence.should_stop() is True
+    finally:
+        app.close()
+
+
 def test_every_request_counts_as_activity(app_mode):
     app, app_lifetime, _ = app_mode
     presence = app_lifetime.presence

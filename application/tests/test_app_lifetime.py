@@ -59,15 +59,50 @@ def test_closing_last_window_stops_after_ten_seconds():
     assert presence.should_stop() is True
 
 
-def test_activity_after_closing_extends_the_grace():
+def test_activity_after_the_grace_only_extends_the_quiet_period():
     clock, presence = _presence()
     presence.heartbeat("w1")
     presence.closing("w1")
-    clock.advance(8)
+    clock.advance(10)
     presence.activity()
     clock.advance(8)
     assert presence.should_stop() is False
     clock.advance(3)
+    assert presence.should_stop() is True
+
+
+def test_request_after_closing_restores_window():
+    clock, presence = _presence()
+    presence.heartbeat("w")
+    presence.closing("w")
+    clock.advance(1)
+    presence.activity()
+    clock.advance(20)
+    assert presence.should_stop() is False
+    clock.advance(170)
+    assert presence.should_stop() is True
+
+
+def test_closing_beacon_alone_still_stops_after_grace():
+    clock, presence = _presence()
+    presence.heartbeat("w")
+    presence.closing("w")
+    clock.advance(9)
+    assert presence.should_stop() is False
+    clock.advance(1)
+    assert presence.should_stop() is True
+
+
+def test_heartbeat_clears_pending_closing():
+    clock, presence = _presence()
+    presence.heartbeat("w")
+    presence.closing("w")
+    clock.advance(1)
+    presence.heartbeat("w")
+    presence.closing("w")
+    clock.advance(10)
+    presence.activity()  # the first closing is no longer pending and the second is past the grace
+    clock.advance(10)
     assert presence.should_stop() is True
 
 

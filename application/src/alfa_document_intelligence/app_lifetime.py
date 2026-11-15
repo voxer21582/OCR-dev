@@ -5,6 +5,13 @@ visible and a "closing" notice when they are closed.  ``WindowPresence`` turns
 those signals into a ``should_stop()`` decision; ``AppLifetime`` runs a guard
 thread that stops the server when that decision is true or when an explicit
 exit was requested.
+
+A window sends "closing" on every ``pagehide``, navigation included.  Any other
+request that arrives within the closing grace restores that window as if it
+had just sent a heartbeat, so navigating to a page without the heartbeat script
+does not stop the server.  Limit: such a page (for example the raw view of an
+original document) keeps the server alive for at most the heartbeat expiry
+(180 s) after its request; the server then stops unless another window beats.
 """
 from __future__ import annotations
 
@@ -56,11 +63,13 @@ class WindowPresence:
         self._last_beat_any = float("-inf")
         self._last_closing: float | None = None
         self._last_activity: float | None = None
+        self._pending_closing: dict[str, float] = {}
 
     def heartbeat(self, window_id: str) -> None:
         _check_window_id(window_id)
         with self._lock:
             now = self._clock()
+            self._pending_closing.pop(window_id, None)
             self._last_beat[window_id] = now
             self._ever_seen = True
             self._last_beat_any = now
@@ -71,12 +80,23 @@ class WindowPresence:
         with self._lock:
             now = self._clock()
             self._last_beat.pop(window_id, None)
+            self._pending_closing[window_id] = now
             self._last_closing = now
             self._last_activity = now
 
     def activity(self) -> None:
+        """A request other than heartbeat/closing; restores windows closed within the grace."""
         with self._lock:
-            self._last_activity = self._clock()
+            now = self._clock()
+            self._last_activity = now
+            restored = False
+            for window_id, closed_at in list(self._pending_closing.items()):
+                del self._pending_closing[window_id]
+                if 0 <= now - closed_at < self._closing_grace:
+                    self._last_beat[window_id] = now
+                    restored = True
+            if restored:
+                self._last_beat_any = now
 
     def should_stop(self) -> bool:
         with self._lock:
