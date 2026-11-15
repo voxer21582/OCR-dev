@@ -426,6 +426,22 @@ class ExpenseReconciliationUITests(unittest.TestCase):
         self.assertIn(b"Giustificativi non abbinati", page)
         self.assertIn(b"synthetic-fiscal-receipt-001.pdf", page)
 
+    def test_possible_amount_conflict_has_an_italian_label(self):
+        from alfa_document_intelligence import local_intake_app
+
+        original = local_intake_app._build_case_reconciliation
+
+        def with_possible_conflict(*args, **kwargs):
+            reconciliation, documents, labels = original(*args, **kwargs)
+            reconciliation["lines"][0]["findings"].append("possible_amount_conflict")
+            return reconciliation, documents, labels
+
+        with patch.object(local_intake_app, "_build_case_reconciliation", with_possible_conflict):
+            status, _, page = _request(self.app, path="/cases/case-1/reconciliation")
+        self.assertEqual(status, "200 OK")
+        self.assertIn("Possibile importo discordante".encode("utf-8"), page)
+        self.assertNotIn(b"possible amount conflict", page)
+
     def test_stale_processing_results_cannot_be_reconciled_until_reprocessed(self):
         self.archive.case["processing"]["state"] = "stale"
         status, _, page = _request(self.app, path="/cases/case-1/reconciliation")

@@ -275,6 +275,34 @@ def _field_match(record: dict[str, Any], name: str, normalize) -> Any:
     return normalize(_candidate_value(candidate)) if isinstance(candidate, dict) else None
 
 
+_DATE_FIELD_NAMES = ("transaction_date", "issue_date", "invoice_date", "document_date")
+
+
+def _possible_document_dates(record: dict[str, Any]) -> tuple[str | None, set[str]]:
+    """Dates a supporting record may carry, observed or not, including unassigned candidates."""
+    for name in (*_DATE_FIELD_NAMES, "date_candidates"):
+        values = {
+            value for value, _, _ in
+            _candidate_possible_values(record.get("fields", {}).get(name, {}), _date)
+        }
+        if values:
+            return name, values
+    return None, set()
+
+
+def _amount_currency_pair(line: dict[str, Any], record: dict[str, Any]) -> bool:
+    """Whether some possible line amount and currency equal some possible record values."""
+    fields = record.get("fields", {})
+    line_amounts = {value for value, _, _ in _candidate_possible_values(line.get("amount", {}), _amount)}
+    line_currencies = {value for value, _, _ in _candidate_possible_values(line.get("currency", {}), _currency)}
+    doc_amounts = {
+        value for name in ("total_amount", "amount_due")
+        for value, _, _ in _candidate_possible_values(fields.get(name, {}), _amount)
+    }
+    doc_currencies = {value for value, _, _ in _candidate_possible_values(fields.get("currency", {}), _currency)}
+    return bool(line_amounts & doc_amounts) and bool(line_currencies & doc_currencies)
+
+
 def _first_observed_field(record: dict[str, Any], names: tuple[str, ...], normalize):
     fields = record.get("fields", {})
     for name in names:
@@ -358,6 +386,13 @@ def build_reconciliation(
     )
     line_results = []
     suggested_document_ids: set[str] = set()
+    # Receipts whose amount and currency already fit some statement line are not
+    # offered as possible amount conflicts for other lines on the same date.
+    amount_supporting_ids = {
+        binding["document_id"]
+        for binding, record in selected
+        if any(_amount_currency_pair(line, record) for line in statement_lines)
+    }
     for line, line_binding in zip(statement_lines, line_bindings, strict=True):
         line_amount = _amount(_candidate_value(line.get("amount", {})))
         line_currency = _currency(_candidate_value(line.get("currency", {})))
@@ -365,6 +400,7 @@ def build_reconciliation(
         possible_line_currencies = _candidate_possible_values(line.get("currency", {}), _currency)
         line_date = _date(_candidate_value(line.get("date", {})))
         line_merchant = _merchant(_candidate_value(line.get("merchant", {})))
+        possible_line_dates = {value for value, _, _ in _candidate_possible_values(line.get("date", {}), _date)}
         uncertain = any(
             isinstance(line.get(field), dict)
             and line[field].get("status") in {"uncertain", "unreadable"}
@@ -372,6 +408,7 @@ def build_reconciliation(
         )
         suggestions = []
         amount_conflicts = []
+        possible_amount_conflicts = []
         for binding, record in selected:
             amount_name, amount_candidate, doc_amount = _first_observed_field(record, ("total_amount", "amount_due"), _amount)
             currency_name, currency_candidate, doc_currency = _first_observed_field(record, ("currency",), _currency)
@@ -425,6 +462,26 @@ def build_reconciliation(
             if date_equal:
                 reasons.append("date_match")
                 matched_fields[date_name] = deepcopy(date_candidate)
+            possible_date_name, possible_doc_dates = _possible_document_dates(record)
+            possible_date_equal = not date_equal and bool(possible_line_dates & possible_doc_dates)
+            # Uncertain dates (OCR receipts, ambiguous statement dates) support a
+            # *possible* conflict only for a receipt that fits no line by amount.
+            possible_amount_conflict = (
+                possible_date_equal
+                and amount_pair is None
+                and currency_pair is not None
+                and merchant_compatible
+                and binding["document_id"] not in amount_supporting_ids
+                and bool(possible_line_amounts) and bool(possible_doc_amounts)
+            )
+            if possible_date_equal and (reasons or possible_amount_conflict):
+                reasons.append("possible_date_match")
+                matched_fields[possible_date_name] = deepcopy(record["fields"][possible_date_name])
+            if possible_amount_conflict:
+                possible_amount_conflicts.append(binding["document_id"])
+                reasons.append("possible_amount_conflict")
+                matched_fields[match_amount_name] = deepcopy(record["fields"][match_amount_name])
+                matched_fields[match_currency_name] = deepcopy(record["fields"][match_currency_name])
             if merchant_equal:
                 reasons.append("merchant_match")
                 matched_fields[merchant_name] = deepcopy(merchant_candidate)
@@ -465,6 +522,8 @@ def build_reconciliation(
             findings.append("uncertain_statement_fields")
         if amount_conflicts:
             findings.append("amount_conflict")
+        if possible_amount_conflicts:
+            findings.append("possible_amount_conflict")
         if any("currency_conflict" in item["reasons"] for item in suggestions):
             findings.append("currency_conflict")
         if any("date_conflict" in item["reasons"] for item in suggestions):

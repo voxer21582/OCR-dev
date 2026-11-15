@@ -463,8 +463,9 @@ class KnownAnswerReconciliationTests(unittest.TestCase):
 
     Each expected outcome below follows from the documented ranking rules, not
     from a captured run: equal amount and currency is the primary signal, an
-    uncertain statement date never counts as a date match (D3 hint included),
-    and nothing is confirmed without a review event.
+    uncertain statement date never counts as a ``date_match`` (D3 hint included)
+    but may add ``possible_date_match`` next to another signal, and nothing is
+    confirmed without a review event.
     """
 
     STATEMENT_HASH = "a" * 64
@@ -485,7 +486,7 @@ class KnownAnswerReconciliationTests(unittest.TestCase):
     EXPECTED = {
         # line_id: (description, [(document_id, reasons)], findings)
         "line-p0001-00003": ("02/11/2026 Taxi EUR11,37",
-                             [("r-taxi", ["amount_and_currency_match"])],
+                             [("r-taxi", ["amount_and_currency_match", "possible_date_match"])],
                              ["uncertain_statement_fields"]),
         "line-p0001-00004": ("25/11/2026 Hotel EUR 80,00",
                              [("r-hotel", ["amount_and_currency_match", "date_match"]),
@@ -562,6 +563,100 @@ class KnownAnswerReconciliationTests(unittest.TestCase):
 
     def test_known_answer_reconciliation_validates(self):
         validate_reconciliation(self.result, self.documents)
+
+
+def _ocr_style_receipt(document_id, digest, *, amount, date, currency="EUR"):
+    """A receipt as OCR proposals leave it: date, total and currency only uncertain."""
+    record = _document(document_id, digest, amount=amount, currency=currency, date=date)
+
+    def uncertain(candidate, value):
+        alternative = {"value": value, "status": "observed", "evidence": copy.deepcopy(candidate["evidence"])}
+        if candidate.get("normalization"):
+            alternative["normalization"] = dict(candidate["normalization"], normalized_value=value)
+        return {"value": None, "status": "uncertain", "alternatives": [alternative],
+                "evidence": copy.deepcopy(candidate["evidence"])}
+
+    fields = record["fields"]
+    fields["date_candidates"] = uncertain(fields.pop("issue_date"), date)
+    fields["total_amount"] = uncertain(fields["total_amount"], amount)
+    fields["currency"] = uncertain(fields["currency"], currency)
+    return record
+
+
+class PossibleSignalReconciliationTests(unittest.TestCase):
+    """Owner decision 2026-11-15: show amount conflicts as possible when receipt dates are uncertain."""
+
+    STATEMENT_HASH = "a" * 64
+
+    def build(self, rows, receipts):
+        pages = [OCRPageResult(self.STATEMENT_HASH, 1, "SyntheticOCR", "1", "it+en", tuple(
+            OCRToken(f"r{index}", text, ((.05, .05 + index * .06), (.95, .05 + index * .06),
+                                         (.95, .09 + index * .06), (.05, .09 + index * .06)), .99)
+            for index, text in enumerate(rows)
+        ))]
+        lines = extract_expense_lines(pages)
+        documents = {"statement": _document("statement", self.STATEMENT_HASH, family="expense_report")}
+        for document_id, (digest, amount, when) in receipts.items():
+            documents[document_id] = _ocr_style_receipt(document_id, digest, amount=amount, date=when)
+        result = build_reconciliation(
+            "case-possible", "statement", self.STATEMENT_HASH, lines,
+            [{"document_id": document_id, "included": True} for document_id in receipts],
+            documents, source_set_revision="c" * 64,
+        )
+        validate_reconciliation(result, documents)
+        return {line["fields"]["description"]["value"]: line for line in result["lines"]}, result
+
+    def test_uncertain_receipt_date_supports_a_possible_amount_conflict(self):
+        lines, result = self.build(
+            ["21/11/2026 Treno EUR 42,40"],
+            {"r-train": ("3" * 64, "37.40", "2026-11-21")},
+        )
+        line = lines["21/11/2026 Treno EUR 42,40"]
+        self.assertEqual(
+            [(item["document_id"], item["reasons"]) for item in line["suggestions"]],
+            [("r-train", ["possible_date_match", "possible_amount_conflict"])],
+        )
+        self.assertEqual(line["findings"], ["possible_amount_conflict"])
+        self.assertNotIn("amount_conflict", line["findings"])
+        self.assertEqual(result["unused_document_ids"], [])
+        self.assertEqual(line["status"], "unreviewed")
+
+    def test_ambiguous_dates_on_both_sides_still_allow_a_possible_conflict(self):
+        lines, _ = self.build(
+            ["03/11/2026 Taxi EUR 56,10"],
+            {"r-taxi": ("4" * 64, "51.10", "2026-11-03")},
+        )
+        line = lines["03/11/2026 Taxi EUR 56,10"]
+        self.assertIn("possible_amount_conflict", line["findings"])
+        self.assertIn("uncertain_statement_fields", line["findings"])
+
+    def test_receipt_that_supports_another_line_is_not_a_possible_conflict(self):
+        lines, result = self.build(
+            ["21/11/2026 Treno EUR 42,40", "21/11/2026 Hotel EUR 80,00"],
+            {"r-hotel": ("5" * 64, "80.00", "2026-11-21")},
+        )
+        self.assertEqual(lines["21/11/2026 Treno EUR 42,40"]["findings"], ["missing_support"])
+        hotel = lines["21/11/2026 Hotel EUR 80,00"]
+        self.assertEqual(
+            [(item["document_id"], item["reasons"]) for item in hotel["suggestions"]],
+            [("r-hotel", ["possible_amount_and_currency_match", "possible_date_match"])],
+        )
+        self.assertEqual(result["unused_document_ids"], [])
+
+    def test_different_date_gives_no_possible_conflict(self):
+        lines, result = self.build(
+            ["21/11/2026 Treno EUR 42,40"],
+            {"r-train": ("3" * 64, "37.40", "2026-11-25")},
+        )
+        self.assertEqual(lines["21/11/2026 Treno EUR 42,40"]["findings"], ["missing_support"])
+        self.assertEqual(result["unused_document_ids"], ["r-train"])
+
+    def test_date_alone_never_creates_a_suggestion(self):
+        lines, _ = self.build(
+            ["21/11/2026 Treno EUR 42,40", "21/11/2026 Bus EUR 3,00"],
+            {"r-bus": ("6" * 64, "3.00", "2026-11-21")},
+        )
+        self.assertEqual(lines["21/11/2026 Treno EUR 42,40"]["suggestions"], [])
 
 
 if __name__ == "__main__":

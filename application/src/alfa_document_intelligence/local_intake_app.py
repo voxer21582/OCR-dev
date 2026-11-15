@@ -1228,6 +1228,7 @@ def _expense_case_reconciliation_page(
         "missing_support": "Supporto non trovato",
         "uncertain_statement_fields": "Valori della nota incerti",
         "amount_conflict": "Importo discordante",
+        "possible_amount_conflict": "Possibile importo discordante",
         "currency_conflict": "Valuta discordante",
         "date_conflict": "Data discordante",
         "ambiguous_candidates": "Più candidati equivalenti",
