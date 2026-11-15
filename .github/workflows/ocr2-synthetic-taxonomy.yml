@@ -106,6 +106,7 @@ jobs:
           tests/test_materialized_upload_batch.py
           tests/test_multipage_tiff_processing_contract.py
           tests/test_ocr_adapter.py
+          tests/test_ocr_engine_registry.py
           tests/test_ocr_job_ui.py
           tests/test_ocr_launcher_contract.py
           tests/test_ocr_processing.py
@@ -206,6 +207,7 @@ jobs:
           tests/test_materialized_upload_batch.py
           tests/test_multipage_tiff_processing_contract.py
           tests/test_ocr_adapter.py
+          tests/test_ocr_engine_registry.py
           tests/test_ocr_job_ui.py
           tests/test_ocr_launcher_contract.py
           tests/test_ocr_processing.py
