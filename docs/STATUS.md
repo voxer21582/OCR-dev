@@ -1,12 +1,28 @@
-STATO: IN ATTESA DI APPROVAZIONE — M2 (lavoro finito; serve l'ok del proprietario al merge, R7/R8)
+STATO: IN ATTESA DI APPROVAZIONE — M3 (lavoro finito; serve l'ok del proprietario al merge, R8)
 
 # Stato del lavoro
 
 Aggiornato: 2026-11-15.
 
+## M3 — Classificazione ed estrazione
+
+Tutti i compiti del piano M3 sono fatti e la revisione indipendente è chiusa: criteri ed evidenze in [`evidence/M3/acceptance.md`](evidence/M3/acceptance.md). M3 sarà completata dopo il merge della PR (export CSV, R8).
+
+Risultati principali:
+- catalogo dei tipi caricato dall'app e modificabile da una pagina «Catalogo», con storico delle versioni;
+- i quattro stati di GOAL con il motivo in revisione e nel CSV;
+- proposta del nome dell'esercente;
+- angolo di rotazione nel record.
+
+Accuratezza sintetica (60 giustificativi): totale, data, valuta, numero e partita IVA 100%; esercente 90%; tutte le soglie fissate prima sono superate. Tre difetti dell'app trovati e corretti (valuta attaccata, server bloccato da connessioni inattive, modulo da pagina in sandbox).
+
+CI: Ubuntu 755 passati e 9 saltati con motivo; Windows 764 passati.
+
+Rinviati con decisione: REQ-053 (DEC-021), REQ-064 (DEC-022).
+
 ## M2 — Motori e decodifica
 
-Tutti i compiti del piano M2 sono fatti e la revisione indipendente è chiusa: criteri ed evidenze in [`evidence/M2/acceptance.md`](evidence/M2/acceptance.md). M2 sarà completata dopo il merge della PR, che richiede l'approvazione del proprietario (anteprime di archivio e fascicolo, R7/R8).
+Tutti i compiti del piano M2 sono fatti e la revisione indipendente è chiusa: criteri ed evidenze in [`evidence/M2/acceptance.md`](evidence/M2/acceptance.md). M2 è completata: PR #147 unita il 2026-11-15.
 
 Risultati principali (dati sintetici):
 - registro dei motori a manifest; un motore di prova aggiunto con soli file nuovi;
@@ -55,8 +71,8 @@ Design approvato dal proprietario il 2026-11-15: [`superpowers/specs/2026-11-15-
 | Milestone | Stato |
 |---|---|
 | M1 Ordine e verificabilità | **completata** (2026-11-15) |
-| M2 Motori e decodifica | lavoro finito, in attesa dell'ok al merge |
-| M3 Classificazione ed estrazione | non iniziata |
+| M2 Motori e decodifica | **completata** (2026-11-15, #147) |
+| M3 Classificazione ed estrazione | lavoro finito, in attesa dell'ok al merge |
 | M4 Revisione | non iniziata |
 | M5 Libreria | non iniziata |
 | M6 Applicazione installabile | non iniziata |

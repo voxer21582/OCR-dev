@@ -39,9 +39,9 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | REQ-023 | Aggiungere un motore non richiede modifiche al resto del sistema. | MUST | Il motore di prova si aggiunge con soli file nuovi (manifest + adattatore + test): il diff della sua PR non tocca altri file. | OCR-3 | M2 | fatto (M2, `evidence/M2/engine-diff.md`) |
 | REQ-024 | Worker OCR isolato con limiti di memoria e tempo, annullamento, comunicazione limitata, pubblicazione unica del risultato. | MUST | Test su limiti, annullamento, timeout e corse in CI. | OCR-4 | M1 | `SYN-CI` (M1; Job Object sul job Windows), `LOCAL-RUN` |
 | REQ-025 | Pagine parziali o fallite hanno codici non sensibili e non producono proposte. | MUST | Test di contratto. | OCR-5 | M2 | `SYN-CI` |
-| REQ-026 | Italiano e inglese riconosciuti. | MUST | Fixture sintetiche miste con soglie registrate (M3); campione reale in M8. | OCR-6 | M3/M8 | `LOCAL-RUN`, soglie `OPEN` |
+| REQ-026 | Italiano e inglese riconosciuti. | MUST | Fixture sintetiche miste con soglie registrate (M3); campione reale in M8. | OCR-6 | M3/M8 | `LOCAL-RUN` sintetico (M3: it/en); soglie reali in M8 |
 | REQ-027 | Uso del testo incorporato nei PDF, come produttore distinto. | SHOULD | Un PDF con testo produce token senza OCR raster; la provenienza nomina il produttore. | OCR-7 | M2 | `SYN-CI` (M2) |
-| REQ-028 | Orientamento: EXIF, rotazioni di 90°/180°/270°. | SHOULD | Fixture ruotate riconosciute. | OCR-8 | M2 | `SYN-CI` (M2); angolo non registrato nel record (M3) |
+| REQ-028 | Orientamento: EXIF, rotazioni di 90°/180°/270°. | SHOULD | Fixture ruotate riconosciute. | OCR-8 | M2 | `SYN-CI` (M2, angolo registrato in M3) |
 | REQ-029 | OCR spento salvo attivazione esplicita; il runtime incompleto è segnalato all'avvio. | MUST | Avvio con pacchetto o modello mancante → messaggio specifico, nulla avviato. | OCR-9 | M1 | `SYN-CI` (M1), `LOCAL-RUN` |
 | REQ-030 | Anche le anteprime delle pagine si decodificano in un worker isolato. | MUST | Un PDF malformato in anteprima non ferma il server (test). | SEC-3 | M2 | `SYN-CI` (M2) |
 
@@ -50,34 +50,34 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | ID | Requisito | Pri | Criterio di accettazione | Vecchio ID | M | Stato |
 |---|---|---|---|---|---|---|
 | REQ-040 | Tipi di documento predefiniti (fattura, scontrino fiscale, ricevuta parcheggio, documento d'albergo, nota spese, scontrino POS, altro, sconosciuto). | MUST | Test di contratto. | CLS-1 | — | `SYN-CI` |
-| REQ-041 | Catalogo dei tipi definito da configurazione (tipi, campi tipizzati, obbligatori, alias), con istantanea legata da impronta a ogni record; collegato a interfaccia e archivio. | MUST | Catalogo non valido rifiutato; record riaperto conserva la sua istantanea; giro completo nell'interfaccia. | CLS-2 | M3 | libreria `SYN-CI`, integrazione `OPEN` |
-| REQ-042 | Le regole di classificazione (parole chiave, alias, pesi) stanno nel catalogo, non nel codice. | MUST | Un tipo nuovo definito solo da catalogo viene proposto su una fixture sintetica. | — | M3 | `OPEN` |
+| REQ-041 | Catalogo dei tipi definito da configurazione (tipi, campi tipizzati, obbligatori, alias), con istantanea legata da impronta a ogni record; collegato a interfaccia e archivio. | MUST | Catalogo non valido rifiutato; record riaperto conserva la sua istantanea; giro completo nell'interfaccia. | CLS-2 | M3 | `SYN-CI`, `LOCAL-RUN` (M3) |
+| REQ-042 | Le regole di classificazione (parole chiave, alias, pesi) stanno nel catalogo, non nel codice. | MUST | Un tipo nuovo definito solo da catalogo viene proposto su una fixture sintetica. | — | M3 | `SYN-CI` (M3) |
 | REQ-043 | La classificazione è una proposta con evidenza e alternative; la sceglie una persona; la scelta è nella storia. | MUST | Nessuna conferma automatica (test). | CLS-3 | — | `SYN-CI` |
 | REQ-044 | Contratto di tassonomia versionato. | MUST | Test del registro e del binding. | CLS-4 | — | `SYN-CI` |
-| REQ-045 | Editor del catalogo nell'interfaccia: crea, importa, esporta, versiona. | MUST | Creare un tipo, applicarlo a un record, riaprire. | CLS-5 | M3 | `OPEN` |
+| REQ-045 | Editor del catalogo nell'interfaccia: crea, importa, esporta, versiona. | MUST | Creare un tipo, applicarlo a un record, riaprire. | CLS-5 | M3 | `SYN-CI`, `LOCAL-RUN` (M3) |
 
 ## EXT — Estrazione dei campi
 
 | ID | Requisito | Pri | Criterio di accettazione | Vecchio ID | M | Stato |
 |---|---|---|---|---|---|---|
 | REQ-050 | Modello del candidato: valore, stato, alternative, confidenza, evidenza, regola e versione di normalizzazione. | MUST | Schema e test; nessun campo confermato senza evidenza. | EXT-1 | — | `SYN-CI` |
-| REQ-051 | Campi comuni con evidenza: date per ruolo, importi, valuta, totali, IVA e identificativi fiscali, numero documento, riferimenti di pagamento, intestatario, mance. | MUST | Fixture per campo con casi positivi e negativi. | EXT-2 | M3 | `SYN-CI` |
-| REQ-052 | Nome dell'esercente con evidenza. | MUST | Fixture sintetiche; alternative quando ambiguo. | — | M3 | `OPEN` |
-| REQ-053 | Righe di fattura e tabelle con totali ed evidenza. | SHOULD | Fatture sintetiche producono righe legate alle aree. | EXT-3 | M3 | `OPEN` |
+| REQ-051 | Campi comuni con evidenza: date per ruolo, importi, valuta, totali, IVA e identificativi fiscali, numero documento, riferimenti di pagamento, intestatario, mance. | MUST | Fixture per campo con casi positivi e negativi. | EXT-2 | M3 | `SYN-CI`, `LOCAL-RUN` (M3) |
+| REQ-052 | Nome dell'esercente con evidenza. | MUST | Fixture sintetiche; alternative quando ambiguo. | — | M3 | `SYN-CI`, `LOCAL-RUN` (M3) |
+| REQ-053 | Righe di fattura e tabelle con totali ed evidenza. | SHOULD | Fatture sintetiche producono righe legate alle aree. | EXT-3 | M3 | rinviato (DEC-021) |
 | REQ-054 | Righe della nota spese (data, descrizione, importo, valuta) con evidenza; valori incerti restano alternative. | MUST | Fixture a risposta nota. | EXT-4 | — | `SYN-CI`, `LOCAL-RUN` |
-| REQ-055 | Normalizzazione per lingua (virgola decimale, separatori, ordine giorno/mese) che conserva il letterale e ogni lettura ambigua. | MUST | Fixture a tabella per it-IT ed en. | EXT-5, D3 | M3 | `SYN-CI` parziale; #144 `IN-PR` |
+| REQ-055 | Normalizzazione per lingua (virgola decimale, separatori, ordine giorno/mese) che conserva il letterale e ogni lettura ambigua. | MUST | Fixture a tabella per it-IT ed en. | EXT-5, D3 | M3 | `SYN-CI` |
 | REQ-056 | Valori mancanti, illeggibili e superamento dei limiti espliciti con codici stabili. | MUST | Test di overflow. | EXT-6 | — | `SYN-CI` |
-| REQ-057 | Obiettivi di accuratezza per famiglia di campi, misurati su fixture sintetiche. | MUST | Soglie registrate prima della misura; report in `docs/evidence/M3/`. | EXT-7 | M3 | `OPEN` |
+| REQ-057 | Obiettivi di accuratezza per famiglia di campi, misurati su fixture sintetiche. | MUST | Soglie registrate prima della misura; report in `docs/evidence/M3/`. | EXT-7 | M3 | `LOCAL-RUN` sintetico (M3), soglie superate |
 
 ## VAL — Validazione, incertezza, valori mancanti
 
 | ID | Requisito | Pri | Criterio di accettazione | Vecchio ID | M | Stato |
 |---|---|---|---|---|---|---|
-| REQ-060 | Ogni campo mostra uno dei quattro stati di GOAL (valido, incerto, mancante, non valido) con la motivazione, nell'interfaccia e nell'export. «Non applicabile» resta distinto e motivato. | MUST | Tabella di corrispondenza documentata (DEC-013); test per ogni stato interno; colonna stato e motivo nel CSV. | — | M3 | `OPEN` |
+| REQ-060 | Ogni campo mostra uno dei quattro stati di GOAL (valido, incerto, mancante, non valido) con la motivazione, nell'interfaccia e nell'export. «Non applicabile» resta distinto e motivato. | MUST | Tabella di corrispondenza documentata (DEC-013); test per ogni stato interno; colonna stato e motivo nel CSV. | — | M3 | `SYN-CI` (M3) |
 | REQ-061 | Esiti di validazione deterministici (superato, fallito, indeterminato) con ID di regola stabili; aritmetica decimale esatta. | MUST | Test delle regole. | VAL-1 | — | `SYN-CI` |
 | REQ-062 | Riconciliazione tra righe della nota e giustificativi: conflitti d'importo, valuta, data; possibili duplicati; supporto mancante; solo suggerimenti. | MUST | Fixture a risposta nota in CI; benchmark del fascicolo rigenerabile (REQ-003). | VAL-2 | M1 | `SYN-CI`, `LOCAL-RUN` (M1); limite aperto: giustificativo avanzato proposto a righe dello stesso giorno (M3) |
 | REQ-063 | Nessuna approvazione automatica. | MUST | Nessun percorso scrive uno stato confermato senza un evento umano (test). | VAL-3 | — | `SYN-CI` |
-| REQ-064 | Regole di validazione versionate; i record già revisionati conservano i vecchi esiti. | SHOULD | Regola aggiunta; vecchi record invariati. | VAL-4 | M3 | `OPEN` |
+| REQ-064 | Regole di validazione versionate; i record già revisionati conservano i vecchi esiti. | SHOULD | Regola aggiunta; vecchi record invariati. | VAL-4 | M3 | rinviato (DEC-022) |
 
 ## REV — Revisione e correzione
 
