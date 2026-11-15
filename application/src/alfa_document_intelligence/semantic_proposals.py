@@ -212,6 +212,46 @@ def _date_proposals(literal: str) -> list[tuple[str, str]]:
     return proposals
 
 
+_MERCHANT_TOP_BAND = 0.25
+_MERCHANT_MAX_LINES = 3
+_MERCHANT_SKIP_WORDS = re.compile(
+    r"(?i)\b(?:fattura|ricevuta|scontrino|fiscale|totale|subtotale|data|pagina|documento|nota spese|"
+    r"invoice|receipt|total|date|page|iva|vat|p\.?\s*iva|c\.?f\.?)\b"
+)
+
+
+def _merchant_top_lines(page: OCRPageResult) -> list[_Proposal]:
+    """Lines above the first structured line of a page that carries an amount.
+
+    A receipt or invoice starts with its issuer. A line qualifies only if the
+    page has an amount, the line sits above the first line carrying a label
+    (":"), a date, an amount or a currency, and it is mostly letters. Free
+    text on other documents never becomes a merchant.
+    """
+    def structured(text: str) -> bool:
+        return bool(":" in text or _AMOUNT.search(text) or _CURRENCY_CODE.search(text) or _date_proposals(text))
+
+    if not any(_AMOUNT.search(token.text) for token in page.tokens):
+        return []
+    structured_tops = [min(y for _, y in token.polygon) for token in page.tokens if structured(token.text)]
+    first_structured = min(structured_tops) if structured_tops else 1.0
+    lines = []
+    for token in page.tokens:
+        top = min(y for _, y in token.polygon)
+        text = token.text.strip()
+        visible = [char for char in text if not char.isspace()]
+        if (top > _MERCHANT_TOP_BAND or top >= first_structured or len(text) < 3 or structured(text)
+                or _MERCHANT_SKIP_WORDS.search(text)
+                or sum(char.isalpha() for char in visible) < max(3, 0.6 * len(visible))):
+            continue
+        lines.append((top, min(x for x, _ in token.polygon), token, text))
+    lines.sort(key=lambda item: (item[0], item[1]))
+    return [
+        _Proposal(text, _evidence(page, token, text), "merchant-top-line", text)
+        for _, _, token, text in lines[:_MERCHANT_MAX_LINES]
+    ]
+
+
 def _normalize_amount(literal: str) -> str:
     sign = "-" if literal.startswith("-") else ""
     unsigned = literal.lstrip("+-")
@@ -426,6 +466,11 @@ def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: st
                 currencies.append(_Proposal(
                     "EUR", _evidence(page, token, literal), "explicit-euro-symbol", literal
                 ))
+
+    if not entity_proposals["merchant_name"] and ordered_pages:
+        # REQ-052: with no "Esercente:" label, the first meaningful lines at the
+        # top of the first page are offered as uncertain merchant readings.
+        entity_proposals["merchant_name"] = _merchant_top_lines(ordered_pages[0])
 
     proposals = {
         "date_candidates": _candidate(dates),

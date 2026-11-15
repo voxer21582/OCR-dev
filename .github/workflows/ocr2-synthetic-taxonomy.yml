@@ -108,6 +108,7 @@ jobs:
           tests/test_manual_chatgpt_handoff_ui.py
           tests/test_manual_region_review.py
           tests/test_materialized_upload_batch.py
+          tests/test_merchant_name.py
           tests/test_multipage_tiff_processing_contract.py
           tests/test_ocr_adapter.py
           tests/test_ocr_engine_registry.py
@@ -217,6 +218,7 @@ jobs:
           tests/test_manual_chatgpt_handoff_ui.py
           tests/test_manual_region_review.py
           tests/test_materialized_upload_batch.py
+          tests/test_merchant_name.py
           tests/test_multipage_tiff_processing_contract.py
           tests/test_ocr_adapter.py
           tests/test_ocr_engine_registry.py
