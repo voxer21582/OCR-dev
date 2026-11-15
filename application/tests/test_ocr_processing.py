@@ -250,6 +250,7 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             status.phase = "succeeded"  # type: ignore[misc]
 
+    @unittest.skipUnless(os.name == "nt", "the worker attaches to a Windows Job Object before importing the factory; the Windows CI job runs this test")
     def test_spawned_child_is_attached_before_trusted_factory_import_and_fails_closed(self):
         from io import BytesIO
         from alfa_document_intelligence.document_decoder import DecodeLimits
@@ -284,6 +285,7 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
         finally:
             manager.close()
 
+    @unittest.skipUnless(os.name == "nt", "worker deadline handling is specified for the Windows Job Object worker; the Windows CI job runs this test")
     def test_deadline_terminates_worker_without_status_polling(self):
         from io import BytesIO
         from alfa_document_intelligence.document_decoder import DecodeLimits

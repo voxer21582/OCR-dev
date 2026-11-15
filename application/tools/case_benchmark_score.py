@@ -83,7 +83,9 @@ def score_case_export(export: dict[str, Any], manifest: dict[str, Any]) -> dict[
             missing_total += 1
             if "missing_support" in findings:
                 missing += 1
-        if int(row["date"][-2:]) <= 12:
+        day, month = int(row["date"][-2:]), int(row["date"][5:7])
+        # dd/mm is ambiguous only when both readings are dates and differ.
+        if day <= 12 and day != month:
             hint_total += 1
             value, rule = _first_reading(line) if line else (None, None)
             if value == row["date"] and rule == "date-dmy-hint":

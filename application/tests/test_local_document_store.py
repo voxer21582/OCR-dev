@@ -93,6 +93,7 @@ class LocalDocumentStoreTests(unittest.TestCase):
         with self.assertRaises(StoreRejected):
             store.save(self.record, self.source)
 
+    @unittest.skipUnless(os.name == "nt", "UNC network paths exist only on Windows; the Windows CI job runs this test")
     def test_network_archive_path_is_rejected(self):
         with self.assertRaises(StoreRejected):
             LocalDocumentStore(r"\\server\share\archive.sqlite3", protector=self.protector)

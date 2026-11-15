@@ -87,6 +87,13 @@ class CaseBenchmarkScoreTests(unittest.TestCase):
         self.assertEqual(score["ambiguous_dates_with_correct_hint"], [1, 2])
         self.assertEqual(score["ambiguous_candidates"], 0)
 
+    def test_same_day_and_month_is_not_an_ambiguous_date(self):
+        manifest = _manifest()
+        manifest["statement_rows"][1]["date"] = "2026-11-11"
+        export = _export()
+        export["lines"][1]["fields"]["date"] = {"status": "observed", "value": "2026-11-11", "alternatives": []}
+        self.assertEqual(score_case_export(export, manifest)["ambiguous_dates_with_correct_hint"], [1, 2])
+
     def test_output_contains_no_text(self):
         def strings(value):
             if isinstance(value, str):

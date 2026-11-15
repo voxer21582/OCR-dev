@@ -93,6 +93,7 @@ class OCRLauncherContractTests(unittest.TestCase):
         output_text = " ".join(str(args) for args, _ in output.call_args_list)
         self.assertIn("OCR resta disattivato", output_text)
 
+    @unittest.skipUnless(os.name == "nt", "the launcher builds the archive and case manager only on Windows; the Windows CI job runs this test")
     def test_explicit_rapidocr_option_uses_only_the_fixed_factory_and_limits(self):
         self._run(["--ocr-engine", "rapidocr-v6"])
         self.assertEqual(len(_FakeManager.instances), 1)
