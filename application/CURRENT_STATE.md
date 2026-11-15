@@ -91,6 +91,10 @@ The final explicit synthetic unittest command passed **132 tests** on 2026-11-11
 
 This candidate is published on branch `codex/ocr-processing-jobs` in open PR [#104](https://github.com/voxer21582/OCR-dev/pull/104); it is not merged. Its required GitHub check passed, but the current explicit workflow does not include the three new OCR job test modules, so that result does not validate this feature. No real-document run, accepted native OCR result, or Windows 11 product acceptance is claimed for this candidate. A separate RapidOCR runtime smoke in the sibling local staging directory has an unconfirmed result and is not counted as passing evidence. No files in the original/source worktree or R7/R8 components were changed. The provisional worker memory and payload caps are engineering bounds, not proof of native engine RSS or workload fit. Formal product acceptance remains open.
 
+## RapidOCR output shape — candidate
+
+The adapter rejects result objects that omit expected output attributes instead of treating them as blank pages. Twenty-five synthetic tests passed locally; the [manifest](../docs/application/rapidocr-output-shape-manifest.md) records the command and limitations. No actual RapidOCR model or native decoder was exercised; product acceptance is not established. R7/R8 remain blocked.
+
 ## Accepted manual handoff correction (2026-11-09)
 
 The accepted implementation retains the latest replacement review event per allowed field before selecting observed, non-null values. This prevents a superseded observed value from appearing after a non-observed correction. Local synthetic verification passed 9 targeted tests and 15 review-ledger tests; the initial 9-test regression produced 8 expected failures. The pre-existing pytest handoff tests were not run because pytest is absent from the specified interpreter. See the [manual handoff manifest](../docs/application/manual-handoff-latest-manifest.md) for commands, provenance and limits.

@@ -54,9 +54,12 @@ def _build_rgb_memory_image(page: RasterPage) -> tuple[Any, Any]:
 def _output_sequences(result: Any) -> tuple[Any, Any, Any]:
     if result is None:
         return (), (), ()
-    boxes = getattr(result, "boxes", None)
-    texts = getattr(result, "txts", None)
-    scores = getattr(result, "scores", None)
+    missing = object()
+    boxes = getattr(result, "boxes", missing)
+    texts = getattr(result, "txts", missing)
+    scores = getattr(result, "scores", missing)
+    if any(value is missing for value in (boxes, texts, scores)):
+        raise ValueError("RapidOCR result must expose boxes, txts, and scores")
     if boxes is None and texts is None and scores is None:
         return (), (), ()
 
