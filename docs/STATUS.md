@@ -1,12 +1,24 @@
-STATO: IN ATTESA DI APPROVAZIONE — M3 (lavoro finito; serve l'ok del proprietario al merge, R8)
+STATO: MILESTONE COMPLETATA — M3
 
 # Stato del lavoro
 
 Aggiornato: 2026-11-15.
 
+## Per chi riprende il lavoro (2026-11-15)
+
+Il proprietario sposta il progetto su un altro assistente. Stato al merge di M3:
+
+- **Prossima milestone:** M4 Revisione (REQ-070, 072, 073, 075), non iniziata. Il suo piano dettagliato va scritto in `docs/superpowers/plans/` prima di cominciare (`docs/plan.md`). Da rifare in M4 le PR del gruppo C elencate in `docs/evidence/M1/pr-triage.md` (#69, #71, #75, #94–#98, #103).
+- **Regole del progetto:** `GOAL.md` (vincoli V1–V9); decisioni in `docs/decisions.md` (DEC-001…026); il proprietario è responsabile di R7/R8 e approva ogni PR che tocca archivio ed esportazione; nessuna dipendenza fuori da `docs/dependencies-approved.md`; solo dati sintetici.
+- **Metodo usato:** test scritto prima (deve fallire, poi passare); evidenze in `docs/evidence/Mx/` con i commit citati verificati; revisione indipendente prima di chiudere una milestone; merge solo con il sì del proprietario.
+- **CI:** due controlli obbligatori su `main` («Taxonomy registry and binding» su Ubuntu, «Windows application contracts» su Windows); ogni modulo di test nuovo va elencato in entrambi i job (`application/tests/test_ci_workflow.py` lo verifica).
+- **Misure locali con l'OCR vero** (da `application/`, con il venv del runtime approvato): `tools/run_case_benchmark.py` (fascicolo), `tools/run_field_benchmark.py` (campi), `tools/line_item_benchmark.py --measure` (righe di fattura). Le fixture le generano gli script stessi.
+- **Problemi aperti noti:** fallimento intermittente non spiegato di un lavoro OCR di fascicolo (1 esecuzione su 4 in M2, da seguire in M7: ora lo script ne riporta il codice); giustificativo avanzato proposto a righe dello stesso giorno (DEC-023); sconti con meno finale ignorati; `revalidate()` pronta ma usata solo da M5.
+- **Su Windows con Git Bash:** gli script Python incollati nel terminale possono perdere le barre rovesciate; scrivere gli script in file. I file del repository sono LF nell'indice e CRLF nella copia di lavoro.
+
 ## M3 — Classificazione ed estrazione
 
-Tutti i compiti del piano M3 sono fatti e la revisione indipendente è chiusa: criteri ed evidenze in [`evidence/M3/acceptance.md`](evidence/M3/acceptance.md). M3 sarà completata dopo il merge della PR (export CSV, R8).
+Tutti i compiti del piano M3 sono fatti e la revisione indipendente è chiusa: criteri ed evidenze in [`evidence/M3/acceptance.md`](evidence/M3/acceptance.md). M3 è completata: il proprietario ha approvato il merge della PR #148 il 2026-11-15. Criteri ed evidenze: [`evidence/M3/acceptance.md`](evidence/M3/acceptance.md).
 
 Risultati principali:
 - catalogo dei tipi caricato dall'app e modificabile da una pagina «Catalogo», con storico delle versioni;
@@ -76,7 +88,7 @@ Design approvato dal proprietario il 2026-11-15: [`superpowers/specs/2026-11-15-
 |---|---|
 | M1 Ordine e verificabilità | **completata** (2026-11-15) |
 | M2 Motori e decodifica | **completata** (2026-11-15, #147) |
-| M3 Classificazione ed estrazione | lavoro finito, in attesa dell'ok al merge |
+| M3 Classificazione ed estrazione | **completata** (2026-11-15, #148) |
 | M4 Revisione | non iniziata |
 | M5 Libreria | non iniziata |
 | M6 Applicazione installabile | non iniziata |
