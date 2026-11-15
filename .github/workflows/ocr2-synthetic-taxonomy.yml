@@ -72,6 +72,7 @@ jobs:
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py
           tests/test_case_benchmark_score.py
+          tests/test_case_export_reader.py
           tests/test_catalog_alias_delimiters.py
           tests/test_catalog_editor.py
           tests/test_catalog_pipeline.py
@@ -193,6 +194,7 @@ jobs:
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py
           tests/test_case_benchmark_score.py
+          tests/test_case_export_reader.py
           tests/test_catalog_alias_delimiters.py
           tests/test_catalog_editor.py
           tests/test_catalog_pipeline.py
