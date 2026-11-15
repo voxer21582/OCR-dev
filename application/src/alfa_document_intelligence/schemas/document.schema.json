@@ -615,6 +615,9 @@
             "square",
             "unknown"
           ]
+        },
+        "rotation_degrees": {
+          "enum": [0, 90, 180, 270]
         }
       }
     },

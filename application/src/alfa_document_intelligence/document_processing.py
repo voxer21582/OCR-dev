@@ -90,8 +90,9 @@ def process_document_record(
                 if text_tokens is not None:
                     page_adapter = _TextLayerAdapter(text_tokens)
                     text_layer_pages += 1
+            angle = 0
             if page_adapter is adapter:
-                result = recognize_with_orientation(adapter, decoded.raster, source_sha256=source_hash)
+                result, angle = recognize_page(adapter, decoded.raster, source_sha256=source_hash)
             else:
                 result = run_ocr(
                     page_adapter,
@@ -100,11 +101,14 @@ def process_document_record(
                     languages=("it", "en"),
                 )[0]
             decoded_results.append(result)
-            page_inventory.append({
+            page_entry = {
                 "page_number": result.page_number,
                 "width_px": decoded.raster.width_px,
                 "height_px": decoded.raster.height_px,
-            })
+            }
+            if angle:
+                page_entry["rotation_degrees"] = angle  # the page was read turned by this angle
+            page_inventory.append(page_entry)
             if progress_callback is not None:
                 progress_callback(expected_page_number, declared_page_count)
         if declared_page_count is None or len(decoded_results) != declared_page_count:
@@ -178,6 +182,14 @@ def recognize_with_orientation(
     adapter: OCREngineAdapter, raster: RasterPage, *, source_sha256: str,
     languages: tuple[str, ...] = ("it", "en"),
 ) -> OCRPageResult:
+    """The page result only; see :func:`recognize_page`."""
+    return recognize_page(adapter, raster, source_sha256=source_sha256, languages=languages)[0]
+
+
+def recognize_page(
+    adapter: OCREngineAdapter, raster: RasterPage, *, source_sha256: str,
+    languages: tuple[str, ...] = ("it", "en"),
+) -> tuple[OCRPageResult, int]:
     """Recognize a page; if the upright pass is weak, also try 90/180/270 degrees (REQ-028).
 
     The strongest reading wins. Its boxes are mapped back to the original page,
@@ -185,7 +197,7 @@ def recognize_with_orientation(
     """
     upright = run_ocr(adapter, (raster,), source_sha256=source_sha256, languages=languages)[0]
     if not _is_weak(upright):
-        return upright
+        return upright, 0
     # Only the image handling is best effort: a raster Pillow cannot read keeps
     # the upright reading. Engine errors on a turned page are never swallowed
     # (a swallowed output-limit error would still fail the job later).
@@ -195,9 +207,9 @@ def recognize_with_orientation(
         image = Image.frombytes("RGB", (raster.width_px, raster.height_px), raster.image_bytes)
         darkest = image.convert("L").getextrema()[0]
     except Exception:
-        return upright
+        return upright, 0
     if darkest >= _BLANK_MIN_LEVEL:
-        return upright  # nothing dark on the page: turning it cannot find text
+        return upright, 0  # nothing dark on the page: turning it cannot find text
     best, best_angle = upright, 0
     for angle in (90, 180, 270):
         turned = image.rotate(angle, expand=True)
@@ -210,7 +222,7 @@ def recognize_with_orientation(
         if _strength(candidate) > _strength(best):
             best, best_angle = candidate, angle
     if best_angle == 0:
-        return upright
+        return upright, 0
     back = _BACK_TO_ORIGINAL[best_angle]
     tokens = tuple(
         OCRToken(
@@ -219,7 +231,7 @@ def recognize_with_orientation(
         )
         for token in best.tokens
     )
-    return replace(best, tokens=tokens)
+    return replace(best, tokens=tokens), best_angle
 
 
 class _TextLayerAdapter:
