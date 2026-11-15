@@ -26,7 +26,7 @@ RULES: dict[str, RuleSpec] = {
                  "La data di partenza non precede quella di arrivo."),
         RuleSpec("taxable-base-vat-total-arithmetic", "1", "amount_arithmetic_consistency",
                  "Imponibile più IVA è uguale al totale."),
-        RuleSpec("required-custom-field", "1", "required_field_presence",
+        RuleSpec("required-custom-field", "1", "document_consistency",
                  "I campi obbligatori del tipo di documento sono presenti."),
         RuleSpec("line-items-sum-total", "1", "amount_arithmetic_consistency",
                  "La somma delle righe è uguale al totale."),
@@ -44,10 +44,9 @@ def version_of(rule_id: str) -> str:
 
 
 def is_reviewed(record: Mapping[str, Any]) -> bool:
+    """A review has started when at least one review event exists."""
     review = record.get("review")
-    if not isinstance(review, Mapping):
-        return False
-    return bool(review.get("events")) or review.get("status") not in (None, "not_started")
+    return isinstance(review, Mapping) and bool(review.get("events"))
 
 
 def revalidate(

@@ -148,5 +148,88 @@ class LineItemPresentationTests(unittest.TestCase):
         self.assertIn("da verificare", html)
 
 
+
+
+def _analysis_record(page, family="unknown"):
+    """A fixture record ready for semantic analysis of ``page`` (OCR done, no fields yet)."""
+    record = json.loads((Path(__file__).parent / "fixtures" / "synthetic_invoice.json").read_text(encoding="utf-8"))
+    record["schema_version"] = "0.3.0"
+    record["document_family"] = family
+    record["source"]["sha256"] = page.source_sha256
+    record["fiscal_document_state"] = {"status": "unknown", "evidence": []}
+    record["fields"] = {}
+    record["pages"] = [{"page_number": 1}]
+    record["processing"]["ocr"] = {
+        "status": "completed", "producer": {"stage": "ocr", "name": page.engine_name, "version": page.engine_version},
+    }
+    return record
+
+class LineItemReviewFixTests(unittest.TestCase):
+    def _items(self, rows):
+        return [
+            (_first(item["description"]), _first(item["quantity"]), _first(item["unit_price"]), _first(item["amount"]))
+            for item in extract_line_items([_invoice_page(rows)])
+        ]
+
+    def test_thousands_separated_by_a_space(self):
+        rows = [[(0.05, "Descrizione Qtà Prezzo Importo")], [(0.05, "Consulenza 2 1 234,00 2 468,00")]]
+        self.assertEqual(self._items(rows), [("Consulenza", "2", "1234.00", "2468.00")])
+
+    def test_quantity_is_the_number_just_before_the_prices(self):
+        rows = [[(0.05, "Descrizione Qtà Prezzo Importo")], [(0.05, "Toner HP 305 2 50,00 100,00")]]
+        self.assertEqual(self._items(rows), [("Toner HP 305", "2", "50.00", "100.00")])
+
+    def test_total_rows_end_the_table_but_items_named_tax_do_not(self):
+        rows = [
+            [(0.05, "Descrizione Importo")],
+            [(0.05, "Tax advisory service 300,00")],
+            [(0.05, "Importo totale 300,00")],
+            [(0.05, "Bollo 2,00")],
+        ]
+        self.assertEqual(self._items(rows), [("Tax advisory service", None, None, "300.00")])
+
+    def test_a_sentence_does_not_open_a_table(self):
+        rows = [[(0.05, "Il servizio è incluso nel prezzo totale")], [(0.05, "Mancia 5,00")]]
+        self.assertEqual(self._items(rows), [])
+
+    def test_a_table_continues_on_the_next_page(self):
+        first = _invoice_page([[(0.05, "Descrizione Importo")], [(0.05, "Consulenza 100,00")]])
+        tokens = tuple(_row(9, 0.05, [(0.05, "Trasferta 30,00")]) + _row(10, 0.10, [(0.05, "Totale 130,00")]))
+        second = OCRPageResult(source_sha256="e" * 64, page_number=2, engine_name="synthetic", engine_version="1",
+                               language="it+en", tokens=tokens)
+        items = extract_line_items([first, second])
+        self.assertEqual([_first(item["description"]) for item in items], ["Consulenza", "Trasferta"])
+
+    def test_expense_reports_get_no_line_items(self):
+        from alfa_document_intelligence.analysis_pipeline import analyze_ocr_results
+
+        page = _invoice_page(INVOICE)
+        record = _analysis_record(page, family="expense_report")
+        result = analyze_ocr_results(record, [page]).document
+        self.assertNotIn("line_items", result)
+
+    def test_too_many_items_keep_the_common_fields(self):
+        from unittest.mock import patch
+
+        from alfa_document_intelligence import invoice_line_items
+        from alfa_document_intelligence.analysis_pipeline import analyze_ocr_results
+
+        page = _invoice_page(INVOICE)
+        record = _analysis_record(page)
+        with patch.object(invoice_line_items, "MAX_LINE_ITEMS", 1):
+            result = analyze_ocr_results(record, [page]).document
+        self.assertNotIn("line_items", result)
+        self.assertEqual(result["processing"]["semantic_extraction"]["status"], "completed")
+        self.assertIn("total_amount", result["fields"])
+
+    def test_stored_items_may_not_be_observed(self):
+        from alfa_document_intelligence.invoice_line_items import validate_line_items
+
+        item = extract_line_items([_invoice_page(INVOICE)])[0]
+        item["amount"] = {"value": "100.00", "status": "observed", "alternatives": [], "evidence": item["amount"]["evidence"]}
+        issues = validate_line_items([item], "e" * 64, {1})
+        self.assertTrue(any("observed" in issue for issue in issues))
+
+
 if __name__ == "__main__":
     unittest.main()

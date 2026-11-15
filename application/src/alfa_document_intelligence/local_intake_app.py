@@ -874,8 +874,13 @@ def _render_ruleset(record: dict[str, Any]) -> str:
     used = record.get("validation_ruleset")
     if not isinstance(used, dict) or not used:
         return ""
+    applied = {item.get("rule_id") for item in record.get("validation_findings", []) if isinstance(item, dict)}
+    if not applied & set(used):
+        return "<section><h2>Verifiche</h2><p>Nessuna verifica applicabile a questo documento.</p></section>"
     items = []
     for rule_id, version in sorted(used.items()):
+        if rule_id not in applied:
+            continue
         spec = VALIDATION_RULES.get(rule_id)
         label = spec.description_it if spec is not None else rule_id
         items.append(f"<li>{escape(label)} (versione {escape(str(version))})</li>")

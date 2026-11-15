@@ -120,16 +120,18 @@ def analyze_ocr_results(
             extract_expense_lines(materialized_pages, document_language=document.get("language"))
             if document.get("document_family") == "expense_report" else None
         )
-        line_items = (
-            extract_line_items(materialized_pages)
-            if document.get("document_family") != "expense_report" else []
-        )
+        try:
+            line_items = (
+                extract_line_items(materialized_pages)
+                if document.get("document_family") != "expense_report" else []
+            )
+        except LineItemLimitError:
+            # Too many rows for line items: keep the common fields and omit the items.
+            line_items = []
     except SemanticProposalLimitError as exc:
         raise AnalysisProposalLimitError(exc.code) from exc
     except ExpenseLineProposalLimitError as exc:
         raise AnalysisProposalLimitError(exc.code) from exc
-    except LineItemLimitError as exc:
-        raise AnalysisProposalLimitError(str(exc)) from exc
     except SemanticProposalError as exc:
         raise AnalysisPipelineError(f"OCR proposal validation failed: {exc}") from exc
 

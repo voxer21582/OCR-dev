@@ -77,7 +77,29 @@ class ValidationRuleRegistryTests(unittest.TestCase):
 
         html = _render_editable_record(revalidate(_record()), document_id="doc-1", has_source=False)
         self.assertIn("Verifiche eseguite con le regole:", html)
-        self.assertIn("La somma delle righe è uguale al totale. (versione 1)", html)
+        self.assertIn("Imponibile più IVA è uguale al totale. (versione 1)", html)
+        self.assertNotIn("data di partenza", html)  # the hotel rule did not apply to this invoice
+
+
+    def test_registry_dimensions_match_the_findings_and_the_schema(self):
+        import json as _json
+        schema = _json.loads((Path(__file__).resolve().parents[1] / "src" / "alfa_document_intelligence" / "schemas" / "document.schema.json").read_text(encoding="utf-8"))
+        allowed = set(schema["$defs"]["validationFinding"]["properties"]["dimension"]["enum"])
+        for spec in RULES.values():
+            self.assertIn(spec.dimension, allowed, spec.rule_id)
+        for finding in validate_document_consistency(_record()):
+            self.assertEqual(finding["dimension"], RULES[finding["rule_id"]].dimension)
+
+    def test_ruleset_versions_must_be_plain_digits(self):
+        record = revalidate(_record())
+        self.assertTrue(validate_document_record(dict(record, validation_ruleset={"line-items-sum-total": "\u00b2"})))
+        self.assertTrue(validate_document_record(dict(record, validation_ruleset={"Bad Id": "1"})))
+
+    def test_a_queued_status_without_events_is_not_a_review(self):
+        record = revalidate(_record())
+        record["review"] = {"status": "queued", "events": []}
+        record["validation_findings"] = []
+        self.assertTrue(revalidate(record)["validation_findings"])
 
 
 if __name__ == "__main__":

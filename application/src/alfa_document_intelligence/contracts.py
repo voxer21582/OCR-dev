@@ -206,7 +206,11 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
     ruleset_value = record.get("validation_ruleset")
     if ruleset_value is not None and (
         not isinstance(ruleset_value, dict)
-        or not all(isinstance(key, str) and isinstance(value, str) and value.isdigit() for key, value in ruleset_value.items())
+        or not all(
+            isinstance(key, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", key)
+            and isinstance(value, str) and re.fullmatch(r"[0-9]+", value)
+            for key, value in ruleset_value.items()
+        )
     ):
         issues.append("validation_ruleset: expected rule id to version text")
     if "line_items" in record:

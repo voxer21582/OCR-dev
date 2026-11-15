@@ -738,6 +738,7 @@
             "identity_roles",
             "financial_totals",
             "date_consistency",
+            "amount_arithmetic_consistency",
             "other"
           ]
         },

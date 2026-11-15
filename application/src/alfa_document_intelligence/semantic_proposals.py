@@ -269,10 +269,16 @@ def _row_label_totals(page: OCRPageResult) -> list[_Proposal]:
             overlap = min(bottom, t_bottom) - max(top, t_top)
             if left < right or overlap < 0.5 * min(bottom - top, t_bottom - t_top):
                 continue
-            match = _AMOUNT.fullmatch(_unglue_text(token.text).strip()) or _AMOUNT.search(_unglue_text(token.text))
+            cell = _unglue_text(token.text).strip()
+            match = _AMOUNT.search(cell)
             if match is None:
                 continue
-            if best is None or left < best[0]:
+            # A cell with its own words ("IVA 22% 23,45") belongs to another label.
+            leftover = (cell[:match.start()] + cell[match.end():]).strip()
+            if leftover and not re.fullmatch(r"(?i)(?:EUR|USD|GBP|CHF|€)", leftover):
+                continue
+            # The rightmost amount is the total (a VAT summary row also lists base and tax).
+            if best is None or left > best[0]:
                 best = (left, token, match)
         if best is None:
             continue
