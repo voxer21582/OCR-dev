@@ -31,6 +31,7 @@ from .ingestion import IngestionLimits, MaterializedBatch, UploadRejected, mater
 from .review_ledger import append_review_event, reviewed_overlay
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
+from .field_status import GOAL_STATUS_LABELS, failed_rules_by_field, goal_status
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
 from .isolated_decoder import iter_decoded_pages_isolated
 from .expense_case_processing import ExpenseCaseProcessingManager, ExpenseCaseJobStatus
@@ -856,12 +857,18 @@ _REGION_REVIEW_SCRIPT = (
 )
 
 
+def _goal_status_text(candidate: Any, failed: frozenset[str]) -> str:
+    status, reason = goal_status(candidate, failed_rule_ids=failed)
+    return f"Stato: {escape(GOAL_STATUS_LABELS[status])} — {escape(reason)}"
+
+
 def _render_editable_record(
     record: dict[str, Any], *, document_id: str, has_source: bool, elapsed_seconds: int = 0,
     archive_save_enabled: bool = False,
 ) -> str:
     overlay = reviewed_overlay(record)
     fields = overlay["reviewed_fields"]
+    failed_rules = failed_rules_by_field(record)
     page_numbers = sorted({
         item.get("page_number") for item in record.get("pages", [])
         if isinstance(item, dict) and isinstance(item.get("page_number"), int)
@@ -901,8 +908,8 @@ def _render_editable_record(
                 correction += "<p>La selezione di una nuova regione non è disponibile: la pagina originale non è presente nella sessione corrente.</p>"
         rows.append(
             f"<section><h2>{escape(name)}</h2>"
-            f"<p>Valore verificato: {escape(str(value)) if value is not None else '—'} "
-            f"({escape(str(candidate.get('status', 'unknown')))}).</p>"
+            f"<p>Valore verificato: {escape(str(value)) if value is not None else '—'}. "
+            f"{_goal_status_text(candidate, failed_rules.get(name, frozenset()))}</p>"
             f"<ul>{''.join(snippets)}</ul>{correction}</section>"
         )
     family_review = _render_document_family_review(

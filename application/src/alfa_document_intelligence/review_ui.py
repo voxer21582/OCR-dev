@@ -13,6 +13,7 @@ from typing import Any, Callable
 from urllib.parse import quote, unquote
 
 from .contracts import validate_document_record
+from .field_status import GOAL_STATUS_LABELS, goal_status
 from .review_ledger import verify_review_ledger, reviewed_overlay
 
 _MAX_SOURCE_BYTES = 25 * 1024 * 1024
@@ -65,7 +66,7 @@ def _render_record(record: dict[str, Any], *, has_source: bool, key: str) -> str
             "<tr>"
             f"<th scope=\"row\">{escape(str(name))}</th>"
             f"<td>{escape(str(value)) if value is not None else '—'}</td>"
-            f"<td>{escape(str(candidate.get('status', 'unknown')))}</td>"
+            f"<td>{escape(GOAL_STATUS_LABELS[goal_status(candidate)[0]])} — {escape(goal_status(candidate)[1])}</td>"
             f"<td><ul>{''.join(snippets)}</ul></td>"
             "</tr>"
         )
