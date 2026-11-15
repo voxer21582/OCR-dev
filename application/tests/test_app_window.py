@@ -98,6 +98,7 @@ def test_open_window_uses_dedicated_profile(monkeypatch, tmp_path):
         f"--user-data-dir={data_dir / 'edge-profile'}",
         "--no-first-run",
         "--no-default-browser-check",
+        "--disable-background-mode",
     ]
     assert kwargs.get("shell", False) is False
 

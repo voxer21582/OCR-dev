@@ -16,13 +16,16 @@ import os
 from pathlib import Path
 import re
 import secrets
+import time
 from typing import BinaryIO
-from urllib.request import ProxyHandler, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
 
 LOCK_NAME = "instance.lock"
 INSTANCE_NAME = "instance.json"
 _MAX_INSTANCE_FILE_BYTES = 4096
 _MAX_INFO_BYTES = 64 * 1024
+_REPLACE_ATTEMPTS = 5
+_REPLACE_RETRY_SECONDS = 0.05
 _INSTANCE_META = re.compile(rb'<meta name="ocr2-instance" content="([A-Za-z0-9_-]{1,128})">')
 
 if os.name == "nt":  # pragma: no cover - exercised on Windows
@@ -63,7 +66,15 @@ class InstanceLock:
         target = self._data_dir / INSTANCE_NAME
         temporary = self._data_dir / (INSTANCE_NAME + ".tmp")
         temporary.write_text(json.dumps({"port": port, "instance_id": instance_id}), encoding="utf-8")
-        os.replace(temporary, target)
+        # A concurrent reader can briefly block the replace on Windows.
+        for attempt in range(_REPLACE_ATTEMPTS):
+            try:
+                os.replace(temporary, target)
+                return
+            except PermissionError:
+                if attempt == _REPLACE_ATTEMPTS - 1:
+                    raise
+                time.sleep(_REPLACE_RETRY_SECONDS)
 
     def release(self) -> None:
         handle, self._handle = self._handle, None
@@ -113,14 +124,20 @@ def _published(data_dir: Path) -> tuple[int, str] | None:
     return port, instance_id
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):
+        return None
+
+
 def running_instance(data_dir: Path, timeout: float = 2.0) -> int | None:
     """Port of the live OCR2 server published in ``data_dir``, confirmed by its instance id."""
     published = _published(data_dir)
     if published is None:
         return None
     port, instance_id = published
-    # Never through a proxy: the server listens on loopback only.
-    opener = build_opener(ProxyHandler({}))
+    # Never through a proxy (the server listens on loopback only) and never
+    # follow a redirect: only the published port itself can confirm the id.
+    opener = build_opener(ProxyHandler({}), _NoRedirect())
     try:
         with opener.open(f"http://127.0.0.1:{port}/app/info", timeout=timeout) as response:
             if response.status != 200:

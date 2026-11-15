@@ -121,3 +121,70 @@ def test_running_instance_ignores_stale_file(tmp_path):
     assert app_instance.running_instance(tmp_path) is None
     (tmp_path / "instance.json").write_text(json.dumps({"port": 70000, "instance_id": "x"}), encoding="utf-8")
     assert app_instance.running_instance(tmp_path) is None
+
+
+def test_running_instance_refuses_redirects(tmp_path):
+    target = _info_server("live-id_1")
+
+    def redirect(environ, start_response):
+        start_response("302 Found", [("Location", f"http://127.0.0.1:{target.server_address[1]}/app/info")])
+        return [b""]
+
+    class _Quiet(WSGIRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+    redirector = make_server("127.0.0.1", 0, redirect, handler_class=_Quiet)
+    threading.Thread(target=redirector.serve_forever, daemon=True).start()
+    try:
+        _write_instance(tmp_path, redirector.server_address[1], "live-id_1")
+        assert app_instance.running_instance(tmp_path, timeout=1.0) is None
+    finally:
+        for server in (redirector, target):
+            server.shutdown()
+            server.server_close()
+
+
+def test_publish_retries_replace_on_sharing_violation(monkeypatch, tmp_path):
+    lock = app_instance.acquire(tmp_path)
+    assert lock is not None
+    real_replace = app_instance.os.replace
+    attempts = []
+
+    def flaky_replace(source, target):
+        attempts.append(target)
+        if len(attempts) < 3:
+            raise PermissionError("in use")
+        real_replace(source, target)
+
+    monkeypatch.setattr(app_instance.os, "replace", flaky_replace)
+    monkeypatch.setattr(app_instance.time, "sleep", lambda _seconds: None)
+    try:
+        lock.publish(4321, "abc")
+        assert len(attempts) == 3
+        assert json.loads((tmp_path / "instance.json").read_text(encoding="utf-8"))["port"] == 4321
+    finally:
+        monkeypatch.setattr(app_instance.os, "replace", real_replace)
+        lock.release()
+
+
+def test_publish_gives_up_after_repeated_sharing_violations(monkeypatch, tmp_path):
+    lock = app_instance.acquire(tmp_path)
+    assert lock is not None
+
+    def always_busy(_source, _target):
+        raise PermissionError("in use")
+
+    real_replace = app_instance.os.replace
+    monkeypatch.setattr(app_instance.os, "replace", always_busy)
+    monkeypatch.setattr(app_instance.time, "sleep", lambda _seconds: None)
+    try:
+        try:
+            lock.publish(4321, "abc")
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError("publish must not hide a persistent sharing violation")
+    finally:
+        monkeypatch.setattr(app_instance.os, "replace", real_replace)
+        lock.release()

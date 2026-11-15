@@ -138,17 +138,22 @@ def _app_window_environment(monkeypatch, tmp_path):
     return opened, lifetimes, served
 
 
-def _start_first_instance(tmp_path):
+def _run_main_in_thread(argv):
     errors = []
 
     def run():
         try:
-            launcher.main(["--app-window"])
-        except BaseException as exc:  # pragma: no cover - surfaced by the assertion below
+            launcher.main(argv)
+        except BaseException as exc:  # pragma: no cover - surfaced by the assertions
             errors.append(exc)
 
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
+    return thread, errors
+
+
+def _start_first_instance(tmp_path):
+    thread, errors = _run_main_in_thread(["--app-window"])
     data_dir = tmp_path / "OCR2"
     deadline = time.monotonic() + 15
     port = None
@@ -226,7 +231,9 @@ def test_launcher_app_window_respects_explicit_port(monkeypatch, tmp_path):
     launcher.main(["--app-window", "--port", "8765"])
     assert ports == [8765]
     assert server.closed
-    assert app_instance.acquire(tmp_path / "OCR2") is not None
+    lock = app_instance.acquire(tmp_path / "OCR2")
+    assert lock is not None
+    lock.release()
 
 
 def test_launcher_app_window_reports_browser_fallback(monkeypatch, capsys, tmp_path):
@@ -247,3 +254,68 @@ def test_launcher_app_window_requires_windows(monkeypatch, capsys, tmp_path):
     assert raised.value.code == 2
     assert "La finestra dell'app è disponibile solo su Windows" in capsys.readouterr().err
     assert not (tmp_path / "OCR2" / "instance.lock").exists()
+
+
+_LOCK_HOLDER = """
+import sys
+from pathlib import Path
+from alfa_document_intelligence import app_instance
+lock = app_instance.acquire(Path(sys.argv[1]))
+print("locked" if lock is not None else "busy", flush=True)
+sys.stdin.readline()
+if lock is not None:
+    lock.release()
+"""
+
+
+def test_launcher_app_window_serves_when_starting_instance_releases_lock(monkeypatch, tmp_path):
+    # A previous instance holds the lock without answering (it is closing after
+    # Esci, or crashed before publishing); once it lets go, the new launch serves.
+    _opened, lifetimes, served = _app_window_environment(monkeypatch, tmp_path)
+    data_dir = tmp_path / "OCR2"
+    data_dir.mkdir()
+    environment = os.environ.copy()
+    source = str(Path(__file__).resolve().parents[1] / "src")
+    environment["PYTHONPATH"] = os.pathsep.join(filter(None, [source, environment.get("PYTHONPATH")]))
+    holder = subprocess.Popen(
+        [sys.executable, "-B", "-c", _LOCK_HOLDER, str(data_dir)],
+        env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+    )
+    try:
+        assert holder.stdout.readline().strip() == "locked"
+        thread, errors = _run_main_in_thread(["--app-window"])
+        time.sleep(1.0)
+        assert served == [], "must not serve while another process holds the lock"
+        assert thread.is_alive(), "must keep waiting while the lock is held"
+    finally:
+        holder.communicate("\n", timeout=10)
+    deadline = time.monotonic() + 15
+    port = None
+    while time.monotonic() < deadline and port is None and thread.is_alive():
+        port = app_instance.running_instance(data_dir, timeout=0.5)
+        if port is None:
+            time.sleep(0.05)
+    try:
+        assert not errors, errors
+        assert port is not None, "the waiting launcher did not take over after the lock was released"
+        assert len(served) == 1
+    finally:
+        if lifetimes:
+            lifetimes[0].request_exit()
+        thread.join(15)
+    assert not thread.is_alive() and not errors
+
+
+def test_launcher_app_window_gives_up_when_lock_stays_held(monkeypatch, capsys, tmp_path):
+    _opened, _lifetimes, served = _app_window_environment(monkeypatch, tmp_path)
+    monkeypatch.setattr(launcher, "_STARTING_INSTANCE_WAIT_SECONDS", 0.5)
+    held = app_instance.acquire(tmp_path / "OCR2")
+    monkeypatch.setattr(launcher, "acquire", lambda _data_dir: None)
+    try:
+        with pytest.raises(SystemExit) as raised:
+            launcher.main(["--app-window"])
+    finally:
+        held.release()
+    assert raised.value.code == 1
+    assert served == []
+    assert "OCR2 è già in avvio ma non risponde" in capsys.readouterr().err

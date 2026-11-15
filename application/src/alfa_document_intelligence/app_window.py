@@ -1,7 +1,9 @@
 """Open the OCR2 window: Microsoft Edge in app mode with a dedicated profile (REQ-100).
 
 Edge always runs with ``--user-data-dir=<data dir>\\edge-profile``, so the
-user's own Edge profile and settings are never touched.  Edge is looked up in
+user's own Edge profile and settings are never touched, and with
+``--disable-background-mode``, so Edge keeps no background process of its own
+after the window closes (R16).  Edge is looked up in
 the Program Files folders and then, read-only, in the HKLM "App Paths" key; the
 registry is never written (V4).  Without Edge the default browser opens the
 same address.
@@ -69,6 +71,7 @@ def open_window(url: str, data_dir: Path) -> str:
                     f"--user-data-dir={Path(data_dir) / 'edge-profile'}",
                     "--no-first-run",
                     "--no-default-browser-check",
+                    "--disable-background-mode",
                 ],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,

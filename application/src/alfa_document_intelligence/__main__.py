@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Sequence
 
 from . import __version__
-from .app_instance import acquire, running_instance
+from .app_instance import InstanceLock, acquire, running_instance
 from .app_lifetime import AppInfo, AppLifetime, WindowPresence
 from .app_window import open_window
 from .local_intake_app import serve_expense_report_local
@@ -26,7 +26,8 @@ from .ocr_processing import OCRProcessLimits, OCRProcessingManager
 
 # The Edge app window and the single-instance lock are Windows features (REQ-100).
 _APP_WINDOW_AVAILABLE = os.name == "nt"
-# Wait for an instance that holds the lock but has not published its port yet.
+# Wait for an instance that holds the lock but does not answer: it is still
+# starting, or it is closing after «Esci» (or crashed) and will let go.
 _STARTING_INSTANCE_WAIT_SECONDS = 15.0
 
 
@@ -35,12 +36,18 @@ def _open_app_window(url: str, data_dir: Path) -> None:
         print("Edge non trovato: OCR2 si apre nel browser predefinito.", file=sys.stderr)
 
 
-def _wait_for_running_instance(data_dir: Path) -> int | None:
+def _wait_for_instance_or_lock(data_dir: Path) -> tuple[int | None, InstanceLock | None]:
+    """Until the deadline: the port of an instance that answers, or the lock once it is free."""
     deadline = time.monotonic() + _STARTING_INSTANCE_WAIT_SECONDS
     while True:
         port = running_instance(data_dir)
-        if port is not None or time.monotonic() >= deadline:
-            return port
+        if port is not None:
+            return port, None
+        lock = acquire(data_dir)
+        if lock is not None:
+            return None, lock
+        if time.monotonic() >= deadline:
+            return None, None
         time.sleep(0.25)
 
 
@@ -112,9 +119,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         if running_port is None:
             instance_lock = acquire(app_data_dir)
             if instance_lock is None:
-                # Another launcher holds the lock and is still starting.
-                running_port = _wait_for_running_instance(app_data_dir)
-                if running_port is None:
+                running_port, instance_lock = _wait_for_instance_or_lock(app_data_dir)
+                if running_port is None and instance_lock is None:
                     print("OCR2 è già in avvio ma non risponde. Riprova tra qualche secondo.", file=sys.stderr)
                     raise SystemExit(1)
         if running_port is not None:
