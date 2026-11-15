@@ -105,6 +105,7 @@ jobs:
           tests/test_handoff_latest_correction.py
           tests/test_hashed_lock.py
           tests/test_ingestion.py
+          tests/test_interrupted_writes.py
           tests/test_invoice_line_items.py
           tests/test_isolated_decoder.py
           tests/test_line_item_benchmark.py
@@ -227,6 +228,7 @@ jobs:
           tests/test_handoff_latest_correction.py
           tests/test_hashed_lock.py
           tests/test_ingestion.py
+          tests/test_interrupted_writes.py
           tests/test_invoice_line_items.py
           tests/test_isolated_decoder.py
           tests/test_line_item_benchmark.py
