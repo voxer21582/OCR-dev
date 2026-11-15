@@ -202,6 +202,30 @@ def _webp(header: bytes) -> ImageInfo:
     raise ImageHeaderError("unsupported WebP frame encoding")
 
 
+def _gif(header: bytes) -> ImageInfo:
+    # Logical screen size; the decoder also checks the real frame size and
+    # rejects animation (more than one image frame).
+    if len(header) < 13 or header[:6] not in (b"GIF87a", b"GIF89a"):
+        raise ImageHeaderError("truncated or invalid GIF header")
+    return ImageInfo(int.from_bytes(header[6:8], "little"), int.from_bytes(header[8:10], "little"))
+
+
+def _bmp(header: bytes) -> ImageInfo:
+    if len(header) < 26 or header[:2] != b"BM":
+        raise ImageHeaderError("truncated or invalid BMP header")
+    dib_size = int.from_bytes(header[14:18], "little")
+    if dib_size == 12:  # OS/2 BITMAPCOREHEADER
+        width, height = int.from_bytes(header[18:20], "little"), int.from_bytes(header[20:22], "little")
+    elif dib_size >= 40:
+        width = int.from_bytes(header[18:22], "little", signed=True)
+        height = abs(int.from_bytes(header[22:26], "little", signed=True))  # negative = top-down
+    else:
+        raise ImageHeaderError("unsupported BMP header")
+    if len(header) < 14 + dib_size:
+        raise ImageHeaderError("truncated BMP header")
+    return ImageInfo(width, height)
+
+
 def inspect_image_header(
     header: bytes,
     media_kind: str,
@@ -223,6 +247,10 @@ def inspect_image_header(
         info, pages = _tiff(header, max_tiff_pages)
     elif media_kind == "webp":
         info = _webp(header)
+    elif media_kind == "gif":
+        info = _gif(header)
+    elif media_kind == "bmp":
+        info = _bmp(header)
     else:
         raise ImageHeaderError("unsupported raster media kind")
     for width, height in pages or ((info.width_px, info.height_px),):

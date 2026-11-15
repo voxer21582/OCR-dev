@@ -53,6 +53,8 @@ def process_document_record(
         "image/jpeg": "jpeg",
         "image/tiff": "tiff",
         "image/webp": "webp",
+        "image/gif": "gif",
+        "image/bmp": "bmp",
     }.get(media_type)
     if media_kind is None:
         return _failed_copy(document, "unsupported_media_type")

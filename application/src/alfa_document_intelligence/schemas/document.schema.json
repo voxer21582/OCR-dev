@@ -171,6 +171,8 @@
             "image/png",
             "image/tiff",
             "image/webp",
+            "image/gif",
+            "image/bmp",
             "application/octet-stream"
           ]
         },

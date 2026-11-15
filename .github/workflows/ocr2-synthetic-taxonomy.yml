@@ -92,6 +92,7 @@ jobs:
           tests/test_expense_report_intake_session.py
           tests/test_expense_reports.py
           tests/test_fingerprints.py
+          tests/test_gif_bmp_formats.py
           tests/test_handoff_latest_correction.py
           tests/test_hashed_lock.py
           tests/test_ingestion.py
@@ -197,6 +198,7 @@ jobs:
           tests/test_expense_report_intake_session.py
           tests/test_expense_reports.py
           tests/test_fingerprints.py
+          tests/test_gif_bmp_formats.py
           tests/test_handoff_latest_correction.py
           tests/test_hashed_lock.py
           tests/test_ingestion.py
