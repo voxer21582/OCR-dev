@@ -30,11 +30,11 @@ This coordinator does not itself prove that the required ingestion, malware scan
 
 ## Verification
 
-Synthetic unit tests cover stage prerequisites, source/page binding, full inventoried page coverage, non-mutation, existing-field collision preservation, and hotel-date validation with uncertain proposals. The full repository CI remains the supported-runtime check.
+Synthetic unit tests cover stage prerequisites, source/page binding, full inventoried page coverage, non-mutation, existing-field collision preservation, and hotel-date validation with uncertain proposals. Continuous integration runs every module under `tests/` on Ubuntu (the required check) and on Windows; see the [repository README](../README.md#continuous-integration). A passing run covers only those synthetic contracts.
 
 
 ## Optional browser processor path
 
-OCR remains disabled by default. Application tests are present under `tests/`, but the repository-root required check currently runs only taxonomy tests; historical synthetic flows do not establish current product acceptance.
+OCR remains disabled by default. Historical synthetic flows do not establish current product acceptance.
 
 A historical synthetic-only run does not establish public CI coverage or current application acceptance. The default app remains OCR-disabled; runtime dependencies, licenses, native decoder isolation, packaging, and full application verification remain open.

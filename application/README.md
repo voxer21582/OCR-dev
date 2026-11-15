@@ -25,6 +25,6 @@ This is not yet an accepted live-document demo. The OCR runtime/model on the ref
 
 ## Verification limits
 
-The repository-root required check runs taxonomy contracts and an explicit allowlist of application contract modules. On 2026-11-08, [main CI run 42519804658](https://github.com/voxer21582/OCR-dev/actions/runs/42519804658) at commit `0a2fba0731e230f385e305826b66e4ce17df854d` passed 22 taxonomy tests and 183 application tests: **205 synthetic tests** in total. The [workflow](../.github/workflows/ocr2-synthetic-taxonomy.yml) gives the exact list of 13 application modules. The catalog and its CI extension were integrated through [PR #46](https://github.com/voxer21582/OCR-dev/pull/46) and [PR #47](https://github.com/voxer21582/OCR-dev/pull/47); their 41 catalog tests are now included in main.
+Continuous integration runs every module under `tests/` on Ubuntu (the required check) and on Windows; see the [repository README](../README.md#continuous-integration). A passing run covers only those synthetic contracts.
 
 Other test files in this directory are not automatically selected. Native OCR/PDF behavior, Windows packaging, real-document performance, runtime dependency licensing, archive acceptance, and full product acceptance remain separate gates. The public launcher accepts only the port option and does not yet construct an OCR engine or start background OCR jobs; installing optional packages alone does not enable that flow.
