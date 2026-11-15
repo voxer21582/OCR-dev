@@ -608,6 +608,85 @@ class LocalDocumentStore:
         with self._connect() as connection:
             return copy.deepcopy(self._library_get(connection, self._document_id_index(document_id))["events"])
 
+    # -- backup and restore (REQ-086) --------------------------------------------
+
+    _BACKUP_FORMAT = "ocr2-archive-backup-v1"
+
+    def backup_to(self, target_dir: str | Path) -> dict:
+        """Write a consistent copy of the encrypted archive and a manifest into a new folder.
+
+        The copy stays encrypted with this Windows user's protection: it can be
+        restored by the same user only (DEC-029).
+        """
+        target = Path(target_dir)
+        if target.exists() and any(target.iterdir()):
+            raise StoreRejected("backup folder must be new or empty")
+        target.mkdir(parents=True, exist_ok=True)
+        copy_path = target / "archive.sqlite3"
+        try:
+            source = sqlite3.connect(self.path, timeout=10)
+            try:
+                destination = sqlite3.connect(copy_path)
+                try:
+                    source.backup(destination)
+                    documents = destination.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+                    cases = destination.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
+                    version = destination.execute("PRAGMA user_version").fetchone()[0]
+                finally:
+                    destination.close()
+            finally:
+                source.close()
+        except sqlite3.Error as exc:
+            raise StoreError("could not write the archive backup") from exc
+        manifest = {
+            "format": self._BACKUP_FORMAT,
+            "schema_version": version,
+            "documents": documents,
+            "cases": cases,
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "sha256": hashlib.sha256(copy_path.read_bytes()).hexdigest(),
+        }
+        (target / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return manifest
+
+    def restore_from(self, backup_dir: str | Path) -> dict:
+        """Replace this archive with a verified backup; the current one is kept as ``.before-restore``.
+
+        Nothing changes unless the backup's hash matches its manifest and the copy
+        opens and passes every integrity check with this user's protection.
+        """
+        folder = Path(backup_dir)
+        try:
+            manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+            data = (folder / "archive.sqlite3").read_bytes()
+        except (OSError, ValueError) as exc:
+            raise StoreRejected("the backup folder is incomplete or unreadable") from exc
+        if not isinstance(manifest, dict) or manifest.get("format") != self._BACKUP_FORMAT:
+            raise StoreRejected("the folder does not contain an OCR2 archive backup")
+        if hashlib.sha256(data).hexdigest() != manifest.get("sha256"):
+            raise StoreRejected("the backup file does not match its manifest (damaged or changed)")
+        staging = self.path.with_name(f".restore-{secrets.token_hex(8)}.sqlite3")
+        staging.write_bytes(data)
+        try:
+            try:
+                candidate = LocalDocumentStore(staging, protector=self._protector, max_document_bytes=self._max_document_bytes)
+                candidate.search_library(limit=1)
+                candidate.list_cases(limit=100)
+            except StoreError as exc:
+                raise StoreRejected("the backup cannot be opened by this user or failed its integrity checks") from exc
+            previous = self.path.with_name(self.path.name + ".before-restore")
+            os.replace(self.path, previous)
+            os.replace(staging, self.path)
+        finally:
+            if staging.exists():
+                staging.unlink()
+        self._known_index_entries = {}
+        self._known_case_entries = {}
+        self._initialize()
+        self._verify_index_integrity()
+        self._verify_case_index_integrity()
+        return manifest
+
     def _protect_index_key(self, key: bytes) -> bytes:
         try:
             protected = self._protector.protect(_INDEX_KEY_PREFIX + key)
