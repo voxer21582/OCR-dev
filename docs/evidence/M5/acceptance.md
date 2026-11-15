@@ -31,4 +31,4 @@ Livelli di prova:
 
 **Revisione indipendente:** [`review.md`](review.md). I quattro problemi importanti sono corretti, oppure, per il punto 3, il contratto è stato reso esatto.
 
-**Merge:** la PR modifica archivio e ripristino (R7) ed export (R8). Serve l'approvazione esplicita del proprietario (DEC-001).
+**Merge:** la PR modifica archivio e ripristino (R7) ed export (R8). Il 2026-11-15 il proprietario ha approvato in chat le modifiche R7/R8 e il merge («1. approvo») e ha accettato il limite di REQ-089 sulle falsificazioni volute («2. accetto»), come previsto da DEC-001.

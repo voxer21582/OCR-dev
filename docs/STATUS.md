@@ -1,4 +1,4 @@
-STATO: MILESTONE COMPLETATA — M5 (PR in bozza: serve l'approvazione esplicita del proprietario per R7 e R8)
+STATO: MILESTONE COMPLETATA — M5 (R7/R8 approvati dal proprietario il 2026-11-15; limite di REQ-089 accettato)
 
 Criteri di accettazione M5 ed evidenze: [acceptance.md](evidence/M5/acceptance.md).
 - Libreria: ricerca con filtri e pagine (REQ-081); rinomina di documenti e fascicoli (REQ-083); etichette (REQ-084). [Percorso nel browser](evidence/M5/browser-walkthrough.md).
