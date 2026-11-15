@@ -104,6 +104,47 @@ def scan_public_benchmark(root: str | Path) -> int:
     return len(_ALLOWED_FILES)
 
 
+_EVIDENCE_SUFFIXES = {".md", ".json", ".txt", ".csv"}
+_EVIDENCE_PATTERNS = {
+    # The phone pattern is omitted here: CI run ids and timings in evidence
+    # files are long digit runs that would match it.
+    **{k: v for k, v in _PATTERNS.items() if k != "Italian phone-like value"},
+    "user-profile path": re.compile(r"(?i)\b[A-Z]:[\\/]+Users[\\/]+(?!Public\b)[^\\/\s`'\"]+"),
+}
+
+
+def scan_evidence_folder(root: str | Path) -> int:
+    """Check every text evidence file under ``root`` and return how many were read.
+
+    Messages name the file and the kind of match, never the matched text.
+    """
+    directory = Path(root)
+    issues: list[str] = []
+    checked = 0
+    for path in sorted(directory.rglob("*")):
+        if path.is_dir():
+            continue
+        relative = path.relative_to(directory).as_posix()
+        if path.is_symlink() or path.suffix.casefold() not in _EVIDENCE_SUFFIXES:
+            issues.append(f"{relative}: not an allowed evidence file")
+            continue
+        try:
+            if path.stat().st_size > _MAX_FILE_BYTES:
+                issues.append(f"{relative}: file exceeds size limit")
+                continue
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            issues.append(f"{relative}: unreadable or non-UTF-8 file")
+            continue
+        checked += 1
+        for description, pattern in _EVIDENCE_PATTERNS.items():
+            if pattern.search(content):
+                issues.append(f"{relative}: contains {description}")
+    if issues:
+        raise PublicDataGuardError("\n".join(issues))
+    return checked
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path("benchmark"))

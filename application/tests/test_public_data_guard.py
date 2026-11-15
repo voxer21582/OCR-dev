@@ -6,6 +6,7 @@ from pathlib import Path
 from alfa_document_intelligence.public_data_guard import (
     PublicDataGuardError,
     _ALLOWED_FILES,
+    scan_evidence_folder,
     scan_public_benchmark,
 )
 
@@ -97,6 +98,38 @@ class PublicDataGuardTests(unittest.TestCase):
             (root / _ALLOWED_FILES[0]).unlink()
             with self.assertRaisesRegex(PublicDataGuardError, "missing"):
                 scan_public_benchmark(root)
+
+
+SYNTHETIC_PROFILE_PATH = "C:" + "\\Users\\" + "someone" + "\\AppData\\Local\\OCR2"
+REPOSITORY_EVIDENCE = Path(__file__).resolve().parents[2] / "docs" / "evidence"
+
+
+class EvidenceFolderGuardTests(unittest.TestCase):
+    def test_accepts_synthetic_markdown_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            root.joinpath("M1").mkdir()
+            root.joinpath("M1", "run.md").write_text("660 passed, 1 skipped; host: PC di sviluppo\n", encoding="utf-8")
+            self.assertEqual(scan_evidence_folder(root), 1)
+
+    def test_rejects_user_profile_path_without_echoing_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            root.joinpath("x.md").write_text("archivio in " + SYNTHETIC_PROFILE_PATH + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(PublicDataGuardError, "user-profile path") as caught:
+                scan_evidence_folder(root)
+            self.assertNotIn("someone", str(caught.exception))
+
+    def test_rejects_email_in_nested_json_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            root.joinpath("M5").mkdir()
+            root.joinpath("M5", "report.json").write_text(json.dumps({"note": SYNTHETIC_EMAIL}), encoding="utf-8")
+            with self.assertRaisesRegex(PublicDataGuardError, "email-like value"):
+                scan_evidence_folder(root)
+
+    def test_repository_evidence_folder_is_clean(self):
+        self.assertGreaterEqual(scan_evidence_folder(REPOSITORY_EVIDENCE), 1)
 
 
 if __name__ == "__main__":
