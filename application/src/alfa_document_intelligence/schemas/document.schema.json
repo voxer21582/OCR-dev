@@ -94,6 +94,14 @@
       },
       "description": "Evidence-bound OCR line proposals for an expense statement. They are not confirmed accounting entries."
     },
+    "line_items": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/lineItem"
+      },
+      "description": "Evidence-bound line items of a table (invoice rows). Proposals only, never accounting entries."
+    },
     "validation_findings": {
       "type": "array",
       "items": {
@@ -541,6 +549,18 @@
         "currency": {"$ref": "#/$defs/fieldCandidate"},
         "date": {"$ref": "#/$defs/fieldCandidate"},
         "merchant": {"$ref": "#/$defs/fieldCandidate"}
+      }
+    },
+    "lineItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_id", "description", "quantity", "unit_price", "amount"],
+      "properties": {
+        "line_id": {"type": "string", "pattern": "^item-p[0-9]{4}-[0-9]{5}$"},
+        "description": {"$ref": "#/$defs/fieldCandidate"},
+        "quantity": {"$ref": "#/$defs/fieldCandidate"},
+        "unit_price": {"$ref": "#/$defs/fieldCandidate"},
+        "amount": {"$ref": "#/$defs/fieldCandidate"}
       }
     },
     "fiscalDocumentState": {

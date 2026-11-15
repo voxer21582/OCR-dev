@@ -14,6 +14,7 @@ from .document_family_catalog import DocumentFamilyCatalog, catalog_from_snapsho
 from .contracts import validate_document_record
 from .document_validation import DocumentValidationError, validate_document_consistency
 from .expense_line_extraction import ExpenseLineProposalLimitError, extract_expense_lines
+from .invoice_line_items import LineItemLimitError, extract_line_items
 from .ocr_adapter import OCRPageResult
 from .semantic_proposals import SemanticProposalError, SemanticProposalLimitError, propose_common_fields
 
@@ -118,10 +119,16 @@ def analyze_ocr_results(
             extract_expense_lines(materialized_pages, document_language=document.get("language"))
             if document.get("document_family") == "expense_report" else None
         )
+        line_items = (
+            extract_line_items(materialized_pages)
+            if document.get("document_family") != "expense_report" else []
+        )
     except SemanticProposalLimitError as exc:
         raise AnalysisProposalLimitError(exc.code) from exc
     except ExpenseLineProposalLimitError as exc:
         raise AnalysisProposalLimitError(exc.code) from exc
+    except LineItemLimitError as exc:
+        raise AnalysisProposalLimitError(str(exc)) from exc
     except SemanticProposalError as exc:
         raise AnalysisPipelineError(f"OCR proposal validation failed: {exc}") from exc
 
@@ -129,6 +136,8 @@ def analyze_ocr_results(
     result_document["schema_version"] = "0.3.0"
     if expense_lines is not None:
         result_document["expense_lines"] = expense_lines
+    if line_items:
+        result_document["line_items"] = line_items
     if active_catalog is not None:
         custom_ids = {
             item.get("value")

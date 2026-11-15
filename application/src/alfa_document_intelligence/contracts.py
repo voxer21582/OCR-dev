@@ -203,6 +203,12 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
                 issues.extend(validate_expense_lines(expense_lines, source_hash or "", page_numbers))
     elif expense_lines is not None:
         issues.append("expense_lines: requires document schema 0.3.0")
+    if "line_items" in record:
+        if schema_version != "0.3.0":
+            issues.append("line_items: requires document schema 0.3.0")
+        else:
+            from .invoice_line_items import validate_line_items
+            issues.extend(validate_line_items(record["line_items"], source_hash or "", page_numbers))
 
     fields = record.get("fields")
     if not isinstance(fields, dict):

@@ -868,6 +868,39 @@ def _goal_status_text(extracted: Any, candidate: Any, failed: frozenset[str]) ->
     return f"Stato: {escape(GOAL_STATUS_LABELS[status])} — {escape(reason)}"
 
 
+def _render_line_items(record: dict[str, Any]) -> str:
+    """Table of proposed line items (REQ-053): first readings, all to be checked."""
+    items = record.get("line_items")
+    if not isinstance(items, list) or not items:
+        return ""
+
+    def first(candidate: Any) -> str:
+        if not isinstance(candidate, dict):
+            return "—"
+        if candidate.get("status") == "observed" and candidate.get("value") is not None:
+            return escape(str(candidate["value"]))
+        alternatives = candidate.get("alternatives") or []
+        if alternatives and isinstance(alternatives[0], dict) and alternatives[0].get("value") is not None:
+            return escape(str(alternatives[0]["value"]))
+        return "—"
+
+    rows = []
+    for item in items:
+        evidence = (item.get("amount") or {}).get("evidence") or [{}]
+        page = evidence[0].get("page_number", "?") if isinstance(evidence[0], dict) else "?"
+        rows.append(
+            f"<tr><td>{first(item.get('description'))}</td><td>{first(item.get('quantity'))}</td>"
+            f"<td>{first(item.get('unit_price'))}</td><td>{first(item.get('amount'))}</td><td>{escape(str(page))}</td></tr>"
+        )
+    return (
+        "<section><h2>Righe del documento</h2>"
+        "<p>Proposte lette dal documento: tutte da verificare sulla pagina originale.</p>"
+        "<table><thead><tr><th scope=\"col\">Descrizione</th><th scope=\"col\">Quantità</th>"
+        "<th scope=\"col\">Prezzo unitario</th><th scope=\"col\">Importo</th><th scope=\"col\">Pagina</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></section>"
+    )
+
+
 def _render_editable_record(
     record: dict[str, Any], *, document_id: str, has_source: bool, elapsed_seconds: int = 0,
     archive_save_enabled: bool = False,
@@ -950,7 +983,7 @@ def _render_editable_record(
         "<title>Revisione documento</title><main><p><a href=\"/\">Torna al fascicolo</a></p>"
         f"<h1>Revisione {escape(document_id)}</h1>"
         f"<p>Stato revisione: {escape(str(overlay['review_status']))}. Le correzioni si aggiungono al registro; i dati OCR non vengono sovrascritti.</p>"
-        f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{completion}{archive_save}"
+        f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{_render_line_items(record)}{completion}{archive_save}"
         + (_REGION_REVIEW_STYLE if has_region_editor else "")
         + '<script nonce="__CSP_NONCE__">'
         + (_REGION_REVIEW_SCRIPT if has_region_editor else "")
