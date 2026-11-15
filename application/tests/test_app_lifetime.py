@@ -153,3 +153,29 @@ def test_request_exit_does_not_call_stop_in_caller_thread():
     lifetime.request_exit()
     assert lifetime.stopped.wait(2.0)
     assert threads and threads[0] is not threading.main_thread()
+
+
+def test_stale_window_does_not_skip_closing_grace():
+    clock, presence = _presence()
+    presence.heartbeat("w1")
+    clock.advance(100)
+    presence.heartbeat("w2")
+    clock.advance(100)  # w1 is dead, w2 still alive
+    presence.heartbeat("w2")
+    presence.closing("w2")
+    clock.advance(2)
+    assert presence.should_stop() is False
+    clock.advance(9)
+    assert presence.should_stop() is True
+
+
+def test_all_windows_silent_without_closing_stop_at_expiry():
+    clock, presence = _presence()
+    presence.heartbeat("w1")
+    presence.heartbeat("w2")
+    presence.closing("w2")
+    presence.heartbeat("w2")
+    clock.advance(179)
+    assert presence.should_stop() is False
+    clock.advance(2)
+    assert presence.should_stop() is True

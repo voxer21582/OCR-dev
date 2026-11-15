@@ -41,6 +41,7 @@ class WindowPresence:
         self._started = clock()
         self._last_beat: dict[str, float] = {}
         self._ever_seen = False
+        self._last_beat_any = float("-inf")
         self._last_closing: float | None = None
         self._last_activity: float | None = None
 
@@ -50,6 +51,7 @@ class WindowPresence:
             now = self._clock()
             self._last_beat[window_id] = now
             self._ever_seen = True
+            self._last_beat_any = now
             self._last_activity = now
 
     def closing(self, window_id: str) -> None:
@@ -71,8 +73,8 @@ class WindowPresence:
                 return False
             if not self._ever_seen:
                 return now - self._started >= self._startup_grace
-            if self._last_closing is not None and not self._last_beat:
-                # Last window closed explicitly: stop after a quiet grace period.
+            if self._last_closing is not None and self._last_closing >= self._last_beat_any:
+                # Stale entries are ignored: the last event was an explicit closing: stop after a quiet grace period.
                 quiet_since = max(self._last_closing, self._last_activity or 0.0)
                 return now - quiet_since >= self._closing_grace
             # All remaining windows went silent without closing.
