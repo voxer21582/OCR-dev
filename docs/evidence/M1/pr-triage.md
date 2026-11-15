@@ -59,3 +59,24 @@ Le modifiche **non** risultano in `main`: per esempio i file di test nuovi manca
 | B | Chiudere le 14 PR con un commento che indica cosa le sostituisce | |
 | C | Lasciare aperte; ognuna si chiude quando la sua sostituta su `main` è unita | |
 | D | Chiudere #100 e #119; lasciare aperta #111 | |
+
+**Decisione del proprietario (2026-11-15): «approvo» i gruppi A–D.** Eseguito:
+- unite #144 (`fe22a6c`) e #126 (`3d5ac61`), con i controlli verdi;
+- chiuse con commento #57, #70, #72, #74, #77, #78, #80, #82, #84, #86, #92, #141, #117, #118, #100 e #119.
+
+## Integrazione: 18 PR non viste nella prima rassegna
+
+L'elenco usato per la prima rassegna si fermava a 50 voci (`--limit 50`): le PR aperte erano **68**. Le 18 più vecchie (5–8 novembre) sono analizzate qui con lo stesso metodo.
+
+| Gruppo proposto | PR | Motivo |
+|---|---|---|
+| **B — chiudere: solo selettori CI** | #19, #24, #26, #30, #33, #36 | Aggiungono solo selettori CI alle PR madri; li sostituisce il Task 6. |
+| **B — chiudere: superate dalla migrazione dell'applicazione** | #18, #23, #25, #29, #32, #35, #37 | Pila R1–R6 del 6 novembre: contratti nel pacchetto di radice (`ocr_contracts.py`, preflight delle sorgenti, candidati di campo, validazione strutturale, registro di revisione, mappa di accettazione). Dal 7 novembre gli stessi contratti esistono in `application/` (`contracts.py`, `ingestion.py`, `document_validation.py`, `review_ledger.py`) e i requisiti vivono in `docs/requirements.md`. Le issue #17, #22, #28, #31 e #34 restano aperte e verranno chiuse o aggiornate in M1 rispetto a REQ-xxx. |
+| **B — chiudere: superate** | #14, #15, #40 | #14 obiettivo di prodotto (sostituito da `GOAL.md`); #15 guida per contributori e modelli di issue e PR (le regole ora stanno in `GOAL.md` e `application/AGENTS.md`); #40 prova di RapidOCR su Windows (superata dal lock e dal controllo del runtime di #138). Lo stesso vale per **#45**, che nella prima rassegna era nel gruppo C: si propone di chiuderla insieme a #40. |
+| **C — riportare** | #16 | Correzione reale non presente in `main`: `bind_document_record` sostituisce senza avviso il legame di tassonomia di un record già legato. Da rifare in M3 con il suo test. |
+| **D — tenere fino a M8** | #13 | Modello di registro delle decisioni del pilot (A5); serve con #111 per il protocollo della prova sul campo. |
+
+| Gruppo | Proposta | Decisione |
+|---|---|---|
+| Integrazione B | Chiudere #14, #15, #18, #19, #23, #24, #25, #26, #29, #30, #32, #33, #35, #36, #37, #40 e #45 (17 PR) | |
+| Integrazione C/D | Lasciare aperte #16 (M3) e #13 (M8) | |
