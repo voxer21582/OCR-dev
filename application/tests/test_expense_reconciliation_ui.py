@@ -237,6 +237,49 @@ class ExpenseReconciliationUITests(unittest.TestCase):
             ["confirmed", "rejected", "ambiguous", "missing_support", "possible_duplicate", "excluded_with_reason"],
         )
 
+    def _review_fields(self, action, note="", candidate=True):
+        from alfa_document_intelligence.expense_reconciliation import build_reconciliation
+
+        line = self.archive.documents["statement"].record["expense_lines"][0]
+        current = build_reconciliation(
+            "case-1", "statement", self.archive.case["statement_sha256"], [line],
+            self.archive.case["attachments"],
+            {key: value.record for key, value in self.archive.documents.items()},
+            source_set_revision=self.archive.source_set_revision(),
+        )
+        fields = {
+            "_reconciliation_revision": current["case_revision"],
+            "_line_id": current["lines"][0]["line_id"],
+            "_line_evidence_sha256": current["lines"][0]["evidence_sha256"],
+            "_event_id": "event-input-check", "_action": action, "_reviewer_note": note,
+        }
+        if candidate:
+            fields["_candidate_document_id"] = "receipt-1"
+        return urlencode(fields).encode("utf-8")
+
+    def test_exclusion_without_note_explains_the_missing_note(self):
+        status, _, response = _request(
+            self.app, "POST", "/cases/case-1/reconciliation/review",
+            self._review_fields("excluded_with_reason", note="   "), "application/x-www-form-urlencoded",
+        )
+        self.assertEqual(status, "400 Bad Request")
+        self.assertIn("serve una nota di revisione".encode("utf-8"), response)
+        self.assertNotIn("sono cambiati".encode("utf-8"), response)
+        self.assertEqual(self.archive.saved, [])
+
+    def test_confirmation_without_selection_explains_the_missing_selection(self):
+        status, _, response = _request(
+            self.app, "POST", "/cases/case-1/reconciliation/review",
+            self._review_fields("confirmed", candidate=False), "application/x-www-form-urlencoded",
+        )
+        self.assertEqual(status, "400 Bad Request")
+        self.assertIn("Seleziona almeno un giustificativo".encode("utf-8"), response)
+        self.assertEqual(self.archive.saved, [])
+
+    def test_review_note_field_has_an_accessible_name(self):
+        _, _, page = _request(self.app, path="/cases/case-1/reconciliation")
+        self.assertRegex(page.decode("utf-8"), r'<input name="_reviewer_note"[^>]*aria-label="Nota di revisione')
+
     def test_review_event_replay_is_idempotent(self):
         from alfa_document_intelligence.expense_reconciliation import build_reconciliation
 
