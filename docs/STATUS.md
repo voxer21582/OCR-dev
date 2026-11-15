@@ -1,4 +1,5 @@
 STATO: M6 IN CORSO — applicazione installabile; piano in [2026-11-15-m6-applicazione-installabile.md](superpowers/plans/2026-11-15-m6-applicazione-installabile.md)
+Ripresa in worktree separato dal commit `1ea5c43`: avviato Task 5, inventario runtime con verifica file mancanti, aggiunti, alterati e FFmpeg vietato. Test sintetico iniziale passato; prova symlink saltata per permessi Windows. Mancano integrazione al launcher, prove di sicurezza complete, prova OCR senza FFmpeg, revisione e suite prima di considerare il task completato. Nessuna modifica al worktree di Claude.
 M6 (applicazione installabile) avviata il 2026-11-15 con le decisioni del proprietario: R-001 e R-002 approvate, Q-001 e Q-003 risolte (DEC-030, DEC-031, DEC-032); il collaudo su PC pulito lo esegue il proprietario con una procedura scritta.
 
 ## M5 — completata (2026-11-15, #150)
