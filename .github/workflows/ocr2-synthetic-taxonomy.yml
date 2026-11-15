@@ -79,6 +79,7 @@ jobs:
           tests/test_chatgpt_handoff.py
           tests/test_ci_workflow.py
           tests/test_contract_baseline.py
+          tests/test_deletion_traces.py
           tests/test_document_contract.py
           tests/test_document_decoder.py
           tests/test_document_decoder_contract.py
@@ -203,6 +204,7 @@ jobs:
           tests/test_chatgpt_handoff.py
           tests/test_ci_workflow.py
           tests/test_contract_baseline.py
+          tests/test_deletion_traces.py
           tests/test_document_contract.py
           tests/test_document_decoder.py
           tests/test_document_decoder_contract.py
