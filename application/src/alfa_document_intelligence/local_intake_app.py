@@ -32,7 +32,7 @@ from .review_ledger import append_review_event, reviewed_overlay
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
 from .catalog_editor import (
-    CatalogFormError, catalog_with_family, family_from_form, read_urlencoded,
+    CATALOG_FORM_MAX_BYTES, CatalogFormError, catalog_with_family, family_from_form,
     render_catalog_page, save_with_history,
 )
 from .document_family_catalog import DocumentFamilyCatalogError, load_custom_family_catalog
@@ -1521,7 +1521,13 @@ def create_expense_report_app(
                 current = catalog_state["catalog"]
                 try:
                     if path == "/catalog/families":
-                        form = read_urlencoded(environ)
+                        # Reuse the body the CSRF gate may already have parsed (Origin: null
+                        # from the sandboxed page); reading the stream again would block.
+                        form = {
+                            key: items[0] for key, items in
+                            _multipart_form_values(environ, max_form_bytes=CATALOG_FORM_MAX_BYTES).items()
+                            if len(items) == 1
+                        }
                         family = family_from_form(
                             label=form.get("label", ""), title_cues=form.get("title_cues", ""),
                             fields=form.get("fields", ""),

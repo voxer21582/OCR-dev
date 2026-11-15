@@ -17,7 +17,6 @@ from pathlib import Path
 import re
 import unicodedata
 from typing import Any, Mapping
-from urllib.parse import parse_qs
 
 from .document_family_catalog import (
     DocumentFamilyCatalog,
@@ -26,7 +25,7 @@ from .document_family_catalog import (
     load_custom_family_catalog,
 )
 
-MAX_FORM_BYTES = 16 * 1024
+CATALOG_FORM_MAX_BYTES = 16 * 1024
 _TYPE_WORDS = {"testo": "text", "data": "date", "importo": "amount", "codice": "identifier"}
 _TYPE_LABELS = {"text": "testo", "date": "data", "amount": "importo", "identifier": "codice"}
 
@@ -101,22 +100,6 @@ def save_with_history(store: DocumentFamilyCatalogStore, raw: str | bytes) -> Do
         (history / f"{stamp}-{hashlib.sha256(previous).hexdigest()[:12]}.json").write_bytes(previous)
     store.save(raw)
     return catalog
-
-
-def read_urlencoded(environ: dict[str, Any]) -> dict[str, str]:
-    """A bounded application/x-www-form-urlencoded body as single values."""
-    try:
-        length = int(environ.get("CONTENT_LENGTH", ""))
-    except (TypeError, ValueError):
-        raise CatalogFormError("Richiesta non valida.") from None
-    if length <= 0 or length > MAX_FORM_BYTES:
-        raise CatalogFormError("Il modulo è vuoto o troppo grande.")
-    body = environ["wsgi.input"].read(length)
-    try:
-        values = parse_qs(body.decode("ascii"), keep_blank_values=True, max_num_fields=20)
-    except (UnicodeDecodeError, ValueError):
-        raise CatalogFormError("Richiesta non valida.") from None
-    return {key: items[0] for key, items in values.items() if len(items) == 1}
 
 
 def render_catalog_page(catalog: DocumentFamilyCatalog | None, *, message: str = "", error: str = "") -> str:

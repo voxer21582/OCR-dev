@@ -172,3 +172,23 @@ class CatalogReachesCaseProcessingTests(unittest.TestCase):
             finally:
                 app.close()
         self.assertEqual([family.id for family in manager.received.families], ["custom_ricevuta_taxi"])
+
+
+class OpaqueOriginFormTests(unittest.TestCase):
+    def test_form_posted_from_the_sandboxed_page_is_accepted(self):
+        # Pages are served with a CSP sandbox, so the browser posts with Origin: null
+        # and the CSRF gate reads the body first; the route must reuse it.
+        import re
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = DocumentFamilyCatalogStore(Path(temp) / "family-catalog.json")
+            app = create_expense_report_app(family_catalog_store=store)
+            try:
+                page = _request(app, path="/catalog")[2].decode("utf-8")
+                token = re.search(r'name="_ocr2_csrf" value="([^"]+)"', page).group(1)
+                body, kind = _form(_ocr2_csrf=token, **TAXI_FORM)
+                status, _, _ = _request(app, "POST", "/catalog/families", body, kind, origin="null")
+            finally:
+                app.close()
+            self.assertEqual(status, "200 OK")
+            self.assertEqual([family.id for family in store.load().families], ["custom_ricevuta_taxi"])
