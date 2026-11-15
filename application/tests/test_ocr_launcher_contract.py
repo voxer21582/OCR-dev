@@ -173,5 +173,16 @@ class OCRLauncherContractTests(unittest.TestCase):
                 self.assertEqual(_FakeManager.instances, [])
 
 
+    def test_broken_engine_manifest_stops_with_a_message_not_a_traceback(self):
+        from alfa_document_intelligence.ocr_engine_registry import EngineRegistryError
+
+        with patch.object(launcher, "discover_engines", side_effect=EngineRegistryError("manifest_invalid")):
+            with patch.object(launcher, "serve_expense_report_local") as serve:
+                with patch("sys.stderr"), self.assertRaises(SystemExit) as caught:
+                    launcher.main([])
+        self.assertEqual(caught.exception.code, 2)
+        serve.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

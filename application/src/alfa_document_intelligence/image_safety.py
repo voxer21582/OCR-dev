@@ -210,6 +210,61 @@ def _gif(header: bytes) -> ImageInfo:
     return ImageInfo(int.from_bytes(header[6:8], "little"), int.from_bytes(header[8:10], "little"))
 
 
+def inspect_gif_snapshot(stream, size: int, *, max_dimension: int, max_pixels: int) -> ImageInfo:
+    """Walk a GIF's block stream without decoding pixels.
+
+    Rejects more than one image frame ("animated GIF is not supported"), frames
+    outside the limits and truncated block chains. Every step advances, so the
+    walk is bounded by the file size.
+    """
+    def read(length: int) -> bytes:
+        data = stream.read(length)
+        if len(data) != length:
+            raise ImageHeaderError("truncated GIF block")
+        return data
+
+    def skip_sub_blocks() -> None:
+        while True:
+            length = read(1)[0]
+            if length == 0:
+                return
+            if stream.tell() + length > size:
+                raise ImageHeaderError("truncated GIF block")
+            stream.seek(length, 1)
+
+    stream.seek(0)
+    head = read(13)
+    info = _gif(head)
+    if head[10] & 0x80:  # global colour table
+        stream.seek(3 * (2 ** ((head[10] & 0x07) + 1)), 1)
+    _check_dimensions(info.width_px, info.height_px, max_dimension, max_pixels)
+    frames = 0
+    while True:
+        introducer = read(1)[0]
+        if introducer == 0x3B:  # trailer
+            break
+        if introducer == 0x21:  # extension: label, then data sub-blocks
+            read(1)
+            skip_sub_blocks()
+        elif introducer == 0x2C:  # image descriptor
+            frames += 1
+            if frames > 1:
+                raise ImageHeaderError("animated GIF is not supported")
+            descriptor = read(9)
+            width = int.from_bytes(descriptor[4:6], "little")
+            height = int.from_bytes(descriptor[6:8], "little")
+            _check_dimensions(width, height, max_dimension, max_pixels)
+            if descriptor[8] & 0x80:
+                stream.seek(3 * (2 ** ((descriptor[8] & 0x07) + 1)), 1)
+            read(1)  # LZW minimum code size
+            skip_sub_blocks()
+        else:
+            raise ImageHeaderError("invalid GIF block")
+    if frames != 1:
+        raise ImageHeaderError("GIF has no image frame")
+    return info
+
+
 def _bmp(header: bytes) -> ImageInfo:
     if len(header) < 26 or header[:2] != b"BM":
         raise ImageHeaderError("truncated or invalid BMP header")

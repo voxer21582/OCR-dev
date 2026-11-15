@@ -92,3 +92,22 @@ def test_gif_and_bmp_go_through_ocr_with_provenance(name, data, media_type):
     assert result["processing"]["ocr"]["status"] == "completed"
     assert result["pages"][0]["page_number"] == 1
     assert _signature_matches(data, media_type)
+
+
+def test_animated_gif_is_rejected_at_upload_with_a_stable_reason():
+    with pytest.raises(UploadRejected, match="animated GIF"):
+        inventory_stream(BytesIO(_gif(frames=2)), "animata.gif")
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("animata.gif", _gif(frames=3))
+    with pytest.raises(UploadRejected, match="animated GIF"):
+        inventory_stream(BytesIO(buffer.getvalue()), "pacchetto.zip")
+
+
+def test_gif_frame_larger_than_the_limit_is_rejected_at_upload():
+    data = bytearray(_gif())
+    # Enlarge the first image descriptor's width/height beyond the dimension limit.
+    descriptor = data.index(b"\x2c", 13)
+    data[descriptor + 5:descriptor + 9] = (60000).to_bytes(2, "little") + (60000).to_bytes(2, "little")
+    with pytest.raises(UploadRejected):
+        inventory_stream(BytesIO(bytes(data)), "frame.gif")

@@ -11,7 +11,7 @@ from .document_decoder import DecodeLimits, DecodedPage, DocumentDecodeError, it
 from dataclasses import replace
 
 from .ocr_adapter import OCRContractError, OCREngineAdapter, OCRPageResult, OCRToken, RasterPage, run_ocr
-from .pdf_text_layer import PDF_TEXT_PRODUCER_NAME, extract_text_tokens, producer_version
+from .pdf_text_layer import PDF_TEXT_PRODUCER_NAME, PdfTextLayerReader, producer_version
 
 
 Decoder = Callable[..., Iterable[DecodedPage]]
@@ -63,6 +63,7 @@ def process_document_record(
     page_inventory: list[dict[str, int]] = []
     declared_page_count: int | None = None
     text_layer_pages = 0
+    text_layer = PdfTextLayerReader(source_bytes) if media_kind == "pdf" else None
     try:
         pages = decoder(
             source_bytes,
@@ -84,8 +85,8 @@ def process_document_record(
             if decoded.raster.page_number != expected_page_number:
                 raise DocumentDecodeError("decoded page numbering is not contiguous")
             page_adapter = adapter
-            if media_kind == "pdf":
-                text_tokens = extract_text_tokens(source_bytes, decoded.raster.page_number)
+            if text_layer is not None:
+                text_tokens = text_layer.tokens(decoded.raster.page_number)
                 if text_tokens is not None:
                     page_adapter = _TextLayerAdapter(text_tokens)
                     text_layer_pages += 1
@@ -114,6 +115,9 @@ def process_document_record(
         return _failed_copy(document, "ocr_contract_failed")
     except Exception:
         return _failed_copy(document, "ocr_failed")
+    finally:
+        if text_layer is not None:
+            text_layer.close()
 
     prepared = deepcopy(document)
     prepared["source"]["page_count"] = declared_page_count
@@ -145,6 +149,7 @@ def process_document_record(
 
 _WEAK_TOKEN_COUNT = 1  # a page with no tokens at all is weak
 _WEAK_MEAN_CONFIDENCE = 0.5
+_BLANK_MIN_LEVEL = 200  # grey level: a page whose darkest pixel is lighter is blank
 # Inverse maps from a point of the page rotated counter-clockwise by the key
 # (in degrees) back to the original page, in normalized coordinates.
 _BACK_TO_ORIGINAL = {
@@ -181,26 +186,27 @@ def recognize_with_orientation(
     upright = run_ocr(adapter, (raster,), source_sha256=source_sha256, languages=languages)[0]
     if not _is_weak(upright):
         return upright
-    # Best effort: any failure while trying a rotation keeps the upright reading.
+    # Only the image handling is best effort: a raster Pillow cannot read keeps
+    # the upright reading. Engine errors on a turned page are never swallowed
+    # (a swallowed output-limit error would still fail the job later).
     try:
         from PIL import Image
 
         image = Image.frombytes("RGB", (raster.width_px, raster.height_px), raster.image_bytes)
+        darkest = image.convert("L").getextrema()[0]
     except Exception:
         return upright
+    if darkest >= _BLANK_MIN_LEVEL:
+        return upright  # nothing dark on the page: turning it cannot find text
     best, best_angle = upright, 0
     for angle in (90, 180, 270):
-        try:
-            turned = image.rotate(angle, expand=True)
-            candidate = run_ocr(
-                adapter,
-                (RasterPage(raster.page_number, turned.width, turned.height, turned.tobytes()),),
-                source_sha256=source_sha256, languages=languages,
-            )[0]
-        except OCRContractError:
-            raise  # an engine breaking the contract is never hidden
-        except Exception:
-            continue
+        turned = image.rotate(angle, expand=True)
+        candidate = run_ocr(
+            adapter,
+            (RasterPage(raster.page_number, turned.width, turned.height, turned.tobytes()),),
+            source_sha256=source_sha256, languages=languages,
+        )[0]
+        turned.close()
         if _strength(candidate) > _strength(best):
             best, best_angle = candidate, angle
     if best_angle == 0:

@@ -12,7 +12,7 @@ from .local_intake_app import serve_expense_report_local
 from .local_document_store import LocalDocumentStore
 from .document_decoder import DecodeLimits
 from .expense_case_processing import ExpenseCaseProcessingManager
-from .ocr_engine_registry import EngineManifest, discover_engines
+from .ocr_engine_registry import EngineManifest, EngineRegistryError, discover_engines
 from .ocr_processing import OCRProcessLimits, OCRProcessingManager
 
 
@@ -55,7 +55,10 @@ def _port(value: str) -> int:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Start the loopback-only expense document review app.")
     parser.add_argument("--port", type=_port, default=8000, help="loopback TCP port (default: 8000; 0 selects a free port)")
-    engines = {engine_id: manifest for engine_id, manifest in discover_engines().items() if manifest.selectable}
+    try:
+        engines = {engine_id: manifest for engine_id, manifest in discover_engines().items() if manifest.selectable}
+    except EngineRegistryError as exc:
+        parser.error(f"registro dei motori OCR non valido ({exc.code})")
     parser.add_argument(
         "--ocr-engine", choices=("disabled", *sorted(engines)), default="disabled",
         help="optional local OCR worker from the engine registry (default: disabled; an engine requires its verified local package and models)",

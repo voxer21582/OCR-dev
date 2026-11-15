@@ -13,7 +13,7 @@ import stat
 import zipfile
 from typing import BinaryIO, Iterable
 
-from .image_safety import ImageHeaderError, ImageInfo, inspect_image_header, inspect_tiff_snapshot
+from .image_safety import ImageHeaderError, ImageInfo, inspect_gif_snapshot, inspect_image_header, inspect_tiff_snapshot
 
 
 @dataclass(frozen=True)
@@ -174,6 +174,9 @@ def _image_info(stream: BinaryIO, kind: str, limits: IngestionLimits, size: int 
                                          max_dimension=limits.max_image_dimension,
                                          max_pixels=limits.max_image_pixels,
                                          max_tiff_pages=limits.max_tiff_pages)
+        if kind == "gif" and size is not None:
+            return inspect_gif_snapshot(stream, size, max_dimension=limits.max_image_dimension,
+                                        max_pixels=limits.max_image_pixels)
         header = stream.read(limits.max_image_header_bytes)
         return inspect_image_header(
             header,

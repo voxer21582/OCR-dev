@@ -81,3 +81,29 @@ def test_engine_contract_violation_during_a_rotation_is_not_hidden():
 
     with pytest.raises(OCRContractError):
         recognize_with_orientation(_BreaksWhenTurned(), _page((1, 1)), source_sha256=_SHA)
+
+
+def test_blank_page_is_not_retried():
+    class _NeverReads(_ReadsOnlyUpright):
+        def recognize(self, page, languages):
+            self.calls += 1
+            return []
+
+    adapter = _NeverReads()
+    blank = RasterPage(1, 4, 4, _WHITE * 16)
+    recognize_with_orientation(adapter, blank, source_sha256=_SHA)
+    assert adapter.calls == 1
+
+
+def test_engine_failure_during_a_rotation_is_not_swallowed():
+    import pytest
+
+    class _FailsWhenTurned(_ReadsOnlyUpright):
+        def recognize(self, page, languages):
+            self.calls += 1
+            if self.calls == 1:
+                return []
+            raise RuntimeError("synthetic engine failure")
+
+    with pytest.raises(RuntimeError):
+        recognize_with_orientation(_FailsWhenTurned(), _page((1, 1)), source_sha256=_SHA)

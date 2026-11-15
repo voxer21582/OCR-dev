@@ -21,7 +21,7 @@ _GOOD = '''
 from alfa_document_intelligence.ocr_engine_registry import EngineManifest
 MANIFEST = EngineManifest(
     engine_id={engine_id!r}, name="Fake", version="1", languages=("it",), license="MIT",
-    artifacts=(("model.onnx", "{digest}"),), factory_ref="fake_module:make", runtime_check_ref=None,
+    artifacts=(("model.onnx", "{digest}"),), factory_ref="json:dumps", runtime_check_ref=None,
 )
 '''
 
@@ -80,7 +80,8 @@ class EngineRegistryTests(unittest.TestCase):
             "bad id": _GOOD.format(engine_id="Bad Id", digest="a" * 64),
             "bad hash": _GOOD.format(engine_id="fake", digest="xyz"),
             "empty version": _GOOD.format(engine_id="fake", digest="a" * 64).replace('version="1"', 'version=""'),
-            "bad factory": _GOOD.format(engine_id="fake", digest="a" * 64).replace('"fake_module:make"', '"no-colon"'),
+            "bad factory": _GOOD.format(engine_id="fake", digest="a" * 64).replace('"json:dumps"', '"no-colon"'),
+            "missing factory module": _GOOD.format(engine_id="fake", digest="a" * 64).replace('"json:dumps"', '"missing_module_ocr2_zz:make"'),
             "no manifest": "VALUE = 1\n",
         }
         for label, source in cases.items():

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib
+import importlib.util
 import pkgutil
 import re
 
@@ -68,6 +69,14 @@ def _valid(manifest: object) -> bool:
     )
 
 
+def _module_exists(reference: str) -> bool:
+    """The referenced module can be found, without running it (only parent packages import)."""
+    try:
+        return importlib.util.find_spec(reference.split(":", 1)[0]) is not None
+    except (ImportError, ValueError):
+        return False
+
+
 def discover_engines(package: str = DEFAULT_PACKAGE) -> dict[str, EngineManifest]:
     """Import every manifest module of ``package`` and return manifests by engine id."""
     root = importlib.import_module(package)
@@ -77,7 +86,10 @@ def discover_engines(package: str = DEFAULT_PACKAGE) -> dict[str, EngineManifest
             continue
         module = importlib.import_module(f"{package}.{module_info.name}")
         manifest = getattr(module, "MANIFEST", None)
-        if not _valid(manifest):
+        if not _valid(manifest) or not all(
+            _module_exists(reference) for reference in (manifest.factory_ref, manifest.runtime_check_ref)
+            if reference is not None
+        ):
             raise EngineRegistryError("manifest_invalid")
         if manifest.engine_id in engines:
             raise EngineRegistryError("engine_id_duplicate")

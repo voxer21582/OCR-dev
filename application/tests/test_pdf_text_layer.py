@@ -11,15 +11,27 @@ from alfa_document_intelligence.ingestion import materialize_stream_batch
 from alfa_document_intelligence.pdf_text_layer import PDF_TEXT_PRODUCER_NAME, extract_text_tokens
 
 
-def _text_pdf(lines: list[str]) -> bytes:
+def _text_pdf(
+    lines: list[str], *, at=(72, 760), crop=None, rotate=0, invisible=False, full_page_image=False,
+) -> bytes:
     """A minimal one-page PDF (A4) with Helvetica text, built byte by byte."""
-    content = "BT /F1 14 Tf 72 760 Td 18 TL " + " ".join(f"({line}) Tj T*" for line in lines) + " ET"
+    mode = "3 Tr " if invisible else ""
+    content = f"BT /F1 14 Tf {mode}{at[0]} {at[1]} Td 18 TL " + " ".join(f"({line}) Tj T*" for line in lines) + " ET"
+    if full_page_image:
+        content = "q 595 0 0 842 0 0 cm /Im1 Do Q " + content
+    page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842]"
+    if crop is not None:
+        page += " /CropBox [" + " ".join(str(value) for value in crop) + "]"
+    if rotate:
+        page += f" /Rotate {rotate}"
+    page += " /Resources << /Font << /F1 4 0 R >> /XObject << /Im1 6 0 R >> >> /Contents 5 0 R >>"
     objects = [
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        page,
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         f"<< /Length {len(content)} >>\nstream\n{content}\nendstream",
+        "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\nstream\n\x80\nendstream",
     ]
     out = b"%PDF-1.4\n"
     offsets = []
@@ -95,3 +107,26 @@ def test_pipeline_uses_the_text_layer_and_names_it_as_producer():
 def test_pipeline_falls_back_to_ocr_without_a_text_layer():
     result = _process(_image_pdf(), _Blank())
     assert result["processing"]["ocr"]["producer"]["name"] == "BlankOCR"
+
+
+def test_boxes_are_relative_to_the_crop_box():
+    # MediaBox 0 0 595 842, CropBox 100 100 595 842: a word at x=100 starts at the visible left edge.
+    tokens = extract_text_tokens(_text_pdf(["Ricevuta numero 001 totale"], at=(100, 300), crop=(100, 100, 595, 842)), 1)
+    assert tokens is not None
+    first = tokens[0]
+    assert min(x for x, _ in first.polygon) < 0.02
+    top = min(y for _, y in first.polygon)
+    assert abs(top - (1 - (300 + 14 - 100) / 742)) < 0.03
+
+
+def test_rotated_pages_fall_back_to_ocr():
+    assert extract_text_tokens(_text_pdf(["Ricevuta numero 001 totale"], rotate=90), 1) is None
+
+
+def test_invisible_text_is_not_trusted():
+    assert extract_text_tokens(_text_pdf(["Totale EUR 99,99 pagato contanti"], invisible=True), 1) is None
+
+
+def test_scanned_page_with_a_short_text_footer_is_ocred():
+    data = _text_pdf(["Scansionato da ufficio 2026"], at=(72, 30), full_page_image=True)
+    assert extract_text_tokens(data, 1) is None
