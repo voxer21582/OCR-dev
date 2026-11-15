@@ -24,6 +24,17 @@ from alfa_document_intelligence.ocr_engine_registry import get_engine
 from tools.field_benchmark_score import score_records
 
 
+def _placeholder_note() -> bytes:
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (8, 8), "white").save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+_PLACEHOLDER_NOTE = _placeholder_note()
+
+
 def run_field_benchmark(fixtures: Path, *, engine_id: str = "rapidocr-v6") -> dict:
     manifest = json.loads((fixtures / "manifest.json").read_text(encoding="utf-8"))
     engine = get_engine(engine_id)
@@ -34,10 +45,12 @@ def run_field_benchmark(fixtures: Path, *, engine_id: str = "rapidocr-v6") -> di
     started = time.monotonic()
     for document in manifest["documents"]:
         data = (fixtures / document["file"]).read_bytes()
-        batch = materialize_stream_batch([(document["file"], BytesIO(data))])
+        # The receipt is a supporting document, as in the app: a placeholder
+        # note takes the expense-report role so the receipt is not treated as one.
+        batch = materialize_stream_batch([("nota.png", BytesIO(_PLACEHOLDER_NOTE)), (document["file"], BytesIO(data))])
         intake = create_expense_report_intake_session(
-            batch, expense_report_id="field-benchmark", note_document_id=document["document_id"],
-            document_ids=[document["document_id"]], session_id="field-benchmark",
+            batch, expense_report_id="field-benchmark", note_document_id="field-note",
+            document_ids=["field-note", document["document_id"]], session_id="field-benchmark",
             received_at="2026-11-15T00:00:00+00:00",
         )
         record = process_document_record(
