@@ -16,6 +16,10 @@
 | `merchant_name` | ≥ 80% | **76,7%** (46/60) — sotto soglia | **90%** (54/60) |
 | Tempo | — | 101,6 s | 96,7 s |
 
+**Esecuzioni 3 e 4 (dopo la revisione indipendente).**
+- **Esecuzione 3** (`ed976ae`): esercente **0%**, tutti gli altri campi 100%. La causa era nello script di misura, non nell'app. Lo script caricava ogni giustificativo come se fosse la nota spese (famiglia `expense_report`), e la revisione aveva appena escluso le note spese dalla regola dell'esercente. Le esecuzioni 1 e 2 avevano quindi misurato i giustificativi come note.
+- **Esecuzione 4**, con lo script corretto (`8342d13`: una nota fittizia prende il ruolo di nota spese, il giustificativo è un allegato come nell'app): totale, data, valuta, numero documento e partita IVA 100%; **esercente 90%** (inglese 100%, italiano 80%); nessun errore OCR; 95,2 s. **Tutte le soglie sono superate.** È il risultato di riferimento per M3.
+
 **Causa dei risultati sotto soglia nell'esecuzione 1: un difetto dell'app, non dei documenti di prova.**
 - L'OCR perde gli spazi e legge, per esempio, `Total:EUR186.03`.
 - La regola degli importi non accettava un numero attaccato a un codice di valuta, quindi il totale non veniva proposto. Di conseguenza mancava anche l'esercente, la cui regola richiede un importo sulla pagina.
