@@ -29,7 +29,7 @@ Criteri di accettazione ed evidenze:
 - revisione: [`evidence/M1/review.md`](evidence/M1/review.md);
 - base di partenza: [`evidence/baseline/README.md`](evidence/baseline/README.md).
 
-Azione lasciata al proprietario: rendere obbligatorio anche il controllo «Windows application contracts» nella protezione di `main`.
+Il proprietario ha reso obbligatorio anche il controllo «Windows application contracts» nella protezione di `main` (verificato il 2026-11-15: i controlli richiesti sono «Taxonomy registry and binding» e «Windows application contracts»).
 
 Limite registrato per M3: un giustificativo avanzato viene proposto come possibile conflitto alle righe dello stesso giorno.
 
