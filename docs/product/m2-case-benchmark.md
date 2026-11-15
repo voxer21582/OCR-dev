@@ -9,7 +9,7 @@ Evidence level: `LOCAL-RUN`. Synthetic documents only, one Windows 11 PC, CPU, n
 | Statement | Synthetic PDF, 4 pages, 98 expense rows plus a pagination header on each page. SHA-256 `3b944c43e4cabe43fbde62230e8ae0067d2c20c5e2875423b324418d1073039c`. |
 | Receipts | 100 synthetic files (60 PNG, 25 JPEG, 15 PDF), one receipt per file: number, `Data: dd/mm/2026`, `Totale: EUR n,nn`. SHA-256 of the concatenated per-file SHA-256 digests, in file-name order: `2aa6cabb8662661e8c9913242dfb16b00dc78fac7671841d4a85fe9317d9623b`. |
 | Known answers | Receipts 1–95 have a statement row with the same amount; rows for receipts 10, 20, 30 carry a different amount (amount conflict); 3 rows (777,77, 888,88, 999,99) have no receipt; receipts 96–100 have no row. All dates are in November 2026; 43 rows have a day of 12 or less (ambiguous day/month). |
-| Code | Branch `claude/m2-close` at the commit that adds this file (main `03cdab9` plus D3, #135 headers, known-answer fixtures and the review-input fix). |
+| Code | PR #144 at the commit that adds this file (main `03cdab9` plus D3, #135 headers, known-answer fixtures and the review-input fix). |
 | Runtime | Hash-locked Windows runtime (`requirements/ocr2-runtime-cp313-win-amd64.lock`), RapidOCR 3.10.0, `--ocr-engine rapidocr-v6`. Archive in a temporary `LOCALAPPDATA`, not the user profile. |
 
 The fixtures were generated for this repository in an earlier session and are kept outside it; their generator is not in the repository, so the hashes above identify the run but do not make it reproducible from the repository alone.
