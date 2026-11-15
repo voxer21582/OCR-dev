@@ -13,6 +13,7 @@ from typing import Any, Callable
 from urllib.parse import quote, unquote
 
 from .contracts import validate_document_record
+from .field_status import GOAL_STATUS_LABELS, failed_rules_by_field, shown_field_status
 from .review_ledger import verify_review_ledger, reviewed_overlay
 
 _MAX_SOURCE_BYTES = 25 * 1024 * 1024
@@ -45,6 +46,12 @@ def _signature_matches(data: bytes, media_type: str) -> bool:
     return False
 
 
+def _status_cell(record: dict[str, Any], name: str, candidate: Any) -> str:
+    failed = failed_rules_by_field(record).get(name, frozenset())
+    status, reason = shown_field_status(record.get("fields", {}).get(name), candidate, failed)
+    return f"{escape(GOAL_STATUS_LABELS[status])} — {escape(reason)}"
+
+
 def _render_record(record: dict[str, Any], *, has_source: bool, key: str) -> str:
     overlay = reviewed_overlay(record)
     fields = overlay["reviewed_fields"]
@@ -65,7 +72,7 @@ def _render_record(record: dict[str, Any], *, has_source: bool, key: str) -> str
             "<tr>"
             f"<th scope=\"row\">{escape(str(name))}</th>"
             f"<td>{escape(str(value)) if value is not None else '—'}</td>"
-            f"<td>{escape(str(candidate.get('status', 'unknown')))}</td>"
+            f"<td>{_status_cell(record, name, candidate)}</td>"
             f"<td><ul>{''.join(snippets)}</ul></td>"
             "</tr>"
         )

@@ -10,6 +10,7 @@ import json
 import re
 from typing import Any
 
+from .validation_rules import version_of
 from .contracts import validate_document_record
 
 _RULES = {
@@ -93,7 +94,7 @@ def _tax_arithmetic_finding(fields: dict[str, Any]) -> dict[str, Any] | None:
         )
     return {
         "rule_id": "taxable-base-vat-total-arithmetic",
-        "rule_version": "1",
+        "rule_version": version_of("taxable-base-vat-total-arithmetic"),
         "dimension": "amount_arithmetic_consistency",
         "severity": severity,
         "outcome": outcome,
@@ -138,7 +139,7 @@ def _required_custom_field_findings(record: dict[str, Any]) -> list[dict[str, An
             missing = not isinstance(candidate, dict) or candidate.get("status") == "absent"
             findings.append({
                 "rule_id": "required-custom-field",
-                "rule_version": "1",
+                "rule_version": version_of("required-custom-field"),
                 "dimension": "document_consistency",
                 "severity": "warning",
                 "outcome": "indeterminate",
@@ -150,6 +151,55 @@ def _required_custom_field_findings(record: dict[str, Any]) -> list[dict[str, An
                 ),
             })
     return findings
+
+def _first_cents(candidate: Any) -> tuple[int | None, bool]:
+    """Cents of the value a reviewer sees first, and whether it was observed."""
+    if not isinstance(candidate, dict):
+        return None, False
+    if candidate.get("status") == "observed":
+        value, observed = candidate.get("value"), True
+    elif candidate.get("status") == "uncertain" and candidate.get("alternatives"):
+        first = candidate["alternatives"][0]
+        value, observed = (first.get("value") if isinstance(first, dict) else None), False
+    else:
+        return None, False
+    if not isinstance(value, str) or not _CENT_AMOUNT.fullmatch(value):
+        return None, False
+    units, cents = value.lstrip("-").split(".")
+    total = int(units) * 100 + int(cents)
+    return (-total if value.startswith("-") else total), observed
+
+
+def _line_items_sum_finding(record: dict[str, Any]) -> dict[str, Any] | None:
+    """Sum of line-item amounts against the total (REQ-053). Never a hard failure:
+    discounts, taxes or rounding may explain a difference, so a person decides."""
+    items = record.get("line_items")
+    total = record.get("fields", {}).get("total_amount")
+    if not items or total is None:
+        return None
+    readings = [_first_cents(item.get("amount")) for item in items]
+    total_cents, total_observed = _first_cents(total)
+    evidence = _unique_evidence([total] + [item["amount"] for item in items])
+    if total_cents is None or any(cents is None for cents, _ in readings):
+        outcome, severity, message_code = "indeterminate", "warning", "line_items_sum_requires_review"
+    elif sum(cents for cents, _ in readings) == total_cents:
+        if total_observed and all(observed for _, observed in readings):
+            outcome, severity, message_code = "pass", "info", "line_items_sum_matches_total"
+        else:
+            outcome, severity, message_code = "indeterminate", "warning", "line_items_sum_matches_total_requires_review"
+    else:
+        outcome, severity, message_code = "indeterminate", "warning", "line_items_sum_differs_from_total"
+    return {
+        "rule_id": "line-items-sum-total",
+        "rule_version": version_of("line-items-sum-total"),
+        "dimension": "amount_arithmetic_consistency",
+        "severity": severity,
+        "outcome": outcome,
+        "evidence": evidence,
+        "field_names": ["total_amount"],
+        "message_code": message_code,
+    }
+
 
 def validate_document_consistency(record: dict[str, Any]) -> list[dict[str, Any]]:
     """Check supported document relationships and return evidence-bound findings.
@@ -183,7 +233,7 @@ def validate_document_consistency(record: dict[str, Any]) -> list[dict[str, Any]
                 outcome, severity, message_code = "fail", "error", "hotel_checkout_precedes_checkin"
             findings.append({
                 "rule_id": rule_id,
-                "rule_version": "1",
+                "rule_version": version_of(rule_id),
                 "dimension": "date_consistency",
                 "severity": severity,
                 "outcome": outcome,
@@ -195,4 +245,7 @@ def validate_document_consistency(record: dict[str, Any]) -> list[dict[str, Any]
         finding = _tax_arithmetic_finding(fields)
         if finding is not None:
             findings.append(finding)
+    line_items_finding = _line_items_sum_finding(record)
+    if line_items_finding is not None:
+        findings.append(line_items_finding)
     return findings

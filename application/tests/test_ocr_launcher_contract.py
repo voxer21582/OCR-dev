@@ -73,7 +73,7 @@ class OCRLauncherContractTests(unittest.TestCase):
         self.server = _FakeServer()
         self.calls = []
 
-    def _run(self, args, report=None, engines=None):
+    def _run(self, args, report=None, engines=None, catalog_text=None):
         def create_server(**kwargs):
             self.calls.append(kwargs)
             manager = kwargs.get("ocr_processing_manager")
@@ -85,6 +85,10 @@ class OCRLauncherContractTests(unittest.TestCase):
             return self.server
 
         with tempfile.TemporaryDirectory() as local_app_data:
+            if catalog_text is not None:
+                os.makedirs(os.path.join(local_app_data, "OCR2"), exist_ok=True)
+                with open(os.path.join(local_app_data, "OCR2", "family-catalog.json"), "w", encoding="utf-8") as handle:
+                    handle.write(catalog_text)
             with patch.dict(os.environ, {"LOCALAPPDATA": local_app_data}):
                 with patch.object(launcher, "serve_expense_report_local", side_effect=create_server):
                     with patch.object(launcher, "OCRProcessingManager", _FakeManager):
@@ -182,6 +186,29 @@ class OCRLauncherContractTests(unittest.TestCase):
                     launcher.main([])
         self.assertEqual(caught.exception.code, 2)
         serve.assert_not_called()
+
+
+    @unittest.skipUnless(os.name == "nt", "the launcher opens the per-user catalog next to the Windows archive")
+    def test_user_catalog_is_loaded_and_given_to_the_app_and_case_processing(self):
+        catalog = (
+            '{"catalog_version":"1","families":[{"id":"custom_taxi_receipt","label":"Ricevuta taxi",'
+            '"title_cues":["RICEVUTA TAXI"],"fields":[{"id":"pickup_city","label":"Partenza","aliases":["Partenza"]}]}]}'
+        )
+        with patch("builtins.print"):
+            self._run(["--ocr-engine", "rapidocr-v6"], catalog_text=catalog)
+        given = self.calls[0]["custom_family_catalog"]
+        self.assertEqual(given.version, "1")
+        self.assertEqual([family.id for family in given.families], ["custom_taxi_receipt"])
+        self.assertIs(_FakeCaseProcessingManager.instances[0].kwargs["custom_family_catalog"], given)
+        self.assertIsNotNone(self.calls[0]["family_catalog_store"])
+
+    @unittest.skipUnless(os.name == "nt", "the launcher opens the per-user catalog next to the Windows archive")
+    def test_invalid_user_catalog_is_ignored_with_a_warning(self):
+        with patch("builtins.print") as output:
+            self._run([], catalog_text="{not json")
+        self.assertIsNone(self.calls[0]["custom_family_catalog"])
+        text = " ".join(str(args) for args, _ in output.call_args_list)
+        self.assertIn("catalogo dei tipi non valido", text)
 
 
 if __name__ == "__main__":

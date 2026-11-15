@@ -212,6 +212,132 @@ def _date_proposals(literal: str) -> list[tuple[str, str]]:
     return proposals
 
 
+_MERCHANT_TOP_BAND = 0.25
+_MERCHANT_MAX_LINES = 3
+_MERCHANT_SKIP_WORDS = re.compile(
+    r"(?i)\b(?:fattura|ricevuta|scontrino|fiscale|totale|subtotale|data|pagina|documento|nota spese|"
+    r"invoice|receipt|total|date|page|iva|vat|p\.?\s*iva|c\.?f\.?|"
+    r"spett(?:\.?le|abile)|gentile|egregio|alla\s+cortese|contratto|cliente|customer|dear)\b"
+)
+
+
+# OCR often drops the space between a currency code and its amount
+# ("Total:EUR186.03"). A code that starts the text or follows a space or a
+# colon and is directly followed by a digit gets one space, so the amount and
+# the currency are read; codes inside words ("ABCEUR12") are left alone.
+_GLUED_CURRENCY = re.compile(r"(?i)(?:^|(?<=[\s:]))(EUR|USD|GBP|CHF|CAD|AUD|JPY)(?=[+-]?\d)")
+
+
+def _unglue_text(text: str) -> str:
+    """Split only after nothing or an amount label (Totale, Total, Pagato, ...)."""
+    def split(match: re.Match) -> str:
+        prefix = text[:match.start()].rstrip(" :")
+        if not prefix or _TOTAL_LABEL.search(prefix) or _PAID_AMOUNT_LABEL.search(prefix) or _TIP_AMOUNT_LABEL.search(prefix):
+            return match.group(1) + " "
+        return match.group(0)
+
+    return _GLUED_CURRENCY.sub(split, text)
+
+
+def _unglued(token: OCRToken) -> OCRToken:
+    text = _unglue_text(token.text)
+    if text == token.text:
+        return token
+    return OCRToken(token.token_id, text, token.polygon, token.confidence)
+
+
+_TOTAL_ONLY_LABEL = re.compile(
+    r"(?i)^\s*(?:importo\s+totale|totale(?:\s+(?:documento|fattura|da\s+pagare|dovuto|complessivo))?|"
+    r"grand\s+total|total(?:\s+(?:due|amount))?|amount\s+due)\s*:?\s*$"
+)
+
+
+def _row_label_totals(page: OCRPageResult) -> list[_Proposal]:
+    """A total label alone in a cell, with its amount in the next cell of the same row."""
+    proposals = []
+    for label in page.tokens:
+        if not _TOTAL_ONLY_LABEL.fullmatch(label.text):
+            continue
+        top, bottom = min(y for _, y in label.polygon), max(y for _, y in label.polygon)
+        right = max(x for x, _ in label.polygon)
+        best = None
+        for token in page.tokens:
+            if token is label:
+                continue
+            t_top, t_bottom = min(y for _, y in token.polygon), max(y for _, y in token.polygon)
+            left = min(x for x, _ in token.polygon)
+            overlap = min(bottom, t_bottom) - max(top, t_top)
+            if left < right or overlap < 0.5 * min(bottom - top, t_bottom - t_top):
+                continue
+            cell = _unglue_text(token.text).strip()
+            match = _AMOUNT.search(cell)
+            if match is None:
+                continue
+            # A cell with its own words ("IVA 22% 23,45") belongs to another label.
+            leftover = (cell[:match.start()] + cell[match.end():]).strip()
+            if leftover and not re.fullmatch(r"(?i)(?:EUR|USD|GBP|CHF|€)", leftover):
+                continue
+            # The rightmost amount is the total (a VAT summary row also lists base and tax).
+            if best is None or left > best[0]:
+                best = (left, token, match)
+        if best is None:
+            continue
+        _, token, match = best
+        literal = f"{label.text.strip()} {token.text.strip()}"
+        evidence = {
+            "source_sha256": page.source_sha256,
+            "page_number": page.page_number,
+            "region": {
+                "coordinate_space": "normalized_page",
+                "polygon": [[float(x), float(y)] for x, y in (
+                    (min(x for x, _ in label.polygon), min(top, min(y for _, y in token.polygon))),
+                    (max(x for x, _ in token.polygon), min(top, min(y for _, y in token.polygon))),
+                    (max(x for x, _ in token.polygon), max(bottom, max(y for _, y in token.polygon))),
+                    (min(x for x, _ in label.polygon), max(bottom, max(y for _, y in token.polygon))),
+                )],
+            },
+            "token_ids": [label.token_id, token.token_id],
+            "literal": literal,
+            "producer": {"stage": "ocr", "name": page.engine_name, "version": page.engine_version},
+        }
+        proposals.append(_Proposal(_normalize_amount(match.group(1)), evidence, "explicit-total-label-same-row", match.group(1)))
+    return proposals
+
+
+def _merchant_top_lines(page: OCRPageResult) -> list[_Proposal]:
+    """Lines above the first structured line of a page that carries an amount.
+
+    A receipt starts with its issuer. A line qualifies only if the page has an
+    amount, the line sits above the first line carrying a label (":"), a
+    date, an amount or a currency, it is mostly letters and it is not a
+    heading or an addressee ("Spett.le", "Gentile", ...). The caller skips
+    expense reports and pages that name a supplier or customer by label. The
+    result is always uncertain: a hint for the reviewer, never a fact.
+    """
+    def structured(text: str) -> bool:
+        return bool(":" in text or _AMOUNT.search(text) or _CURRENCY_CODE.search(text) or _date_proposals(text))
+
+    if not any(_AMOUNT.search(_unglue_text(token.text)) for token in page.tokens):
+        return []
+    structured_tops = [min(y for _, y in token.polygon) for token in page.tokens if structured(token.text)]
+    first_structured = min(structured_tops) if structured_tops else 1.0
+    lines = []
+    for token in page.tokens:
+        top = min(y for _, y in token.polygon)
+        text = token.text.strip()
+        visible = [char for char in text if not char.isspace()]
+        if (top > _MERCHANT_TOP_BAND or top >= first_structured or len(text) < 3 or structured(text)
+                or _MERCHANT_SKIP_WORDS.search(text)
+                or sum(char.isalpha() for char in visible) < max(3, 0.6 * len(visible))):
+            continue
+        lines.append((top, min(x for x, _ in token.polygon), token, text))
+    lines.sort(key=lambda item: (item[0], item[1]))
+    return [
+        _Proposal(text, _evidence(page, token, text), "merchant-top-line", text)
+        for _, _, token, text in lines[:_MERCHANT_MAX_LINES]
+    ]
+
+
 def _normalize_amount(literal: str) -> str:
     sign = "-" if literal.startswith("-") else ""
     unsigned = literal.lstrip("+-")
@@ -274,6 +400,7 @@ def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: st
 
     for page in ordered_pages:
         for token in page.tokens:
+            token = _unglued(token)
             if document_family == "expense_report":
                 for field_name, label_pattern in _EXPENSE_TEXT_LABELS.items():
                     match = label_pattern.fullmatch(token.text)
@@ -426,6 +553,18 @@ def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: st
                 currencies.append(_Proposal(
                     "EUR", _evidence(page, token, literal), "explicit-euro-symbol", literal
                 ))
+
+    if not labelled_totals:
+        # Column layouts put "Totale" and its amount in separate cells of one row.
+        for page in ordered_pages:
+            labelled_totals.extend(_row_label_totals(page))
+
+    other_parties = any(entity_proposals[name] for name in entity_proposals if name != "merchant_name")
+    if (not entity_proposals["merchant_name"] and ordered_pages and not other_parties
+            and document_family != "expense_report"):
+        # REQ-052: with no "Esercente:" label, the first meaningful lines at the
+        # top of the first page are offered as uncertain merchant readings.
+        entity_proposals["merchant_name"] = _merchant_top_lines(ordered_pages[0])
 
     proposals = {
         "date_candidates": _candidate(dates),

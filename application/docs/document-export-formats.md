@@ -20,9 +20,13 @@ reopen the original source by itself.
 
 `export_document_csv(record)` returns one row per field candidate, or one
 document-identity row when no field candidates exist. Columns include the
-`ocr2-document-csv-v1` format marker, document and schema identity, family,
-source SHA-256, source filename as JSON, field name, and the complete candidate
-object as JSON. Candidate JSON retains the value, status, alternatives,
+`ocr2-document-csv-v2` format marker, document and schema identity, family,
+source SHA-256, source filename as JSON, field name, the field state required by
+GOAL.md (`goal_status`: `valido`, `incerto`, `mancante`, `non_valido` or
+`non_applicabile`) with its Italian reason (`goal_status_reason`), and the
+complete candidate object as JSON. Version 2 (2026-11-15, M3) added the two
+state columns; the state values and reasons come from a fixed vocabulary and
+always start with a letter. Candidate JSON retains the value, status, alternatives,
 normalization, and evidence as one parseable cell. This is an analysis view, not
 a round-trip representation of every document-level property; use JSON when
 complete record round-tripping is needed.

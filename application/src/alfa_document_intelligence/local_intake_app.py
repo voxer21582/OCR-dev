@@ -18,7 +18,7 @@ import threading
 import time
 from typing import Any, Callable
 from urllib.parse import parse_qs, quote
-from wsgiref.simple_server import make_server
+from wsgiref.simple_server import WSGIRequestHandler, make_server
 
 from .chatgpt_handoff import ChatGPTHandoffError, build_chatgpt_handoff_prompt
 from .contracts import validate_document_record
@@ -31,6 +31,13 @@ from .ingestion import IngestionLimits, MaterializedBatch, UploadRejected, mater
 from .review_ledger import append_review_event, reviewed_overlay
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
+from .catalog_editor import (
+    CATALOG_FORM_MAX_BYTES, CatalogFormError, catalog_with_family, explain_catalog_error, family_from_form,
+    render_catalog_page, save_with_history,
+)
+from .document_family_catalog import DocumentFamilyCatalogError, load_custom_family_catalog
+from .validation_rules import RULES as VALIDATION_RULES
+from .field_status import GOAL_STATUS_LABELS, failed_rules_by_field, goal_status, shown_field_status
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
 from .isolated_decoder import iter_decoded_pages_isolated
 from .expense_case_processing import ExpenseCaseProcessingManager, ExpenseCaseJobStatus
@@ -404,7 +411,8 @@ def _upload_page(*, archive_enabled: bool = False) -> str:
         '<button type="submit">Carica e continua</button></form>'
         "<p>Dimensione massima della richiesta: 100 MiB; massimo 20 file.</p>"
         + ('<p><a href="/archive">Apri archivio locale</a> · '
-           '<a href="/cases">Gestisci fascicoli note spese</a></p>' if archive_enabled else "")
+           '<a href="/cases">Gestisci fascicoli note spese</a> · '
+           '<a href="/catalog">Catalogo dei tipi di documento</a></p>' if archive_enabled else "")
         + "</main></html>"
     )
 
@@ -856,12 +864,73 @@ _REGION_REVIEW_SCRIPT = (
 )
 
 
+def _goal_status_text(extracted: Any, candidate: Any, failed: frozenset[str]) -> str:
+    status, reason = shown_field_status(extracted, candidate, failed)
+    return f"Stato: {escape(GOAL_STATUS_LABELS[status])} — {escape(reason)}"
+
+
+def _render_ruleset(record: dict[str, Any]) -> str:
+    """Which rules (and versions) produced the findings shown (REQ-064)."""
+    used = record.get("validation_ruleset")
+    if not isinstance(used, dict) or not used:
+        return ""
+    applied = {item.get("rule_id") for item in record.get("validation_findings", []) if isinstance(item, dict)}
+    if not applied & set(used):
+        return "<section><h2>Verifiche</h2><p>Nessuna verifica applicabile a questo documento.</p></section>"
+    items = []
+    for rule_id, version in sorted(used.items()):
+        if rule_id not in applied:
+            continue
+        spec = VALIDATION_RULES.get(rule_id)
+        label = spec.description_it if spec is not None else rule_id
+        items.append(f"<li>{escape(label)} (versione {escape(str(version))})</li>")
+    return (
+        "<section><h2>Verifiche</h2><p>Verifiche eseguite con le regole:</p>"
+        f"<ul>{''.join(items)}</ul>"
+        "<p><small>Se le regole cambiano, i documenti già in revisione conservano queste.</small></p></section>"
+    )
+
+
+def _render_line_items(record: dict[str, Any]) -> str:
+    """Table of proposed line items (REQ-053): first readings, all to be checked."""
+    items = record.get("line_items")
+    if not isinstance(items, list) or not items:
+        return ""
+
+    def first(candidate: Any) -> str:
+        if not isinstance(candidate, dict):
+            return "—"
+        if candidate.get("status") == "observed" and candidate.get("value") is not None:
+            return escape(str(candidate["value"]))
+        alternatives = candidate.get("alternatives") or []
+        if alternatives and isinstance(alternatives[0], dict) and alternatives[0].get("value") is not None:
+            return escape(str(alternatives[0]["value"]))
+        return "—"
+
+    rows = []
+    for item in items:
+        evidence = (item.get("amount") or {}).get("evidence") or [{}]
+        page = evidence[0].get("page_number", "?") if isinstance(evidence[0], dict) else "?"
+        rows.append(
+            f"<tr><td>{first(item.get('description'))}</td><td>{first(item.get('quantity'))}</td>"
+            f"<td>{first(item.get('unit_price'))}</td><td>{first(item.get('amount'))}</td><td>{escape(str(page))}</td></tr>"
+        )
+    return (
+        "<section><h2>Righe del documento</h2>"
+        "<p>Proposte lette dal documento: tutte da verificare sulla pagina originale.</p>"
+        "<table><thead><tr><th scope=\"col\">Descrizione</th><th scope=\"col\">Quantità</th>"
+        "<th scope=\"col\">Prezzo unitario</th><th scope=\"col\">Importo</th><th scope=\"col\">Pagina</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></section>"
+    )
+
+
 def _render_editable_record(
     record: dict[str, Any], *, document_id: str, has_source: bool, elapsed_seconds: int = 0,
     archive_save_enabled: bool = False,
 ) -> str:
     overlay = reviewed_overlay(record)
     fields = overlay["reviewed_fields"]
+    failed_rules = failed_rules_by_field(record)
     page_numbers = sorted({
         item.get("page_number") for item in record.get("pages", [])
         if isinstance(item, dict) and isinstance(item.get("page_number"), int)
@@ -901,8 +970,8 @@ def _render_editable_record(
                 correction += "<p>La selezione di una nuova regione non è disponibile: la pagina originale non è presente nella sessione corrente.</p>"
         rows.append(
             f"<section><h2>{escape(name)}</h2>"
-            f"<p>Valore verificato: {escape(str(value)) if value is not None else '—'} "
-            f"({escape(str(candidate.get('status', 'unknown')))}).</p>"
+            f"<p>Valore verificato: {escape(str(value)) if value is not None else '—'}. "
+            f"{_goal_status_text(record.get('fields', {}).get(name), candidate, failed_rules.get(name, frozenset()))}</p>"
             f"<ul>{''.join(snippets)}</ul>{correction}</section>"
         )
     family_review = _render_document_family_review(
@@ -937,7 +1006,7 @@ def _render_editable_record(
         "<title>Revisione documento</title><main><p><a href=\"/\">Torna al fascicolo</a></p>"
         f"<h1>Revisione {escape(document_id)}</h1>"
         f"<p>Stato revisione: {escape(str(overlay['review_status']))}. Le correzioni si aggiungono al registro; i dati OCR non vengono sovrascritti.</p>"
-        f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{completion}{archive_save}"
+        f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{_render_line_items(record)}{_render_ruleset(record)}{completion}{archive_save}"
         + (_REGION_REVIEW_STYLE if has_region_editor else "")
         + '<script nonce="__CSP_NONCE__">'
         + (_REGION_REVIEW_SCRIPT if has_region_editor else "")
@@ -1384,6 +1453,7 @@ def create_expense_report_app(
     ocr_processing_manager: OCRProcessingManager | None = None,
     expense_case_processing_manager: ExpenseCaseProcessingManager | None = None,
     custom_family_catalog: Any | None = None,
+    family_catalog_store: Any | None = None,
 ) -> Callable:
     """Create a loopback WSGI app with an idle-expiring session and optional explicit archive."""
     if not isinstance(idle_timeout_seconds, int) or isinstance(idle_timeout_seconds, bool) or idle_timeout_seconds <= 0:
@@ -1391,6 +1461,8 @@ def create_expense_report_app(
     if ocr_processing_manager is not None and document_processor is not None:
         raise ValueError("choose either a synchronous document processor or an OCR job manager")
     state: _VolatileSession | None = None
+    # The catalog can change from the catalog page; processing started later uses the new one.
+    catalog_state: dict[str, Any] = {"catalog": custom_family_catalog}
     csrf_token = secrets.token_urlsafe(32)
     state_lock = threading.RLock()
     app_closed = False
@@ -1489,6 +1561,60 @@ def create_expense_report_app(
         path = environ.get("PATH_INFO", "")
         case_route = _CASE_PATH.fullmatch(path)
         case_reconciliation_route = _CASE_RECONCILIATION_PATH.fullmatch(path)
+        if path == "/catalog" or path.startswith("/catalog/"):
+            if family_catalog_store is None:
+                return _page(environ, start_response, "503 Service Unavailable", "Catalogo dei tipi non configurato")
+            if method == "GET" and path == "/catalog":
+                return _page(environ, start_response, "200 OK", render_catalog_page(catalog_state["catalog"]))
+            if method == "GET" and path == "/catalog/export":
+                catalog = catalog_state["catalog"]
+                body = catalog.as_json() if catalog is not None else '{"catalog_version":"2","families":[]}\n'
+                return _page(environ, start_response, "200 OK", body, "application/json; charset=utf-8",
+                             download_filename="ocr2-catalogo-tipi.json")
+            if method == "POST" and path in {"/catalog/families", "/catalog/import"}:
+                if not _same_origin_loopback_post(environ):
+                    return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                current = catalog_state["catalog"]
+                try:
+                    if path == "/catalog/families":
+                        # Reuse the body the CSRF gate may already have parsed (Origin: null
+                        # from the sandboxed page); reading the stream again would block.
+                        form = {
+                            key: items[0] for key, items in
+                            _multipart_form_values(environ, max_form_bytes=CATALOG_FORM_MAX_BYTES).items()
+                            if len(items) == 1
+                        }
+                        family = family_from_form(
+                            label=form.get("label", ""), title_cues=form.get("title_cues", ""),
+                            fields=form.get("fields", ""),
+                        )
+                        base = current if current is not None else load_custom_family_catalog('{"catalog_version":"2","families":[]}')
+                        raw = catalog_with_family(base, family)
+                        done = f"Tipo «{family['label']}» aggiunto."
+                    else:
+                        files, _fields = _multipart_files_and_fields(environ)
+                        if len(files) != 1:
+                            raise CatalogFormError("Scegli un solo file di catalogo.")
+                        raw = files[0][1]
+                        done = "Catalogo importato."
+                    with state_lock:
+                        saved = save_with_history(family_catalog_store, raw, catalog_state["catalog"])
+                        catalog_state["catalog"] = saved
+                        setter = getattr(expense_case_processing_manager, "set_custom_family_catalog", None)
+                        if callable(setter):
+                            setter(saved)
+                except CatalogFormError as exc:
+                    return _page(environ, start_response, "400 Bad Request", render_catalog_page(current, error=str(exc)))
+                except DocumentFamilyCatalogError as exc:
+                    return _page(environ, start_response, "400 Bad Request", render_catalog_page(
+                        current, error=explain_catalog_error(exc) + " Il catalogo precedente resta in uso.",
+                    ))
+                except (IntakeRequestError, UploadRejected):
+                    return _page(environ, start_response, "400 Bad Request", render_catalog_page(
+                        current, error="Il file non è stato ricevuto correttamente. Il catalogo precedente resta in uso.",
+                    ))
+                return _page(environ, start_response, "200 OK", render_catalog_page(saved, message=done))
+            return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
         case_review_route = _CASE_REVIEW_PATH.fullmatch(path)
         case_export_route = _CASE_EXPORT_PATH.fullmatch(path)
         case_inclusion_route = _CASE_INCLUSION_PATH.fullmatch(path)
@@ -2229,7 +2355,7 @@ def create_expense_report_app(
                             session.generation_id,
                             intake,
                             decode_limits=DecodeLimits(),
-                            custom_family_catalog=custom_family_catalog,
+                            custom_family_catalog=catalog_state["catalog"],
                         )
                     except BaseException:
                         with state_lock:
@@ -2569,6 +2695,34 @@ def _multipart_scalar(
         raise IntakeRequestError("Seleziona esattamente una nota spese")
     return values[0]
 
+_IDLE_CONNECTION_TIMEOUT_SECONDS = 2.0
+
+
+_REQUEST_BODY_TIMEOUT_SECONDS = 300.0
+
+
+class _QuietIdleHandler(WSGIRequestHandler):
+    """Short wait for the first byte of a request, long wait once it has started.
+
+    A connection that sends nothing within ``idle_timeout`` is dropped quietly
+    (a browser's spare connection); a request that has begun may pause, for
+    example while a file is still being fetched from a synced folder.
+    """
+
+    idle_timeout = _IDLE_CONNECTION_TIMEOUT_SECONDS
+    timeout = None  # set per phase in handle()
+
+    def handle(self) -> None:
+        try:
+            self.connection.settimeout(self.idle_timeout)
+            if not self.rfile.peek(1):
+                return
+            self.connection.settimeout(_REQUEST_BODY_TIMEOUT_SECONDS)
+            super().handle()
+        except TimeoutError:
+            self.close_connection = True
+
+
 def serve_expense_report_local(
     *,
     port: int = 8000,
@@ -2579,10 +2733,14 @@ def serve_expense_report_local(
     ocr_processing_manager: OCRProcessingManager | None = None,
     expense_case_processing_manager: ExpenseCaseProcessingManager | None = None,
     custom_family_catalog: Any | None = None,
+    family_catalog_store: Any | None = None,
+    idle_connection_timeout_seconds: float = _IDLE_CONNECTION_TIMEOUT_SECONDS,
 ):
     """Create a local HTTP server bound exclusively to IPv4 loopback."""
     if not isinstance(port, int) or isinstance(port, bool) or not 0 <= port <= 65535:
         raise ValueError("port must be between 0 and 65535")
+    if not isinstance(idle_connection_timeout_seconds, (int, float)) or not 0 < idle_connection_timeout_seconds <= 60:
+        raise ValueError("idle_connection_timeout_seconds must be between 0 and 60")
     app = create_expense_report_app(
         limits=limits,
         max_batch_document_bytes=max_batch_document_bytes,
@@ -2591,7 +2749,12 @@ def serve_expense_report_local(
         ocr_processing_manager=ocr_processing_manager,
         expense_case_processing_manager=expense_case_processing_manager,
         custom_family_catalog=custom_family_catalog,
+        family_catalog_store=family_catalog_store,
     )
-    server = make_server("127.0.0.1", port, app)
+    # The server handles one connection at a time. Browsers open spare
+    # connections that may never send a request; without a socket timeout one
+    # of them blocks every later request.
+    handler = type("_BoundedIdleHandler", (_QuietIdleHandler,), {"idle_timeout": idle_connection_timeout_seconds})
+    server = make_server("127.0.0.1", port, app, handler_class=handler)
     server.ocr2_close = app.close
     return server

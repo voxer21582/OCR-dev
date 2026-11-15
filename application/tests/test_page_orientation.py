@@ -107,3 +107,38 @@ def test_engine_failure_during_a_rotation_is_not_swallowed():
 
     with pytest.raises(RuntimeError):
         recognize_with_orientation(_FailsWhenTurned(), _page((1, 1)), source_sha256=_SHA)
+
+
+def test_rotation_angle_is_recorded_on_the_page():
+    import json
+    from io import BytesIO
+    from pathlib import Path
+
+    from PIL import Image
+
+    from alfa_document_intelligence.document_processing import process_document_record, recognize_page
+    from alfa_document_intelligence.expense_reports import create_expense_report_intake_session
+    from alfa_document_intelligence.ingestion import materialize_stream_batch
+
+    result, angle = recognize_page(_ReadsOnlyUpright(), _page((3, 0)), source_sha256=_SHA)
+    assert angle == 90 and len(result.tokens) == 3
+    assert recognize_page(_ReadsOnlyUpright(), _page((0, 0)), source_sha256=_SHA)[1] == 0
+
+    def png(marker):
+        image = Image.new("RGB", (4, 4), "white")
+        image.putpixel(marker, (255, 0, 0))
+        buffer = BytesIO()
+        image.save(buffer, "PNG")
+        return buffer.getvalue()
+
+    for marker, expected in (((3, 0), 90), ((0, 0), None)):
+        batch = materialize_stream_batch([("r.png", BytesIO(png(marker)))])
+        intake = create_expense_report_intake_session(
+            batch, expense_report_id="report-r", note_document_id="doc-r", document_ids=["doc-r"],
+            session_id="session-r", received_at="2026-11-15T10:00:00+00:00",
+        )
+        record = process_document_record(intake.documents["doc-r"], intake.source_bytes["doc-r"], _ReadsOnlyUpright())
+        assert record["pages"][0].get("rotation_degrees") == expected
+
+    schema = json.loads((Path(__file__).resolve().parents[1] / "src" / "alfa_document_intelligence" / "schemas" / "document.schema.json").read_text(encoding="utf-8"))
+    assert schema["$defs"]["page"]["properties"]["rotation_degrees"] == {"enum": [0, 90, 180, 270]}

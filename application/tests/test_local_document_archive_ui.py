@@ -143,7 +143,7 @@ class LocalDocumentArchiveUiTests(unittest.TestCase):
         )
         self.assertEqual(status, "200 OK")
         self.assertEqual(headers["Content-Type"], "text/csv; charset=utf-8")
-        self.assertIn(b"ocr2-document-csv-v1", csv_export)
+        self.assertIn(b"ocr2-document-csv-v2", csv_export)
 
     def test_archive_only_open_and_return_does_not_create_a_fake_expense_bundle(self):
         self._start_expense_report_session()

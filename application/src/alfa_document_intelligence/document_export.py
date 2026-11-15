@@ -10,9 +10,10 @@ import io
 import json
 from typing import Any
 
+from .field_status import failed_rules_by_field, goal_status
 from .contracts import validate_document_record
 
-CSV_EXPORT_VERSION = "ocr2-document-csv-v1"
+CSV_EXPORT_VERSION = "ocr2-document-csv-v2"
 CSV_COLUMNS = (
     "export_format_version",
     "document_id",
@@ -21,6 +22,8 @@ CSV_COLUMNS = (
     "source_sha256",
     "source_filename_json",
     "field_name",
+    "goal_status",
+    "goal_status_reason",
     "candidate_json",
 )
 _REQUIRED_RECORD_PROPERTIES = (
@@ -74,6 +77,13 @@ def export_document_json(record: dict[str, Any]) -> str:
     ) + "\n"
 
 
+def _goal_columns(candidate: Any, failed: frozenset[str]) -> dict[str, str]:
+    if candidate is None:
+        return {"goal_status": "", "goal_status_reason": ""}
+    status, reason = goal_status(candidate, failed_rule_ids=failed)
+    return {"goal_status": status, "goal_status_reason": reason}
+
+
 def export_document_csv(record: dict[str, Any]) -> str:
     """Return a tabular, non-round-trip projection of a valid record.
 
@@ -84,6 +94,7 @@ def export_document_csv(record: dict[str, Any]) -> str:
     """
     document = _validated_record(record)
     fields = document["fields"]
+    failed_rules = failed_rules_by_field(document)
     field_names = sorted(fields)
     if not field_names:
         field_names = [""]
@@ -103,6 +114,9 @@ def export_document_csv(record: dict[str, Any]) -> str:
                     document["source"].get("original_filename")
                 ),
                 "field_name": field_name,
+                # Fixed vocabulary and reasons that start with a letter: no
+                # cell can begin with a spreadsheet formula character.
+                **_goal_columns(fields.get(field_name), failed_rules.get(field_name, frozenset())),
                 "candidate_json": _json_text(fields[field_name]) if field_name else "",
             }
         )

@@ -13,7 +13,9 @@ from typing import Any, Iterable
 from .document_family_catalog import DocumentFamilyCatalog, catalog_from_snapshots
 from .contracts import validate_document_record
 from .document_validation import DocumentValidationError, validate_document_consistency
+from .validation_rules import ruleset
 from .expense_line_extraction import ExpenseLineProposalLimitError, extract_expense_lines
+from .invoice_line_items import LineItemLimitError, extract_line_items
 from .ocr_adapter import OCRPageResult
 from .semantic_proposals import SemanticProposalError, SemanticProposalLimitError, propose_common_fields
 
@@ -118,6 +120,14 @@ def analyze_ocr_results(
             extract_expense_lines(materialized_pages, document_language=document.get("language"))
             if document.get("document_family") == "expense_report" else None
         )
+        try:
+            line_items = (
+                extract_line_items(materialized_pages)
+                if document.get("document_family") != "expense_report" else []
+            )
+        except LineItemLimitError:
+            # Too many rows for line items: keep the common fields and omit the items.
+            line_items = []
     except SemanticProposalLimitError as exc:
         raise AnalysisProposalLimitError(exc.code) from exc
     except ExpenseLineProposalLimitError as exc:
@@ -129,6 +139,8 @@ def analyze_ocr_results(
     result_document["schema_version"] = "0.3.0"
     if expense_lines is not None:
         result_document["expense_lines"] = expense_lines
+    if line_items:
+        result_document["line_items"] = line_items
     if active_catalog is not None:
         custom_ids = {
             item.get("value")
@@ -162,6 +174,7 @@ def analyze_ocr_results(
         raise AnalysisPipelineError(f"document validation failed: {exc}") from exc
 
     result_document["validation_findings"] = findings
+    result_document["validation_ruleset"] = ruleset()
     if omitted_field_limit_code is None:
         result_document["processing"]["semantic_extraction"]["status"] = "completed"
     else:

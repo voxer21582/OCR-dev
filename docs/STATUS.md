@@ -1,12 +1,44 @@
-STATO: IN ATTESA DI APPROVAZIONE — M2 (lavoro finito; serve l'ok del proprietario al merge, R7/R8)
+STATO: MILESTONE COMPLETATA — M3
 
 # Stato del lavoro
 
 Aggiornato: 2026-11-15.
 
+## Per chi riprende il lavoro (2026-11-15)
+
+Il proprietario sposta il progetto su un altro assistente. Stato al merge di M3:
+
+- **Prossima milestone:** M4 Revisione (REQ-070, 072, 073, 075), non iniziata. Il suo piano dettagliato va scritto in `docs/superpowers/plans/` prima di cominciare (`docs/plan.md`). Da rifare in M4 le PR del gruppo C elencate in `docs/evidence/M1/pr-triage.md` (#69, #71, #75, #94–#98, #103).
+- **Regole del progetto:** `GOAL.md` (vincoli V1–V9); decisioni in `docs/decisions.md` (DEC-001…026); il proprietario è responsabile di R7/R8 e approva ogni PR che tocca archivio ed esportazione; nessuna dipendenza fuori da `docs/dependencies-approved.md`; solo dati sintetici.
+- **Metodo usato:** test scritto prima (deve fallire, poi passare); evidenze in `docs/evidence/Mx/` con i commit citati verificati; revisione indipendente prima di chiudere una milestone; merge solo con il sì del proprietario.
+- **CI:** due controlli obbligatori su `main` («Taxonomy registry and binding» su Ubuntu, «Windows application contracts» su Windows); ogni modulo di test nuovo va elencato in entrambi i job (`application/tests/test_ci_workflow.py` lo verifica).
+- **Misure locali con l'OCR vero** (da `application/`, con il venv del runtime approvato): `tools/run_case_benchmark.py` (fascicolo), `tools/run_field_benchmark.py` (campi), `tools/line_item_benchmark.py --measure` (righe di fattura). Le fixture le generano gli script stessi.
+- **Problemi aperti noti:** fallimento intermittente non spiegato di un lavoro OCR di fascicolo (1 esecuzione su 4 in M2, da seguire in M7: ora lo script ne riporta il codice); giustificativo avanzato proposto a righe dello stesso giorno (DEC-023); sconti con meno finale ignorati; `revalidate()` pronta ma usata solo da M5.
+- **Su Windows con Git Bash:** gli script Python incollati nel terminale possono perdere le barre rovesciate; scrivere gli script in file. I file del repository sono LF nell'indice e CRLF nella copia di lavoro.
+
+## M3 — Classificazione ed estrazione
+
+Tutti i compiti del piano M3 sono fatti e la revisione indipendente è chiusa: criteri ed evidenze in [`evidence/M3/acceptance.md`](evidence/M3/acceptance.md). M3 è completata: il proprietario ha approvato il merge della PR #148 il 2026-11-15. Criteri ed evidenze: [`evidence/M3/acceptance.md`](evidence/M3/acceptance.md).
+
+Risultati principali:
+- catalogo dei tipi caricato dall'app e modificabile da una pagina «Catalogo», con storico delle versioni;
+- i quattro stati di GOAL con il motivo in revisione e nel CSV;
+- proposta del nome dell'esercente;
+- angolo di rotazione nel record;
+- righe di fattura e tabelle, con la verifica «somma delle righe = totale»;
+- regole di verifica con versione: i documenti già in revisione non cambiano.
+
+Accuratezza sintetica (60 giustificativi): totale, data, valuta, numero e partita IVA 100%; esercente 90%; tutte le soglie fissate prima sono superate. Tre difetti dell'app trovati e corretti (valuta attaccata, server bloccato da connessioni inattive, modulo da pagina in sandbox).
+
+Righe di fattura su 12 fatture sintetiche: 54/54 corrette, verifica della somma 12/12.
+
+CI: Ubuntu 783 passati e 9 saltati con motivo; Windows 792 passati.
+
+REQ-053 e REQ-064 inclusi in M3 su richiesta del proprietario.
+
 ## M2 — Motori e decodifica
 
-Tutti i compiti del piano M2 sono fatti e la revisione indipendente è chiusa: criteri ed evidenze in [`evidence/M2/acceptance.md`](evidence/M2/acceptance.md). M2 sarà completata dopo il merge della PR, che richiede l'approvazione del proprietario (anteprime di archivio e fascicolo, R7/R8).
+Tutti i compiti del piano M2 sono fatti e la revisione indipendente è chiusa: criteri ed evidenze in [`evidence/M2/acceptance.md`](evidence/M2/acceptance.md). M2 è completata: PR #147 unita il 2026-11-15.
 
 Risultati principali (dati sintetici):
 - registro dei motori a manifest; un motore di prova aggiunto con soli file nuovi;
@@ -55,8 +87,8 @@ Design approvato dal proprietario il 2026-11-15: [`superpowers/specs/2026-11-15-
 | Milestone | Stato |
 |---|---|
 | M1 Ordine e verificabilità | **completata** (2026-11-15) |
-| M2 Motori e decodifica | lavoro finito, in attesa dell'ok al merge |
-| M3 Classificazione ed estrazione | non iniziata |
+| M2 Motori e decodifica | **completata** (2026-11-15, #147) |
+| M3 Classificazione ed estrazione | **completata** (2026-11-15, #148) |
 | M4 Revisione | non iniziata |
 | M5 Libreria | non iniziata |
 | M6 Applicazione installabile | non iniziata |
