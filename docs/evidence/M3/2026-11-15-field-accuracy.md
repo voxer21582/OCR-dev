@@ -6,7 +6,7 @@
 
 **Esecuzione:** PC di sviluppo Windows 11, CPython 3.13.15, RapidOCR 3.10.0 con PP-OCRv6 scelto dal registro, comando `python -m tools.run_field_benchmark`. Nessun errore OCR in nessuna delle due esecuzioni.
 
-| Campo | Soglia | Esecuzione 1 (`f45e036`) | Esecuzione 2 (`b2b5c56`, dopo la correzione) |
+| Campo | Soglia | Esecuzione 1 (`f45e036`) | Esecuzione 2 (`39dea21`, dopo la correzione) |
 |---|---|---|---|
 | `total_amount` | ≥ 95% | **86,7%** (52/60) — sotto soglia | **100%** (60/60) |
 | `issue_date` | ≥ 95% | 100% | 100% |
@@ -20,7 +20,7 @@
 - L'OCR perde gli spazi e legge, per esempio, `Total:EUR186.03`.
 - La regola degli importi non accettava un numero attaccato a un codice di valuta, quindi il totale non veniva proposto. Di conseguenza mancava anche l'esercente, la cui regola richiede un importo sulla pagina.
 - È lo stesso tipo di difetto corretto per le righe della nota spese in #135.
-- **Correzione:** commit `b2b5c56`, test `test_attached_currency_amounts` (prima rosso, poi verde). Le soglie non sono state toccate.
+- **Correzione:** commit `39dea21`, test `test_attached_currency_amounts` (prima rosso, poi verde). Le soglie non sono state toccate.
 
 **Errori rimasti (esecuzione 2):**
 - 6 nomi di esercente italiani letti dall'OCR senza spazio (per esempio `FarmaciaCentrale`). È un limite di lettura dell'OCR, non delle regole.
