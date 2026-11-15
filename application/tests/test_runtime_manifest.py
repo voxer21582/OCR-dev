@@ -9,9 +9,16 @@ import pytest
 from alfa_document_intelligence.runtime_manifest import build_manifest, verify_installation
 
 
+def _required_payload(root):
+    (root / "app" / "alfa_document_intelligence").mkdir(parents=True, exist_ok=True)
+    (root / "app" / "alfa_document_intelligence" / "__init__.py").write_bytes(b"synthetic")
+    (root / "python").mkdir(exist_ok=True)
+    for name in ("python.exe", "pythonw.exe", "python313.zip"):
+        (root / "python" / name).write_bytes(b"synthetic")
+
+
 def test_manifest_detects_changed_missing_extra_and_forbidden_files(tmp_path):
-    (tmp_path / "app").mkdir()
-    (tmp_path / "python").mkdir()
+    _required_payload(tmp_path)
     (tmp_path / "app" / "a.py").write_bytes(b"original")
     (tmp_path / "python" / "p.dll").write_bytes(b"runtime")
     manifest = build_manifest(tmp_path, version="1", excluded_globs=())
@@ -55,8 +62,7 @@ def test_launcher_refuses_invalid_runtime_before_opening_server(monkeypatch, tmp
 
 
 def test_ffmpeg_forbidden_even_if_listed(tmp_path):
-    (tmp_path / "app").mkdir()
-    (tmp_path / "python").mkdir()
+    _required_payload(tmp_path)
     (tmp_path / "python" / "opencv_videoio_ffmpeg123.dll").write_bytes(b"x")
     manifest = build_manifest(tmp_path, version="1", excluded_globs=())
     path = tmp_path / "manifest.json"
@@ -72,8 +78,7 @@ def test_missing_payload_directories_are_rejected(tmp_path):
 
 def test_walk_errors_fail_closed(monkeypatch, tmp_path):
     from alfa_document_intelligence import runtime_manifest
-    (tmp_path / "app").mkdir()
-    (tmp_path / "python").mkdir()
+    _required_payload(tmp_path)
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps(build_manifest(tmp_path, version="1", excluded_globs=())), encoding="utf-8")
     def failed_walk(_path, *, followlinks, onerror=None):
@@ -81,6 +86,14 @@ def test_walk_errors_fail_closed(monkeypatch, tmp_path):
             onerror(PermissionError("synthetic"))
         return iter(())
     monkeypatch.setattr(runtime_manifest.os, "walk", failed_walk)
+    assert not verify_installation(tmp_path, path).ok
+
+
+def test_empty_payload_with_valid_manifest_is_rejected(tmp_path):
+    (tmp_path / "app").mkdir()
+    (tmp_path / "python").mkdir()
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(build_manifest(tmp_path, version="1", excluded_globs=())), encoding="utf-8")
     assert not verify_installation(tmp_path, path).ok
 
 
@@ -106,6 +119,25 @@ def test_launcher_window_error_works_without_stderr(monkeypatch, tmp_path):
     with pytest.raises(SystemExit) as exc:
         launcher.main(["--app-window"])
     assert exc.value.code == 2 and notices
+
+
+def test_installed_launcher_rejects_missing_manifest(monkeypatch, tmp_path):
+    from alfa_document_intelligence import __main__ as launcher
+    monkeypatch.setattr(launcher, "_installation_root", lambda: tmp_path)
+    monkeypatch.setattr(launcher, "_is_installed", lambda root: True)
+    calls = []
+    monkeypatch.setattr(launcher, "serve_expense_report_local", lambda **kwargs: calls.append(kwargs))
+    with pytest.raises(SystemExit) as exc:
+        launcher.main([])
+    assert exc.value.code == 2 and not calls
+
+
+def test_inventory_rejects_root_junction(monkeypatch, tmp_path):
+    (tmp_path / "app").mkdir()
+    (tmp_path / "python").mkdir()
+    monkeypatch.setattr(Path, "is_junction", lambda path: path == tmp_path / "app")
+    with pytest.raises(ValueError):
+        build_manifest(tmp_path, version="1", excluded_globs=())
 
 
 def test_link_entries_are_refused_without_creating_windows_symlinks(monkeypatch, tmp_path):

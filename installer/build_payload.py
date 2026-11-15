@@ -22,37 +22,38 @@ def _extract_embeddable(archive: Path, destination: Path, expected_sha256: str) 
     if not re.fullmatch(r"[a-f0-9]{64}", expected_sha256):
         raise PayloadBuildError("Invalid pinned SHA-256")
     digest = hashlib.sha256()
-    with archive.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+    with archive.open("rb") as source_file:
+        for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
             digest.update(chunk)
-    if digest.hexdigest() != expected_sha256:
-        raise PayloadBuildError("Embeddable Python digest mismatch")
-    with zipfile.ZipFile(archive) as source:
-        entries = source.infolist()
-        if len(entries) > 10000 or sum(item.file_size for item in entries) > 1024 * 1024 * 1024:
-            raise PayloadBuildError("Embeddable archive exceeds limits")
-        names = set()
-        for item in entries:
-            name = item.filename
-            parts = PurePosixPath(name).parts
-            reserved = re.compile(r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$", re.IGNORECASE)
-            if (not name or name.startswith("/") or "//" in name or "\\" in name or ":" in name
-                    or any(part in (".", "..") or part.endswith((".", " ")) for part in parts)
-                    or any(reserved.fullmatch(part) for part in parts)
-                    or stat.S_ISLNK(item.external_attr >> 16)
-                    or name.casefold() in names):
-                raise PayloadBuildError("Unsafe or duplicate archive path")
-            names.add(name.casefold())
-        destination.mkdir(parents=True, exist_ok=False)
-        for item in entries:
-            path = destination.joinpath(*PurePosixPath(item.filename).parts)
-            if item.is_dir():
-                path.mkdir(parents=True, exist_ok=True)
-            else:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with source.open(item) as source_file, path.open("xb") as target:
-                    while chunk := source_file.read(1024 * 1024):
-                        target.write(chunk)
+        if digest.hexdigest() != expected_sha256:
+            raise PayloadBuildError("Embeddable Python digest mismatch")
+        source_file.seek(0)
+        with zipfile.ZipFile(source_file) as source:
+            entries = source.infolist()
+            if len(entries) > 10000 or sum(item.file_size for item in entries) > 1024 * 1024 * 1024:
+                raise PayloadBuildError("Embeddable archive exceeds limits")
+            names = set()
+            for item in entries:
+                name = item.filename
+                parts = PurePosixPath(name).parts
+                reserved = re.compile(r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$", re.IGNORECASE)
+                if (not name or name.startswith("/") or "//" in name or "\\" in name or ":" in name
+                        or any(part in (".", "..") or part.endswith((".", " ")) for part in parts)
+                        or any(reserved.fullmatch(part) for part in parts)
+                        or stat.S_ISLNK(item.external_attr >> 16)
+                        or name.casefold() in names):
+                    raise PayloadBuildError("Unsafe or duplicate archive path")
+                names.add(name.casefold())
+            destination.mkdir(parents=True, exist_ok=False)
+            for item in entries:
+                path = destination.joinpath(*PurePosixPath(item.filename).parts)
+                if item.is_dir():
+                    path.mkdir(parents=True, exist_ok=True)
+                else:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    with source.open(item) as entry_file, path.open("xb") as target:
+                        while chunk := entry_file.read(1024 * 1024):
+                            target.write(chunk)
 
 
 def _configure_python_path(python_dir: Path) -> None:

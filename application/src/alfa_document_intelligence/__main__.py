@@ -92,6 +92,10 @@ def _installation_root() -> Path:
     return Path(sys.executable).resolve().parent.parent
 
 
+def _is_installed(root: Path) -> bool:
+    return Path(__file__).resolve().parent.parent == (root / "app").resolve()
+
+
 def _show_integrity_error(message: str) -> None:
     """Show a local OS dialog without starting a server on an invalid install."""
     if os.name == "nt":
@@ -121,7 +125,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     install_root = _installation_root()
     runtime_manifest = install_root / "runtime-manifest.json"
     runtime_status = "non verificato (avvio da sorgenti)"
-    if runtime_manifest.exists():
+    if runtime_manifest.exists() or runtime_manifest.is_symlink() or _is_installed(install_root):
         verification = verify_installation(install_root, runtime_manifest)
         if not verification.ok:
             message = "Installazione non valida: " + "; ".join(verification.problems)

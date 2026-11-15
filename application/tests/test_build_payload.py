@@ -66,12 +66,28 @@ def test_payload_refuses_existing_destination(tmp_path):
         builder._extract_embeddable(archive, destination, hashlib.sha256(archive.read_bytes()).hexdigest())
 
 
+def test_extraction_uses_same_open_file_that_was_hashed(monkeypatch, tmp_path):
+    builder = _builder()
+    archive = tmp_path / "python.zip"
+    with zipfile.ZipFile(archive, "w") as output:
+        output.writestr("python.exe", b"synthetic")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    original_zip = zipfile.ZipFile
+    def require_open_handle(file, *args, **kwargs):
+        assert hasattr(file, "read") and hasattr(file, "seek")
+        return original_zip(file, *args, **kwargs)
+    monkeypatch.setattr(builder.zipfile, "ZipFile", require_open_handle)
+    builder._extract_embeddable(archive, tmp_path / "payload", digest)
+    assert (tmp_path / "payload" / "python.exe").read_bytes() == b"synthetic"
+
+
 def test_build_payload_excludes_tests_caches_and_ffmpeg_and_verifies(monkeypatch, tmp_path):
     from alfa_document_intelligence.runtime_manifest import verify_installation
     builder = _builder()
     archive = tmp_path / "python.zip"
     with zipfile.ZipFile(archive, "w") as output:
         output.writestr("python.exe", b"synthetic")
+        output.writestr("pythonw.exe", b"synthetic")
         output.writestr("python313.zip", b"synthetic")
     pins = tmp_path / "pins.json"
     pins.write_text(json.dumps({"python": {"filename": archive.name, "sha256": hashlib.sha256(archive.read_bytes()).hexdigest()}}), encoding="utf-8")

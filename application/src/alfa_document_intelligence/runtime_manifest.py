@@ -8,6 +8,8 @@ import re
 import time
 
 FORBIDDEN_GLOBS = ("**/opencv_videoio_ffmpeg*.dll",)
+_REQUIRED_FILES = frozenset({"python/python.exe", "python/pythonw.exe", "python/python313.zip",
+                             "app/alfa_document_intelligence/__init__.py"})
 
 
 @dataclass(frozen=True)
@@ -23,7 +25,7 @@ def _inventory(root: Path, excluded_globs) -> dict:
         raise error
     for directory in ("app", "python"):
         base = root / directory
-        if base.is_symlink():
+        if base.is_symlink() or getattr(base, "is_junction", lambda: False)():
             raise ValueError("symbolic links are not allowed")
         if not base.is_dir():
             raise ValueError("payload directory missing")
@@ -64,6 +66,8 @@ def verify_installation(root: Path, manifest_path: Path) -> RuntimeVerification:
                 or not isinstance(manifest.get("files"), dict)):
             raise ValueError("invalid manifest")
         expected = manifest["files"]
+        if not _REQUIRED_FILES <= set(expected):
+            raise ValueError("manifest missing required runtime files")
         for name, info in expected.items():
             parts = name.split("/") if isinstance(name, str) else []
             if (len(parts) < 2 or parts[0] not in {"app", "python"}
