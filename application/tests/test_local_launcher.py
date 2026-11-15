@@ -3,12 +3,14 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import threading
 import time
 from urllib.error import URLError
 from urllib.request import urlopen
 
 import pytest
 
+from alfa_document_intelligence import app_instance
 import alfa_document_intelligence.__main__ as launcher
 
 
@@ -98,3 +100,150 @@ def test_launcher_serves_real_loopback_http_request_and_stops(tmp_path):
         except subprocess.TimeoutExpired:
             process.kill()
             process.communicate(timeout=5)
+
+
+def _app_window_environment(monkeypatch, tmp_path):
+    """--app-window with a temporary LOCALAPPDATA and a fake window opener (never a real Edge)."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(launcher, "_APP_WINDOW_AVAILABLE", True)
+    opened = []
+    monkeypatch.setattr(launcher, "open_window", lambda url, data_dir: opened.append((url, data_dir)) or "edge")
+    lifetimes = []
+    real_lifetime = launcher.AppLifetime
+
+    def recording_lifetime(*args, **kwargs):
+        lifetime = real_lifetime(*args, **kwargs)
+        lifetimes.append(lifetime)
+        return lifetime
+
+    monkeypatch.setattr(launcher, "AppLifetime", recording_lifetime)
+    served = []
+    real_serve = launcher.serve_expense_report_local
+
+    def recording_serve(**kwargs):
+        served.append(kwargs)
+        server = real_serve(**kwargs)
+        closes = []
+        original_close = server.ocr2_close
+
+        def close():
+            closes.append(True)
+            original_close()
+
+        server.ocr2_close = close
+        server.test_closes = closes
+        return server
+
+    monkeypatch.setattr(launcher, "serve_expense_report_local", recording_serve)
+    return opened, lifetimes, served
+
+
+def _start_first_instance(tmp_path):
+    errors = []
+
+    def run():
+        try:
+            launcher.main(["--app-window"])
+        except BaseException as exc:  # pragma: no cover - surfaced by the assertion below
+            errors.append(exc)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    data_dir = tmp_path / "OCR2"
+    deadline = time.monotonic() + 15
+    port = None
+    while time.monotonic() < deadline and port is None and thread.is_alive():
+        port = app_instance.running_instance(data_dir, timeout=0.5)
+        if port is None:
+            time.sleep(0.05)
+    assert not errors, errors
+    assert port is not None, "first --app-window instance did not publish itself"
+    return thread, data_dir, port, errors
+
+
+def _port_is_free(port):
+    probe = socket.socket()
+    try:
+        probe.bind(("127.0.0.1", port))
+    except OSError:
+        return False
+    finally:
+        probe.close()
+    return True
+
+
+def test_launcher_app_window_reuses_running_instance(monkeypatch, tmp_path):
+    opened, lifetimes, served = _app_window_environment(monkeypatch, tmp_path)
+    thread, data_dir, port, errors = _start_first_instance(tmp_path)
+    try:
+        assert len(served) == 1
+        assert served[0]["port"] == 0
+        assert served[0]["app_lifetime"] is lifetimes[0]
+        assert served[0]["app_info"].instance_id
+        assert opened == [(f"http://127.0.0.1:{port}/", data_dir)]
+
+        launcher.main(["--app-window"])  # returns normally: exit code 0
+
+        assert len(served) == 1, "the second launch must not create a server"
+        assert opened == [(f"http://127.0.0.1:{port}/", data_dir)] * 2
+    finally:
+        lifetimes[0].request_exit()
+        thread.join(15)
+    assert not thread.is_alive() and not errors
+
+
+def test_launcher_app_window_stops_when_lifetime_requests_exit(monkeypatch, tmp_path):
+    _opened, lifetimes, served = _app_window_environment(monkeypatch, tmp_path)
+    thread, data_dir, port, errors = _start_first_instance(tmp_path)
+    assert (data_dir / "instance.json").exists()
+
+    lifetimes[0].request_exit()
+    thread.join(15)
+
+    assert not thread.is_alive(), "launcher did not stop after the exit request"
+    assert not errors, errors
+    assert lifetimes[0].stopped.is_set()
+    assert served[0]["app_info"] is not None
+    assert _port_is_free(port)
+    assert not (data_dir / "instance.json").exists()
+    assert app_instance.running_instance(data_dir, timeout=0.5) is None
+    lock = app_instance.acquire(data_dir)
+    assert lock is not None, "the instance lock must be released"
+    lock.release()
+
+
+def test_launcher_app_window_respects_explicit_port(monkeypatch, tmp_path):
+    _app_window_environment(monkeypatch, tmp_path)
+    ports = []
+    server = _FakeServer()
+    server.shutdown = lambda: None
+
+    def fake_serve(*, port, **_services):
+        ports.append(port)
+        return server
+
+    monkeypatch.setattr(launcher, "serve_expense_report_local", fake_serve)
+    launcher.main(["--app-window", "--port", "8765"])
+    assert ports == [8765]
+    assert server.closed
+    assert app_instance.acquire(tmp_path / "OCR2") is not None
+
+
+def test_launcher_app_window_reports_browser_fallback(monkeypatch, capsys, tmp_path):
+    _app_window_environment(monkeypatch, tmp_path)
+    monkeypatch.setattr(launcher, "open_window", lambda url, data_dir: "browser")
+    server = _FakeServer()
+    server.shutdown = lambda: None
+    monkeypatch.setattr(launcher, "serve_expense_report_local", lambda **_kwargs: server)
+    launcher.main(["--app-window"])
+    assert "Edge non trovato: OCR2 si apre nel browser predefinito." in capsys.readouterr().err
+
+
+def test_launcher_app_window_requires_windows(monkeypatch, capsys, tmp_path):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(launcher, "_APP_WINDOW_AVAILABLE", False)
+    with pytest.raises(SystemExit) as raised:
+        launcher.main(["--app-window"])
+    assert raised.value.code == 2
+    assert "La finestra dell'app è disponibile solo su Windows" in capsys.readouterr().err
+    assert not (tmp_path / "OCR2" / "instance.lock").exists()

@@ -68,7 +68,9 @@ jobs:
         run: >-
           python -B -m pytest -q -rs -p no:cacheprovider
           tests/test_analysis_pipeline.py
+          tests/test_app_instance.py
           tests/test_app_lifetime.py
+          tests/test_app_window.py
           tests/test_app_window_routes.py
           tests/test_archive_backup.py
           tests/test_attached_currency_amounts.py
@@ -195,7 +197,9 @@ jobs:
         run: >-
           python -B -m pytest -q -rs -p no:cacheprovider
           tests/test_analysis_pipeline.py
+          tests/test_app_instance.py
           tests/test_app_lifetime.py
+          tests/test_app_window.py
           tests/test_app_window_routes.py
           tests/test_archive_backup.py
           tests/test_attached_currency_amounts.py
