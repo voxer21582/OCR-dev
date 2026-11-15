@@ -67,6 +67,18 @@ def synthetic_factory_raises():
     raise RuntimeError("synthetic factory failure")
 
 
+class _SyntheticIdentityAdapter:
+    name = "SyntheticX"
+    version = "2"
+
+    def recognize(self, page, languages):
+        return []
+
+
+def synthetic_factory_wrong_identity():
+    return _SyntheticIdentityAdapter()
+
+
 def synthetic_factory_sleeps():
     time.sleep(30)
     raise RuntimeError("synthetic timeout sentinel")
@@ -284,6 +296,50 @@ class OCRWorkerBootstrapTests(unittest.TestCase):
             self.assertFalse(manager._job.process.is_alive())
         finally:
             manager.close()
+
+    @unittest.skipUnless(os.name == "nt", "the worker attaches to a Windows Job Object before importing the factory; the Windows CI job runs this test")
+    def test_engine_identity_mismatch_fails_closed(self):
+        from io import BytesIO
+        from alfa_document_intelligence.document_decoder import DecodeLimits
+        from alfa_document_intelligence.expense_reports import create_expense_report_intake_session
+        from alfa_document_intelligence.ingestion import materialize_stream_batch
+        from alfa_document_intelligence.ocr_processing import OCRProcessingManager
+
+        intake = create_expense_report_intake_session(
+            materialize_stream_batch([("synthetic.pdf", BytesIO(b"%PDF-1.7\nsynthetic note"))]),
+            expense_report_id="synthetic-report-3", note_document_id="synthetic-doc-3",
+            document_ids=["synthetic-doc-3"], session_id="synthetic-session-3",
+            received_at="2026-11-11T10:00:00+00:00",
+        )
+        manager = OCRProcessingManager(
+            "tests.test_ocr_processing:synthetic_factory_wrong_identity", OCRProcessLimits(**valid_limits()),
+            expected_identity=("SyntheticX", "1"),
+        )
+        try:
+            job_id = manager.start("synthetic-generation-3", intake, decode_limits=DecodeLimits())
+            deadline = time.monotonic() + 10
+            status = manager.snapshot(job_id)
+            while status is not None and status.phase not in {"succeeded", "failed", "cancelled"}:
+                if time.monotonic() >= deadline:
+                    self.fail("synthetic child did not reach a terminal state")
+                time.sleep(0.02)
+                status = manager.snapshot(job_id)
+            self.assertEqual(status.phase, "failed")
+            self.assertEqual(status.error_code, "engine_identity_mismatch")
+            self.assertIsNone(manager.result_frame("synthetic-generation-3", job_id))
+        finally:
+            manager.close()
+
+    def test_expected_identity_must_be_two_texts(self):
+        from alfa_document_intelligence.ocr_processing import OCRProcessingManager
+
+        for value in (("only-one",), ("", "1"), ("A", 1), "A:1"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    OCRProcessingManager(
+                        "tests.test_ocr_processing:synthetic_factory_raises",
+                        OCRProcessLimits(**valid_limits()), expected_identity=value,
+                    )
 
     @unittest.skipUnless(os.name == "nt", "worker deadline handling is specified for the Windows Job Object worker; the Windows CI job runs this test")
     def test_deadline_terminates_worker_without_status_polling(self):

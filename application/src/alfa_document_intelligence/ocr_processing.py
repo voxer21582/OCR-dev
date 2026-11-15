@@ -646,7 +646,14 @@ def _send_worker_frame(connection, kind: str, payload: dict[str, object], limits
     ))
 
 
-def _ocr_worker_entry(input_receiver, output_sender, start_gate, factory_ref: str, limits: OCRProcessLimits) -> None:
+class _EngineIdentityMismatch(RuntimeError):
+    """The constructed adapter does not declare the identity of its manifest."""
+
+
+def _ocr_worker_entry(
+    input_receiver, output_sender, start_gate, factory_ref: str, limits: OCRProcessLimits,
+    expected_identity: tuple[str, str] | None = None,
+) -> None:
     """Spawn target. It receives no source data until after the parent gate."""
     input_payload: dict[str, object] | None = None
     message_count = [0]
@@ -673,7 +680,12 @@ def _ocr_worker_entry(input_receiver, output_sender, start_gate, factory_ref: st
         # Imports, catalog reconstruction, and factory construction are delayed
         # until the parent has attached the child to its OS resource boundary.
         factory = _resolve_factory(factory_ref)
-        adapter = _OutputBoundAdapter(factory(), limits.max_page_output_bytes)
+        engine = factory()
+        if expected_identity is not None and (
+            getattr(engine, "name", None), getattr(engine, "version", None)
+        ) != tuple(expected_identity):
+            raise _EngineIdentityMismatch()
+        adapter = _OutputBoundAdapter(engine, limits.max_page_output_bytes)
         from .document_decoder import iter_decoded_pages
 
         def report_progress(
@@ -717,6 +729,8 @@ def _ocr_worker_entry(input_receiver, output_sender, start_gate, factory_ref: st
     except BaseException as exc:
         if isinstance(exc, _PageOutputLimitError):
             error_code = "page_output_limit"
+        elif isinstance(exc, _EngineIdentityMismatch):
+            error_code = "engine_identity_mismatch"
         elif isinstance(exc, _CaseBudgetExceeded):
             error_code = exc.error_code
         elif isinstance(exc, OCRJobProtocolError):
@@ -768,8 +782,17 @@ def _peek_canonical_kind(frame: bytes) -> str:
 class OCRProcessingManager:
     """Own one spawned, bounded OCR job and retain only a complete result frame."""
 
-    def __init__(self, adapter_factory_ref: str, limits: OCRProcessLimits) -> None:
+    def __init__(
+        self, adapter_factory_ref: str, limits: OCRProcessLimits, *,
+        expected_identity: tuple[str, str] | None = None,
+    ) -> None:
         _validate_factory_reference(adapter_factory_ref)
+        if expected_identity is not None and not (
+            isinstance(expected_identity, tuple) and len(expected_identity) == 2
+            and all(isinstance(part, str) and part.strip() for part in expected_identity)
+        ):
+            raise ValueError("expected engine identity must be a (name, version) pair")
+        self._expected_identity = expected_identity
         if not isinstance(limits, OCRProcessLimits):
             raise ValueError("explicit OCR process limits are required")
         if os.name not in {"nt", "posix"}:
@@ -872,7 +895,10 @@ class OCRProcessingManager:
         start_gate = context.Event()
         process = context.Process(
             target=_ocr_worker_entry,
-            args=(input_receiver, output_sender, start_gate, self._adapter_factory_ref, self._limits),
+            args=(
+                input_receiver, output_sender, start_gate, self._adapter_factory_ref, self._limits,
+                self._expected_identity,
+            ),
             daemon=True,
         )
         job.process = process
