@@ -220,6 +220,24 @@ _MERCHANT_SKIP_WORDS = re.compile(
 )
 
 
+# OCR often drops the space between a currency code and its amount
+# ("Total:EUR186.03"). A code that starts the text or follows a space or a
+# colon and is directly followed by a digit gets one space, so the amount and
+# the currency are read; codes inside words ("ABCEUR12") are left alone.
+_GLUED_CURRENCY = re.compile(r"(?i)(?:^|(?<=[\s:]))(EUR|USD|GBP|CHF|CAD|AUD|JPY)(?=[+-]?\d)")
+
+
+def _unglue_text(text: str) -> str:
+    return _GLUED_CURRENCY.sub(lambda match: match.group(1) + " ", text)
+
+
+def _unglued(token: OCRToken) -> OCRToken:
+    text = _unglue_text(token.text)
+    if text == token.text:
+        return token
+    return OCRToken(token.token_id, text, token.polygon, token.confidence)
+
+
 def _merchant_top_lines(page: OCRPageResult) -> list[_Proposal]:
     """Lines above the first structured line of a page that carries an amount.
 
@@ -231,7 +249,7 @@ def _merchant_top_lines(page: OCRPageResult) -> list[_Proposal]:
     def structured(text: str) -> bool:
         return bool(":" in text or _AMOUNT.search(text) or _CURRENCY_CODE.search(text) or _date_proposals(text))
 
-    if not any(_AMOUNT.search(token.text) for token in page.tokens):
+    if not any(_AMOUNT.search(_unglue_text(token.text)) for token in page.tokens):
         return []
     structured_tops = [min(y for _, y in token.polygon) for token in page.tokens if structured(token.text)]
     first_structured = min(structured_tops) if structured_tops else 1.0
@@ -314,6 +332,7 @@ def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: st
 
     for page in ordered_pages:
         for token in page.tokens:
+            token = _unglued(token)
             if document_family == "expense_report":
                 for field_name, label_pattern in _EXPENSE_TEXT_LABELS.items():
                     match = label_pattern.fullmatch(token.text)
