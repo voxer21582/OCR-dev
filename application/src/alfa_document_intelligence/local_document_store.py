@@ -22,7 +22,16 @@ from typing import Iterator, Protocol
 from .contracts import validate_document_record
 
 DEFAULT_MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
+# Schema 4: encrypted library metadata (display name, tags, change events) per
+# document or case, kept apart from the record so its hash and review history stay valid.
+_LIBRARY_TABLE_SQL = (
+    "CREATE TABLE document_library (library_key TEXT PRIMARY KEY NOT NULL, library_payload BLOB NOT NULL)"
+)
+_MAX_DISPLAY_NAME = 120
+_MAX_TAGS = 20
+_MAX_TAG_LENGTH = 40
+_MAX_LIBRARY_EVENTS = 500
 _INDEX_KEY_NAME = "document-id-hmac-v1"
 _INDEX_KEY_PREFIX = b"OCR2-IDX1"
 _SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
@@ -140,6 +149,9 @@ class StoredDocumentSummary:
     source_sha256: str
     page_count: int
     saved_at: str
+    display_name: str | None = None
+    tags: tuple[str, ...] = ()
+    review_status: str = "not_started"
 
 
 class WindowsDpapiProtector:
@@ -375,6 +387,10 @@ class LocalDocumentStore:
                     self._migrate_schema_v3(connection)
                 else:
                     self._validate_schema_v3(connection)
+                if version < 4:
+                    self._migrate_schema_v4(connection)
+                else:
+                    self._validate_schema_v4(connection)
         except StoreSchemaError:
             raise
         except StoreError:
@@ -451,6 +467,242 @@ class LocalDocumentStore:
             connection.rollback()
             raise StoreSchemaError("could not migrate local document-store schema to version 3") from exc
         self._validate_schema_v3(connection)
+
+    def _migrate_schema_v4(self, connection: sqlite3.Connection) -> None:
+        """Add the library metadata table; records, sources and cases are untouched."""
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(_LIBRARY_TABLE_SQL)
+            connection.execute("PRAGMA user_version = 4")
+            connection.commit()
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise StoreSchemaError("could not migrate local document-store schema to version 4") from exc
+        self._validate_schema_v4(connection)
+
+    @staticmethod
+    def _validate_schema_v4(connection: sqlite3.Connection) -> None:
+        columns = {row[1]: row for row in connection.execute("PRAGMA table_info(document_library)").fetchall()}
+        if set(columns) != {"library_key", "library_payload"} or columns["library_key"][5] != 1:
+            raise StoreSchemaError("local library metadata table shape is invalid")
+
+    # -- library metadata (REQ-083, REQ-084) ------------------------------------
+
+    def _protect_library(self, library: dict) -> bytes:
+        try:
+            protected = self._protector.protect(self._canonical_json({"format_version": 1, "library": library}))
+        except Exception as exc:
+            raise StoreProtectionError("could not protect library metadata") from exc
+        if not isinstance(protected, bytes) or not protected:
+            raise StoreProtectionError("payload protector returned invalid library ciphertext")
+        return protected
+
+    def _decode_library(self, protected: bytes) -> dict:
+        try:
+            envelope = json.loads(self._protector.unprotect(bytes(protected)).decode("utf-8"))
+            library = envelope["library"]
+            if envelope.get("format_version") != 1 or not isinstance(library, dict):
+                raise ValueError("invalid library envelope")
+            if not isinstance(library.get("tags"), list) or not isinstance(library.get("events"), list):
+                raise ValueError("invalid library metadata")
+            return library
+        except Exception as exc:
+            raise StoreIntegrityError("library metadata could not be authenticated or decoded") from exc
+
+    def _library_get(self, connection: sqlite3.Connection, key: str) -> dict:
+        row = connection.execute("SELECT library_payload FROM document_library WHERE library_key = ?", (key,)).fetchone()
+        if row is None:
+            return {"display_name": None, "tags": [], "events": []}
+        return self._decode_library(row[0])
+
+    def _library_update(self, key: str, exists, change) -> None:
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                if not exists(connection):
+                    raise StoreRejected("the document or case does not exist")
+                library = self._library_get(connection, key)
+                change(library)
+                library["events"] = library["events"][-_MAX_LIBRARY_EVENTS:]
+                connection.execute(
+                    "INSERT INTO document_library(library_key, library_payload) VALUES (?, ?) "
+                    "ON CONFLICT(library_key) DO UPDATE SET library_payload = excluded.library_payload",
+                    (key, self._protect_library(library)),
+                )
+                connection.commit()
+        except StoreError:
+            raise
+        except sqlite3.Error as exc:
+            raise StoreError("could not update library metadata") from exc
+
+    @staticmethod
+    def _library_event(kind: str, value: object, actor: str) -> dict:
+        if not isinstance(actor, str) or not actor.strip() or len(actor) > 256:
+            raise StoreRejected("a library change needs the local account that made it")
+        return {"kind": kind, "value": value, "actor": actor, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+    @staticmethod
+    def _clean_display_name(name: object) -> str:
+        if not isinstance(name, str):
+            raise StoreRejected("display name must be text")
+        cleaned = " ".join(name.split())
+        if not 1 <= len(cleaned) <= _MAX_DISPLAY_NAME:
+            raise StoreRejected(f"display name must be 1 to {_MAX_DISPLAY_NAME} characters")
+        return cleaned
+
+    @staticmethod
+    def _clean_tags(tags: object) -> list[str]:
+        if not isinstance(tags, (list, tuple)) or any(not isinstance(tag, str) for tag in tags):
+            raise StoreRejected("tags must be a list of text values")
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for tag in tags:
+            value = " ".join(tag.split())
+            if not value or len(value) > _MAX_TAG_LENGTH or value.casefold() in seen:
+                continue
+            seen.add(value.casefold())
+            cleaned.append(value)
+        if len(cleaned) > _MAX_TAGS:
+            raise StoreRejected(f"at most {_MAX_TAGS} tags per document")
+        return cleaned
+
+    def _document_exists(self, document_id: str):
+        return lambda connection: self._row_for_document_id(connection, document_id) is not None
+
+    def set_display_name(self, document_id: str, name: str, *, actor: str) -> None:
+        cleaned = self._clean_display_name(name)
+        event = self._library_event("rename", cleaned, actor)
+
+        def change(library: dict) -> None:
+            library["display_name"] = cleaned
+            library["events"].append(event)
+
+        self._library_update(self._document_id_index(document_id), self._document_exists(document_id), change)
+
+    def set_tags(self, document_id: str, tags: list[str], *, actor: str) -> None:
+        cleaned = self._clean_tags(tags)
+        event = self._library_event("tags", cleaned, actor)
+
+        def change(library: dict) -> None:
+            library["tags"] = cleaned
+            library["events"].append(event)
+
+        self._library_update(self._document_id_index(document_id), self._document_exists(document_id), change)
+
+    def set_case_label(self, case_id: str, label: str, *, actor: str) -> None:
+        cleaned = self._clean_display_name(label)
+        event = self._library_event("rename", cleaned, actor)
+
+        def change(library: dict) -> None:
+            library["display_name"] = cleaned
+            library["events"].append(event)
+
+        key = "case:" + self._case_id_index(case_id)
+        self._library_update(key, lambda connection: self._case_row_for_id(connection, case_id) is not None, change)
+
+    def case_label(self, case_id: str) -> str | None:
+        with self._connect() as connection:
+            return self._library_get(connection, "case:" + self._case_id_index(case_id)).get("display_name")
+
+    def library_events(self, document_id: str) -> list[dict]:
+        with self._connect() as connection:
+            return copy.deepcopy(self._library_get(connection, self._document_id_index(document_id))["events"])
+
+    # -- backup and restore (REQ-086) --------------------------------------------
+
+    _BACKUP_FORMAT = "ocr2-archive-backup-v1"
+
+    def backup_to(self, target_dir: str | Path) -> dict:
+        """Write a consistent copy of the encrypted archive and a manifest into a new folder.
+
+        The copy stays encrypted with this Windows user's protection: it can be
+        restored by the same user only (DEC-029).
+        """
+        target = Path(target_dir)
+        if target.exists() and any(target.iterdir()):
+            raise StoreRejected("backup folder must be new or empty")
+        target.mkdir(parents=True, exist_ok=True)
+        copy_path = target / "archive.sqlite3"
+        try:
+            source = sqlite3.connect(self.path, timeout=10)
+            try:
+                destination = sqlite3.connect(copy_path)
+                try:
+                    source.backup(destination)
+                    documents = destination.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+                    cases = destination.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
+                    version = destination.execute("PRAGMA user_version").fetchone()[0]
+                finally:
+                    destination.close()
+            finally:
+                source.close()
+        except sqlite3.Error as exc:
+            raise StoreError("could not write the archive backup") from exc
+        manifest = {
+            "format": self._BACKUP_FORMAT,
+            "schema_version": version,
+            "documents": documents,
+            "cases": cases,
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "sha256": hashlib.sha256(copy_path.read_bytes()).hexdigest(),
+        }
+        (target / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return manifest
+
+    def restore_from(self, backup_dir: str | Path) -> dict:
+        """Replace this archive with a verified backup; the current one is kept beside it.
+
+        The previous archive is kept as ``<name>.before-restore-<UTC time>`` (never
+        overwritten). Nothing changes unless the backup's hash matches its manifest
+        and the copy opens and passes every integrity check with this user's
+        protection; if the swap or the checks after it fail, the previous archive
+        is put back. Returns the manifest with ``previous_copy`` added.
+        """
+        folder = Path(backup_dir)
+        if self.path.with_name(self.path.name + "-journal").exists():
+            raise StoreError("the archive has an unfinished transaction journal; reopen the app before restoring")
+        try:
+            manifest_path = folder / "manifest.json"
+            if manifest_path.stat().st_size > 64 * 1024:
+                raise ValueError("manifest too large")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            data = (folder / "archive.sqlite3").read_bytes()
+        except (OSError, ValueError) as exc:
+            raise StoreRejected("the backup folder is incomplete or unreadable") from exc
+        if not isinstance(manifest, dict) or manifest.get("format") != self._BACKUP_FORMAT:
+            raise StoreRejected("the folder does not contain an OCR2 archive backup")
+        if hashlib.sha256(data).hexdigest() != manifest.get("sha256"):
+            raise StoreRejected("the backup file does not match its manifest (damaged or changed)")
+        staging = self.path.with_name(f".restore-{secrets.token_hex(8)}.sqlite3")
+        staging.write_bytes(data)
+        try:
+            try:
+                candidate = LocalDocumentStore(staging, protector=self._protector, max_document_bytes=self._max_document_bytes)
+                candidate.search_library(limit=1)
+                candidate.list_cases(limit=100)
+            except StoreError as exc:
+                raise StoreRejected("the backup cannot be opened by this user or failed its integrity checks") from exc
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            previous = self.path.with_name(f"{self.path.name}.before-restore-{stamp}-{secrets.token_hex(2)}")
+            os.replace(self.path, previous)
+            try:
+                os.replace(staging, self.path)
+                self._known_index_entries = {}
+                self._known_case_entries = {}
+                self._initialize()
+                self._verify_index_integrity()
+                self._verify_case_index_integrity()
+            except BaseException as exc:
+                os.replace(previous, self.path)
+                self._known_index_entries = {}
+                self._known_case_entries = {}
+                if isinstance(exc, (StoreError, OSError)):
+                    raise StoreError("restore failed; the previous archive was put back") from exc
+                raise
+        finally:
+            if staging.exists():
+                staging.unlink()
+        return {**manifest, "previous_copy": previous.name}
 
     def _protect_index_key(self, key: bytes) -> bytes:
         try:
@@ -1084,6 +1336,7 @@ class LocalDocumentStore:
                 refs = self._manifest_document_refs(case)
                 connection.execute("DELETE FROM case_documents WHERE case_id_index = ?", (case_index,))
                 connection.execute("DELETE FROM cases WHERE entry_id = ?", (case_entry,))
+                connection.execute("DELETE FROM document_library WHERE library_key = ?", ("case:" + self._case_id_index(case_id),))
                 for ref in refs:
                     document_index = self._document_id_index(ref["document_id"])
                     retained = connection.execute(
@@ -1110,6 +1363,7 @@ class LocalDocumentStore:
                         self._decode_source(source_payload, expected_hash=source_hash, expected_length=record["source"]["byte_length"])
                         connection.execute("DELETE FROM documents WHERE entry_id = ?", (entry_id,))
                         connection.execute("DELETE FROM document_retention WHERE document_id_index = ?", (document_index,))
+                        connection.execute("DELETE FROM document_library WHERE library_key = ?", (document_index,))
                         self._known_index_entries.pop(document_index, None)
                 connection.commit()
                 self._known_case_entries.pop(case_index, None)
@@ -1632,8 +1886,10 @@ class LocalDocumentStore:
             raise StoreError("could not read local document") from exc
 
     @staticmethod
-    def _summary(record: dict, saved_at: str) -> StoredDocumentSummary:
+    def _summary(record: dict, saved_at: str, library: dict | None = None) -> StoredDocumentSummary:
         source = record["source"]
+        library = library or {}
+        review = record.get("review") if isinstance(record.get("review"), dict) else {}
         return StoredDocumentSummary(
             document_id=record["document_id"],
             filename=str(source.get("original_filename", "")),
@@ -1641,7 +1897,57 @@ class LocalDocumentStore:
             source_sha256=source["sha256"].lower(),
             page_count=len(record.get("pages", [])),
             saved_at=saved_at,
+            display_name=library.get("display_name"),
+            tags=tuple(library.get("tags", ())),
+            review_status=str(review.get("status", "not_started")),
         )
+
+    def search_library(
+        self, query: str = "", *, family: str | None = None, review_status: str | None = None,
+        tag: str | None = None, saved_from: str | None = None, saved_to: str | None = None,
+        offset: int = 0, limit: int = 25,
+    ) -> tuple[list[StoredDocumentSummary], int]:
+        """Filtered, paged library search (REQ-081). Returns one page and the total count."""
+        if not isinstance(query, str):
+            raise ValueError("query must be text")
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200:
+            raise ValueError("limit must be an integer from 1 to 200")
+        if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+        for bound in (saved_from, saved_to):
+            if bound is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", bound):
+                raise ValueError("dates must be YYYY-MM-DD")
+        needle = query.strip().casefold()
+        wanted_tag = " ".join(tag.split()).casefold() if isinstance(tag, str) and tag.strip() else None
+        matches: list[StoredDocumentSummary] = []
+        try:
+            with self._connect() as connection:
+                for _, record, saved_at in self._iter_records(connection):
+                    library = self._library_get(connection, self._document_id_index(record["document_id"]))
+                    summary = self._summary(record, saved_at, library)
+                    if family and summary.document_family != family:
+                        continue
+                    if review_status and summary.review_status != review_status:
+                        continue
+                    if wanted_tag and wanted_tag not in {item.casefold() for item in summary.tags}:
+                        continue
+                    day = saved_at[:10]
+                    if (saved_from and day < saved_from) or (saved_to and day > saved_to):
+                        continue
+                    if needle:
+                        searchable = (
+                            json.dumps(record, ensure_ascii=False, sort_keys=True)
+                            + " " + (summary.display_name or "") + " " + " ".join(summary.tags)
+                        ).casefold()
+                        if needle not in searchable:
+                            continue
+                    matches.append(summary)
+        except StoreError:
+            raise
+        except sqlite3.Error as exc:
+            raise StoreError("could not search local documents") from exc
+        matches.sort(key=lambda item: item.document_id)
+        return matches[offset:offset + limit], len(matches)
 
     def search(self, query: str, *, limit: int = 100) -> list[StoredDocumentSummary]:
         if not isinstance(query, str):
@@ -1685,6 +1991,7 @@ class LocalDocumentStore:
                     raise StoreIntegrityError("document ID index points to a different record")
                 connection.execute("DELETE FROM documents WHERE entry_id = ?", (entry_id,))
                 connection.execute("DELETE FROM document_retention WHERE document_id_index = ?", (index,))
+                connection.execute("DELETE FROM document_library WHERE library_key = ?", (index,))
                 self._known_index_entries.pop(index, None)
                 connection.commit()
             return True

@@ -116,6 +116,7 @@ class ExpenseCaseStoreTests(unittest.TestCase):
             connection.execute("DROP TABLE cases")
             connection.execute("DROP TABLE case_documents")
             connection.execute("DROP TABLE document_retention")
+            connection.execute("DROP TABLE document_library")  # schema 4 table, absent in a real v2 archive
             connection.execute("PRAGMA user_version = 2")
             connection.commit()
         finally:

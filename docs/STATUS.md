@@ -1,8 +1,17 @@
-STATO: MILESTONE COMPLETATA — M4
+STATO: MILESTONE COMPLETATA — M5 (R7/R8 approvati dal proprietario il 2026-11-15; limite di REQ-089 accettato)
+
+Criteri di accettazione M5 ed evidenze: [acceptance.md](evidence/M5/acceptance.md).
+- Libreria: ricerca con filtri e pagine (REQ-081); rinomina di documenti e fascicoli (REQ-083); etichette (REQ-084). [Percorso nel browser](evidence/M5/browser-walkthrough.md).
+- Archivio: eliminazione senza tracce nel file, con i [limiti documentati](product/deletion-limits.md) (REQ-085); backup e ripristino verificati (REQ-086); migrazione allo schema 4 e scritture interrotte (REQ-087); ripresa dei fascicoli dopo la riapertura (REQ-082).
+- Export: dalla pagina (REQ-088); export del fascicolo riletto (REQ-089, con il limite dichiarato); registro dei formati, con un formato nuovo aggiunto con [soli file nuovi](evidence/M5/exporter-new-files.txt) (REQ-090); archivio cifrato e sessioni (REQ-122).
+- [Revisione indipendente](evidence/M5/review.md): i quattro problemi importanti sono stati corretti in `75ce91d`.
+- Suite locale: 881 test passati ([output](evidence/M5/suite-75ce91d.md)).
+- La CI e il link alla PR sono nella PR. Nuova decisione: DEC-029. Domanda per M6: Q-003.
+
 
 # Stato del lavoro
 
-M4 verificata sulla proposta della PR #149: REQ-070 ([percorso browser](evidence/M4/browser-walkthrough.md)), REQ-072 ([test export](evidence/M4/ci-security-suite.txt)), REQ-073 ([regione manuale](evidence/M4/missing-fields-review.md)) e REQ-075 ([checklist e riscontro vocale](evidence/M4/accessibility-checklist.md)). CI [Ubuntu](https://github.com/voxer21582/OCR-dev/actions/runs/43750928840/job/132924474854) e [Windows](https://github.com/voxer21582/OCR-dev/actions/runs/43750928840/job/132924474509) passata su `b6dc0f5`; revisione indipendente e approvazione esplicita R8 del proprietario in [audit](evidence/M4/review.md). La PR è in bozza e non è stata unita. CodeQL mantiene due avvisi medi, valutati senza divulgazioni concrete nei percorsi attuali ([limiti](evidence/M4/ci-security-review.md)).
+M4 verificata sulla proposta della PR #149: REQ-070 ([percorso browser](evidence/M4/browser-walkthrough.md)), REQ-072 ([test export](evidence/M4/ci-security-suite.txt)), REQ-073 ([regione manuale](evidence/M4/missing-fields-review.md)) e REQ-075 ([checklist e riscontro vocale](evidence/M4/accessibility-checklist.md)). CI [Ubuntu](https://github.com/voxer21582/OCR-dev/actions/runs/43750928840/job/132924474854) e [Windows](https://github.com/voxer21582/OCR-dev/actions/runs/43750928840/job/132924474509) passata su `b6dc0f5`; revisione indipendente e approvazione esplicita R8 del proprietario in [audit](evidence/M4/review.md). La PR è stata unita in `main` dal proprietario il 2026-11-15. CodeQL mantiene due avvisi medi, valutati senza divulgazioni concrete nei percorsi attuali ([limiti](evidence/M4/ci-security-review.md)).
 
 ## Cronologia della chiusura
 

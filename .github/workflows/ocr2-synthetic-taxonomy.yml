@@ -68,20 +68,24 @@ jobs:
         run: >-
           python -B -m pytest -q -rs -p no:cacheprovider
           tests/test_analysis_pipeline.py
+          tests/test_archive_backup.py
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py
           tests/test_case_benchmark_score.py
+          tests/test_case_export_reader.py
           tests/test_catalog_alias_delimiters.py
           tests/test_catalog_editor.py
           tests/test_catalog_pipeline.py
           tests/test_chatgpt_handoff.py
           tests/test_ci_workflow.py
           tests/test_contract_baseline.py
+          tests/test_deletion_traces.py
           tests/test_document_contract.py
           tests/test_document_decoder.py
           tests/test_document_decoder_contract.py
           tests/test_document_export.py
           tests/test_document_family_catalog.py
+          tests/test_document_library.py
           tests/test_document_processing.py
           tests/test_document_validation.py
           tests/test_evidence_linked_review_ui.py
@@ -93,6 +97,7 @@ jobs:
           tests/test_expense_reconciliation_ui.py
           tests/test_expense_report_intake_session.py
           tests/test_expense_reports.py
+          tests/test_exporter_registry.py
           tests/test_field_benchmark.py
           tests/test_field_status.py
           tests/test_field_status_presentation.py
@@ -101,8 +106,10 @@ jobs:
           tests/test_handoff_latest_correction.py
           tests/test_hashed_lock.py
           tests/test_ingestion.py
+          tests/test_interrupted_writes.py
           tests/test_invoice_line_items.py
           tests/test_isolated_decoder.py
+          tests/test_library_ui.py
           tests/test_line_item_benchmark.py
           tests/test_local_document_archive_ui.py
           tests/test_local_document_store.py
@@ -127,13 +134,14 @@ jobs:
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
           tests/test_region_review_keyboard.py
-          tests/test_review_ledger.py
           tests/test_review_identity.py
+          tests/test_review_ledger.py
           tests/test_review_ui.py
           tests/test_security_gate.py
           tests/test_semantic_failure_warning.py
           tests/test_semantic_proposals.py
           tests/test_server_idle_connection.py
+          tests/test_synthetic_exporter.py
           tests/test_synthetic_fixed_engine.py
           tests/test_synthetic_ocr_metrics.py
           tests/test_tax_exact_arithmetic.py
@@ -185,20 +193,24 @@ jobs:
         run: >-
           python -B -m pytest -q -rs -p no:cacheprovider
           tests/test_analysis_pipeline.py
+          tests/test_archive_backup.py
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py
           tests/test_case_benchmark_score.py
+          tests/test_case_export_reader.py
           tests/test_catalog_alias_delimiters.py
           tests/test_catalog_editor.py
           tests/test_catalog_pipeline.py
           tests/test_chatgpt_handoff.py
           tests/test_ci_workflow.py
           tests/test_contract_baseline.py
+          tests/test_deletion_traces.py
           tests/test_document_contract.py
           tests/test_document_decoder.py
           tests/test_document_decoder_contract.py
           tests/test_document_export.py
           tests/test_document_family_catalog.py
+          tests/test_document_library.py
           tests/test_document_processing.py
           tests/test_document_validation.py
           tests/test_evidence_linked_review_ui.py
@@ -210,6 +222,7 @@ jobs:
           tests/test_expense_reconciliation_ui.py
           tests/test_expense_report_intake_session.py
           tests/test_expense_reports.py
+          tests/test_exporter_registry.py
           tests/test_field_benchmark.py
           tests/test_field_status.py
           tests/test_field_status_presentation.py
@@ -218,8 +231,10 @@ jobs:
           tests/test_handoff_latest_correction.py
           tests/test_hashed_lock.py
           tests/test_ingestion.py
+          tests/test_interrupted_writes.py
           tests/test_invoice_line_items.py
           tests/test_isolated_decoder.py
+          tests/test_library_ui.py
           tests/test_line_item_benchmark.py
           tests/test_local_document_archive_ui.py
           tests/test_local_document_store.py
@@ -244,13 +259,14 @@ jobs:
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
           tests/test_region_review_keyboard.py
-          tests/test_review_ledger.py
           tests/test_review_identity.py
+          tests/test_review_ledger.py
           tests/test_review_ui.py
           tests/test_security_gate.py
           tests/test_semantic_failure_warning.py
           tests/test_semantic_proposals.py
           tests/test_server_idle_connection.py
+          tests/test_synthetic_exporter.py
           tests/test_synthetic_fixed_engine.py
           tests/test_synthetic_ocr_metrics.py
           tests/test_tax_exact_arithmetic.py
