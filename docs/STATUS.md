@@ -2,6 +2,8 @@ STATO: M4 IN CORSO
 
 # Stato del lavoro
 
+PR #149: su `cd37ce4` i job Ubuntu e Windows sono passati. CodeQL segnala due avvisi medi residui; l'audit indipendente non ha individuato una divulgazione concreta negli otto flussi esaminati ([dettagli e limiti](evidence/M4/ci-security-review.md)). La PR tocca R8 e attende l'approvazione esplicita del proprietario; la CI finale è consultabile nei controlli della PR.
+
 PR #149 aperta in bozza: i job Ubuntu e Windows su `e4e0389` sono passati; CodeQL ha riportato tre avvisi di possibile esposizione di eccezioni. Sono stati corretti percorsi in cui `OSError` o `ValueError` interni potevano finire nella risposta, con test sentinella e revisione indipendente ([evidenza](evidence/M4/ci-security-review.md)). Suite locale: 837 test e 365 sottocasi passati ([output](evidence/M4/ci-security-suite.txt)). La CI deve essere rieseguita sulla nuova revisione.
 
 Il proprietario ha autorizzato la pubblicazione del ramo e l'apertura della PR in bozza. La chiusura richiede CI Ubuntu/Windows riuscita; la PR tocca R8 e richiederà inoltre approvazione esplicita prima del merge. Dettagli e controlli di privacy in [proposal-review.md](evidence/M4/proposal-review.md).
