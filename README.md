@@ -7,7 +7,7 @@ This public repository is the shared OCR2 workspace. It contains versioned taxon
 The GitHub Actions workflow [OCR2 synthetic taxonomy](.github/workflows/ocr2-synthetic-taxonomy.yml) runs on pushes, pull requests and manual dispatch, with read-only permissions and actions pinned by commit SHA. It has two jobs:
 
 - **Taxonomy registry and binding** (Ubuntu 24.04, CPython 3.13.18): the required check for `main`. It installs the hash-locked `requirements/ci-*-cp313-ubuntu-24_04.lock` files, runs the taxonomy tests, then runs **every** module in `application/tests` with pytest.
-- **Windows application contracts** (windows-2025, CPython 3.13.18): the same modules on Windows, from `requirements/ci-tests-cp313-win-amd64.lock`, so that the DPAPI archive, the launcher and Windows paths run for real (DEC-011).
+- **Windows application contracts** (windows-2025, CPython 3.13.17, the latest 3.13 build available for Windows runners): the same modules on Windows, from `requirements/ci-tests-cp313-win-amd64.lock`, so that the DPAPI archive, the launcher and Windows paths run for real (DEC-011).
 
 Modules are listed explicitly, without discovery; `application/tests/test_ci_workflow.py` fails if a module is missing from either job. Every test uses synthetic inputs only, generated in the repository; no test runs native OCR, downloads a model or transmits a document.
 
@@ -24,7 +24,7 @@ A passing run covers only these synthetic contracts. It does not establish OCR a
 
 Do not add company documents, personal data, OCR text, credentials, or derived sensitive values to this public repository or its CI. The workflow does not run native OCR or external document services. The public launcher leaves OCR disabled; configuring a real runtime and its background processing remains separate application work. The workflow has read-only repository permissions and references GitHub Actions by full commit SHA.
 
-This CI result covers only the named synthetic contract modules. It is not a full application test suite and does not establish OCR accuracy, Windows runtime readiness, real-document safety, pilot usefulness, or release readiness. For implementation evidence and limitations, see [application current state](application/CURRENT_STATE.md); remaining migration work is tracked in [issue #42](https://github.com/voxer21582/OCR-dev/issues/42).
+These synthetic tests do not establish OCR accuracy, Windows runtime readiness, real-document safety, pilot usefulness, or release readiness. For implementation evidence and limitations, see [application current state](application/CURRENT_STATE.md); remaining migration work is tracked in [issue #42](https://github.com/voxer21582/OCR-dev/issues/42).
 
 Project tracking: [OCR2 — Gestione e controllo](https://github.com/users/voxer21582/projects/1).
 

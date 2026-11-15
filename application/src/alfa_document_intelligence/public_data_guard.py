@@ -109,7 +109,10 @@ _EVIDENCE_PATTERNS = {
     # The phone pattern is omitted here: CI run ids and timings in evidence
     # files are long digit runs that would match it.
     **{k: v for k, v in _PATTERNS.items() if k != "Italian phone-like value"},
-    "user-profile path": re.compile(r"(?i)\b[A-Z]:[\\/]+Users[\\/]+(?!Public\b)[^\\/\s`'\"]+"),
+    # Windows (C:\Users\x), Git Bash (/c/Users/x) and POSIX (/home/x) forms.
+    "user-profile path": re.compile(
+        r"(?i)(?:\b[A-Z]:[\\/]+Users[\\/]+|(?<![\w.])/[A-Z]/Users/|(?<![\w.])/home/)(?!Public\b)[^\\/\s`'\"]+"
+    ),
 }
 
 

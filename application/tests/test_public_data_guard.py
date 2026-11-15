@@ -120,6 +120,15 @@ class EvidenceFolderGuardTests(unittest.TestCase):
                 scan_evidence_folder(root)
             self.assertNotIn("someone", str(caught.exception))
 
+    def test_rejects_posix_style_user_paths(self):
+        for path in ("/c/" + "Users/someone/x", "/home/" + "someone/x"):
+            with self.subTest(path=path):
+                with tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    root.joinpath("x.md").write_text("cd " + path + "\n", encoding="utf-8")
+                    with self.assertRaisesRegex(PublicDataGuardError, "user-profile path"):
+                        scan_evidence_folder(root)
+
     def test_rejects_email_in_nested_json_evidence(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

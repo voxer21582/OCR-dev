@@ -87,6 +87,27 @@ class CaseBenchmarkScoreTests(unittest.TestCase):
         self.assertEqual(score["ambiguous_dates_with_correct_hint"], [1, 2])
         self.assertEqual(score["ambiguous_candidates"], 0)
 
+    def test_possible_matches_are_counted_apart_and_conflicting_firsts_are_not_matches(self):
+        export = _export()
+        score = score_case_export(export, _manifest())
+        self.assertEqual(score["correct_receipt_ranked_first"], [1, 2])
+        self.assertEqual(score["correct_receipt_first_possible_only"], 1)
+        export["lines"][0]["suggestions"][0]["reasons"] = ["amount_and_currency_match", "date_conflict"]
+        self.assertEqual(score_case_export(export, _manifest())["correct_receipt_ranked_first"], [0, 2])
+        export["lines"][0]["suggestions"][0]["reasons"] = ["amount_and_currency_match"]
+        score = score_case_export(export, _manifest())
+        self.assertEqual(score["correct_receipt_ranked_first"], [1, 2])
+        self.assertEqual(score["correct_receipt_first_possible_only"], 0)
+
+    def test_conflict_counts_only_on_the_expected_receipts_own_suggestion(self):
+        export = _export()
+        # Receipt 3 is suggested for another reason; the conflict comes from receipt 4.
+        export["lines"][2]["suggestions"] = [
+            {"document_id": "doc-4", "source_sha256": _sha(4), "reasons": ["possible_amount_conflict"]},
+            {"document_id": "doc-3", "source_sha256": _sha(3), "reasons": ["possible_date_match"]},
+        ]
+        self.assertEqual(score_case_export(export, _manifest())["amount_conflicts_flagged"], [0, 1])
+
     def test_same_day_and_month_is_not_an_ambiguous_date(self):
         manifest = _manifest()
         manifest["statement_rows"][1]["date"] = "2026-11-11"

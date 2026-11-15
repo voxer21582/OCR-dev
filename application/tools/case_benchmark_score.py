@@ -9,6 +9,10 @@ import re
 from typing import Any
 
 _ROW_LABEL = re.compile(r"Spesa\s*(\d{1,3})")
+_MATCH_REASONS = {"amount_and_currency_match", "possible_amount_and_currency_match"}
+_CONFLICT_REASONS = {
+    "amount_conflict", "possible_amount_conflict", "currency_conflict", "date_conflict",
+}
 _HEADER = re.compile(r"Pagina\s*\d+\s*di\s*\d+", re.IGNORECASE)
 
 
@@ -58,7 +62,7 @@ def score_case_export(export: dict[str, Any], manifest: dict[str, Any]) -> dict[
         if row in rows and row not in lines_by_row:
             lines_by_row[row] = line
 
-    matched = conflicts = missing = hints = 0
+    matched = possible_only = conflicts = missing = hints = 0
     match_total = conflict_total = missing_total = hint_total = 0
     for number, row in rows.items():
         line = lines_by_row.get(number)
@@ -70,14 +74,18 @@ def score_case_export(export: dict[str, Any], manifest: dict[str, Any]) -> dict[
         first_receipt = receipt_by_sha.get(first.get("source_sha256")) if first else None
         if kind == "match":
             match_total += 1
-            if first_receipt == receipt and any(
-                reason.endswith("amount_and_currency_match") for reason in first.get("reasons", [])
-            ):
+            reasons = set(first.get("reasons", [])) if first_receipt == receipt else set()
+            if reasons & _MATCH_REASONS and not reasons & _CONFLICT_REASONS:
                 matched += 1
+                if "amount_and_currency_match" not in reasons:
+                    possible_only += 1
         elif kind == "amount_conflict":
             conflict_total += 1
-            flagged = {"amount_conflict", "possible_amount_conflict"} & set(findings)
-            if flagged and receipt in {receipt_by_sha.get(item.get("source_sha256")) for item in suggestions}:
+            own = [
+                item for item in suggestions
+                if receipt_by_sha.get(item.get("source_sha256")) == receipt
+            ]
+            if any({"amount_conflict", "possible_amount_conflict"} & set(item.get("reasons", [])) for item in own):
                 conflicts += 1
         elif kind == "missing_support":
             missing_total += 1
@@ -100,6 +108,8 @@ def score_case_export(export: dict[str, Any], manifest: dict[str, Any]) -> dict[
         "statement_lines_found": [len(lines_by_row), len(rows)],
         "header_lines_proposed": headers,
         "correct_receipt_ranked_first": [matched, match_total],
+        # Of those, how many rest only on uncertain OCR values (possible_… reasons).
+        "correct_receipt_first_possible_only": possible_only,
         "amount_conflicts_flagged": [conflicts, conflict_total],
         "missing_support_rows": [missing, missing_total],
         "unused_receipts": unused,

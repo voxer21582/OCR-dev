@@ -27,4 +27,4 @@ This is not yet an accepted live-document demo. The OCR runtime/model on the ref
 
 Continuous integration runs every module under `tests/` on Ubuntu (the required check) and on Windows; see the [repository README](../README.md#continuous-integration). A passing run covers only those synthetic contracts.
 
-Other test files in this directory are not automatically selected. Native OCR/PDF behavior, Windows packaging, real-document performance, runtime dependency licensing, archive acceptance, and full product acceptance remain separate gates. The public launcher accepts only the port option and does not yet construct an OCR engine or start background OCR jobs; installing optional packages alone does not enable that flow.
+Native OCR/PDF behavior, Windows packaging, real-document performance, runtime dependency licensing, archive acceptance, and full product acceptance remain separate gates. The launcher accepts `--port` and `--ocr-engine {disabled,rapidocr-v6}` (default `disabled`); OCR runs only when explicitly enabled and the approved runtime passes the start-up check.

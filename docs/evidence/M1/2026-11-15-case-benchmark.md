@@ -15,7 +15,7 @@ python -B -m tools.run_case_benchmark --fixtures <cartella-fixture> --work-dir <
 
 | Elemento | Valore |
 |---|---|
-| Commit | branch `claude/m1-ordine`, a partire da `89ec8d7` (generatore `0995b5d`, punteggio `b57060d`, script di esecuzione in questo commit) |
+| Commit | OCR eseguito con il codice dell'app di `main` `3d5ac61` (branch `claude/m1-ordine` a `89ec8d7`, più lo script di esecuzione poi committato in `f1cb84f`). Punteggi ricalcolati sull'export salvato con lo script di punteggio finale del branch (dopo la revisione di M1), senza ripetere l'OCR. |
 | Host | PC di sviluppo, Windows 11 (10.0.26300), CPython 3.13.15, RapidOCR 3.10.0 con PP-OCRv6 (`--ocr-engine rapidocr-v6`) |
 | Fixture | `ocr2-case-benchmark-v1`: nota spese PDF di 4 pagine con 98 righe, più 100 giustificativi (60 PNG, 25 JPEG, 15 PDF). Impronta SHA-256 dell'elenco dei file: `6bcdb2746df7744a97c1709d22ff22a516ceef6ee403b3b54c662f694819ed99`. Identica in due generazioni con due venv diversi (Pillow 13.0.0). |
 | Archivio | `LOCALAPPDATA` temporaneo dentro la cartella di lavoro, mai quello dell'utente |
@@ -30,8 +30,9 @@ Due esecuzioni sullo stesso set di fixture. I punteggi sono uguali: la tabella m
 | Allegati accettati (5 blocchi da 20) | 100 / 100 | 100 |
 | Righe della nota trovate | **98 / 98** | 98 |
 | Intestazioni di pagina proposte come righe | **0** | 0 |
-| Giustificativo giusto al primo posto (righe con importo corrispondente) | **92 / 92** | 92 |
-| Conflitti d'importo segnalati (giustificativi 10, 20, 30) | **3 / 3**, come `possible_amount_conflict` | 3 |
+| Giustificativo giusto al primo posto (righe con importo corrispondente), senza motivi di conflitto | **92 / 92** | 92 |
+| …di cui basati solo su valori OCR incerti (`possible_amount_and_currency_match`) | **92** | — |
+| Conflitti d'importo segnalati sul suggerimento del giustificativo atteso (10, 20, 30) | **3 / 3**, come `possible_amount_conflict` | 3 |
 | Righe senza giustificativo con esito `missing_support` | 2 / 3 | 3 (vedi limiti) |
 | Giustificativi elencati come non usati | 96, 98, 99 | 96–100 (vedi limiti) |
 | Date ambigue con il suggerimento giorno/mese corretto | **40 / 40** | 40 |
@@ -41,10 +42,13 @@ Due esecuzioni sullo stesso set di fixture. I punteggi sono uguali: la tabella m
 | Caricamento | 1,5 s | — |
 | Tentativi di connessione o DNS non di loopback | **0 / 0** | 0 |
 
-## Due errori trovati e corretti durante la prova (nei miei strumenti, non nell'app)
+**Da leggere così:** tutti i 92 abbinamenti sono *possibili*. L'OCR lascia data, totale e valuta dei giustificativi allo stato `uncertain`, quindi ogni abbinamento è un suggerimento che una persona deve confermare; nessuno è un abbinamento su valori osservati.
+
+## Errori trovati e corretti nei miei strumenti (non nell'app)
 
 1. **Script di esecuzione bloccato.** Alla prima esecuzione una richiesta di stato è scaduta dopo 120 s. Causa: il server scrive una riga di registro per ogni richiesta e lo script non leggeva più il suo output, quindi il canale si riempiva e il server si fermava. Ora l'output va su un file nella cartella di lavoro.
 2. **Conteggio delle date ambigue.** Lo script di punteggio contava come ambigue anche le 3 righe datate 11/11/2026, che non lo sono perché giorno e mese coincidono; l'app le tratta correttamente come certe. Corretto, con il test `test_same_day_and_month_is_not_an_ambiguous_date`. Il denominatore giusto è 40, non 43: il valore 43 del benchmark di M2 contava allo stesso modo i giorni ≤ 12.
+3. **Revisione indipendente di M1:** lo script di punteggio contava un abbinamento «possibile» come uno confermato senza distinguerli, e un conflitto come segnalato anche se proveniva da un altro giustificativo. Ora riporta a parte gli abbinamenti solo possibili, esclude un primo suggerimento con motivi di conflitto e richiede il conflitto sul suggerimento del giustificativo atteso. Test: `test_possible_matches_are_counted_apart_and_conflicting_firsts_are_not_matches`, `test_conflict_counts_only_on_the_expected_receipts_own_suggestion`. I numeri della tabella sono ricalcolati con questa versione.
 
 ## Limiti e problemi aperti dell'app
 
