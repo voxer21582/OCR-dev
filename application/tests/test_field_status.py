@@ -58,5 +58,19 @@ class GoalStatusTests(unittest.TestCase):
                 self.assertTrue(reason)
 
 
+class ReviewedFieldStatusTests(unittest.TestCase):
+    def test_a_corrected_value_is_not_reported_with_the_old_failed_rule(self):
+        from alfa_document_intelligence.field_status import shown_field_status
+
+        extracted = {"value": "12.43", "status": "observed", "alternatives": [], "evidence": []}
+        corrected = {"value": "12.34", "status": "observed", "alternatives": [], "evidence": []}
+        failed = frozenset({"taxable-base-vat-total-arithmetic"})
+        self.assertEqual(shown_field_status(extracted, extracted, failed)[0], "non_valido")
+        self.assertEqual(
+            shown_field_status(extracted, corrected, failed),
+            ("valido", "corretto in revisione; le verifiche automatiche valgono per il valore estratto"),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

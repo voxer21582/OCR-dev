@@ -143,9 +143,6 @@ class CatalogRuleTests(unittest.TestCase):
         self.assertIn("custom_ricevuta_taxi", values)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class CatalogReachesCaseProcessingTests(unittest.TestCase):
     def test_saved_catalog_is_given_to_case_processing_for_later_jobs(self):
@@ -192,3 +189,65 @@ class OpaqueOriginFormTests(unittest.TestCase):
                 app.close()
             self.assertEqual(status, "200 OK")
             self.assertEqual([family.id for family in store.load().families], ["custom_ricevuta_taxi"])
+
+
+class CatalogSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "family-catalog.json"
+        self.store = DocumentFamilyCatalogStore(self.path)
+        self.app = create_expense_report_app(family_catalog_store=self.store)
+        self.addCleanup(self.app.close)
+
+    def _history(self):
+        return sorted((self.path.parent / "catalog-history").glob("*.json"))
+
+    def test_import_that_redefines_an_existing_type_is_refused(self):
+        body, kind = _form(**TAXI_FORM)
+        _request(self.app, "POST", "/catalog/families", body, kind)
+        before = self.path.read_bytes()
+        changed = family_from_form(**dict(TAXI_FORM, title_cues="SOLO TAXI"))
+        body, kind = _upload("c.json", json.dumps({"catalog_version": "2", "families": [changed]}).encode())
+        status, _, page = _request(self.app, "POST", "/catalog/import", body, kind)
+        self.assertEqual(status, "400 Bad Request")
+        self.assertIn("definizione diversa".encode(), page)
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(self._history(), [])
+
+    def test_adding_to_a_version_1_catalog_keeps_its_version(self):
+        v1 = {"catalog_version": "1", "families": [{"id": "custom_park", "label": "Parcheggio",
+              "title_cues": ["TICKET PARK"], "fields": [{"id": "plate", "label": "Targa", "aliases": ["Targa"]}]}]}
+        self.path.write_text(json.dumps(v1), encoding="utf-8")
+        app = create_expense_report_app(family_catalog_store=self.store, custom_family_catalog=self.store.load())
+        try:
+            body, kind = _form(label="Ricevuta bar", title_cues="BAR", fields="Tavolo: Tavolo")
+            status, _, _ = _request(app, "POST", "/catalog/families", body, kind)
+            self.assertEqual(status, "200 OK")
+            self.assertEqual(json.loads(self.path.read_text(encoding="utf-8"))["catalog_version"], "1")
+            body, kind = _form(label="Ricevuta hotel", title_cues="HOTEL", fields="Notti: Notti [importo]")
+            status, _, page = _request(app, "POST", "/catalog/families", body, kind)
+            self.assertEqual(status, "400 Bad Request")
+            self.assertIn("formato 1".encode(), page)
+        finally:
+            app.close()
+
+    def test_errors_say_what_to_fix(self):
+        cases = [
+            (dict(TAXI_FORM, fields="Partenza: Corsa\nArrivo: Corsa"), "alias «Corsa»"),
+            (dict(TAXI_FORM, fields="Data: Giorno\nData!: Quando"), "righe 1 e 2"),
+        ]
+        for form, expected in cases:
+            with self.subTest(expected=expected):
+                body, kind = _form(**form)
+                status, _, page = _request(self.app, "POST", "/catalog/families", body, kind)
+                self.assertEqual(status, "400 Bad Request")
+                self.assertIn(expected.encode(), page)
+        body, kind = _upload("big.json", b"{" + b" " * (70 * 1024) + b"}")
+        status, _, page = _request(self.app, "POST", "/catalog/import", body, kind)
+        self.assertEqual(status, "400 Bad Request")
+        self.assertIn("troppo grande".encode(), page)
+
+
+if __name__ == "__main__":
+    unittest.main()

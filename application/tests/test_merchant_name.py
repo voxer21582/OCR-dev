@@ -39,5 +39,18 @@ class MerchantNameTests(unittest.TestCase):
         self.assertEqual([item["value"] for item in merchant["alternatives"]], ["Caffè Esempio"])
 
 
+    def test_expense_report_header_is_not_a_merchant(self):
+        page = _page([("Mario Rossi", 0.04), ("Taxi aeroporto EUR 12,00", 0.3)])
+        self.assertNotIn("merchant_name", propose_common_fields([page], document_family="expense_report"))
+
+    def test_customer_heading_is_not_a_merchant_when_a_supplier_label_exists(self):
+        page = _page([("Spett.le Beta SpA", 0.04), ("Fornitore: Acme Srl", 0.3), ("Totale EUR 10,00", 0.6)])
+        self.assertNotIn("merchant_name", propose_common_fields([page]))
+
+    def test_addressee_salutations_are_not_merchants(self):
+        page = _page([("Gentile Cliente", 0.04), ("Totale EUR 10,00", 0.6)])
+        self.assertNotIn("merchant_name", propose_common_fields([page]))
+
+
 if __name__ == "__main__":
     unittest.main()

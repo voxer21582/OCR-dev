@@ -32,11 +32,11 @@ from .review_ledger import append_review_event, reviewed_overlay
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
 from .catalog_editor import (
-    CATALOG_FORM_MAX_BYTES, CatalogFormError, catalog_with_family, family_from_form,
+    CATALOG_FORM_MAX_BYTES, CatalogFormError, catalog_with_family, explain_catalog_error, family_from_form,
     render_catalog_page, save_with_history,
 )
 from .document_family_catalog import DocumentFamilyCatalogError, load_custom_family_catalog
-from .field_status import GOAL_STATUS_LABELS, failed_rules_by_field, goal_status
+from .field_status import GOAL_STATUS_LABELS, failed_rules_by_field, goal_status, shown_field_status
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
 from .isolated_decoder import iter_decoded_pages_isolated
 from .expense_case_processing import ExpenseCaseProcessingManager, ExpenseCaseJobStatus
@@ -863,8 +863,8 @@ _REGION_REVIEW_SCRIPT = (
 )
 
 
-def _goal_status_text(candidate: Any, failed: frozenset[str]) -> str:
-    status, reason = goal_status(candidate, failed_rule_ids=failed)
+def _goal_status_text(extracted: Any, candidate: Any, failed: frozenset[str]) -> str:
+    status, reason = shown_field_status(extracted, candidate, failed)
     return f"Stato: {escape(GOAL_STATUS_LABELS[status])} — {escape(reason)}"
 
 
@@ -915,7 +915,7 @@ def _render_editable_record(
         rows.append(
             f"<section><h2>{escape(name)}</h2>"
             f"<p>Valore verificato: {escape(str(value)) if value is not None else '—'}. "
-            f"{_goal_status_text(candidate, failed_rules.get(name, frozenset()))}</p>"
+            f"{_goal_status_text(record.get('fields', {}).get(name), candidate, failed_rules.get(name, frozenset()))}</p>"
             f"<ul>{''.join(snippets)}</ul>{correction}</section>"
         )
     family_review = _render_document_family_review(
@@ -1542,16 +1542,20 @@ def create_expense_report_app(
                         raw = files[0][1]
                         done = "Catalogo importato."
                     with state_lock:
-                        saved = save_with_history(family_catalog_store, raw)
+                        saved = save_with_history(family_catalog_store, raw, catalog_state["catalog"])
                         catalog_state["catalog"] = saved
                         setter = getattr(expense_case_processing_manager, "set_custom_family_catalog", None)
                         if callable(setter):
                             setter(saved)
                 except CatalogFormError as exc:
                     return _page(environ, start_response, "400 Bad Request", render_catalog_page(current, error=str(exc)))
-                except (DocumentFamilyCatalogError, IntakeRequestError, UploadRejected):
+                except DocumentFamilyCatalogError as exc:
                     return _page(environ, start_response, "400 Bad Request", render_catalog_page(
-                        current, error="Il catalogo non è valido e non è stato salvato. Il catalogo precedente resta in uso.",
+                        current, error=explain_catalog_error(exc) + " Il catalogo precedente resta in uso.",
+                    ))
+                except (IntakeRequestError, UploadRejected):
+                    return _page(environ, start_response, "400 Bad Request", render_catalog_page(
+                        current, error="Il file non è stato ricevuto correttamente. Il catalogo precedente resta in uso.",
                     ))
                 return _page(environ, start_response, "200 OK", render_catalog_page(saved, message=done))
             return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
@@ -2638,11 +2642,26 @@ def _multipart_scalar(
 _IDLE_CONNECTION_TIMEOUT_SECONDS = 2.0
 
 
+_REQUEST_BODY_TIMEOUT_SECONDS = 300.0
+
+
 class _QuietIdleHandler(WSGIRequestHandler):
-    """Drops a connection that sends nothing before the timeout, without a traceback."""
+    """Short wait for the first byte of a request, long wait once it has started.
+
+    A connection that sends nothing within ``idle_timeout`` is dropped quietly
+    (a browser's spare connection); a request that has begun may pause, for
+    example while a file is still being fetched from a synced folder.
+    """
+
+    idle_timeout = _IDLE_CONNECTION_TIMEOUT_SECONDS
+    timeout = None  # set per phase in handle()
 
     def handle(self) -> None:
         try:
+            self.connection.settimeout(self.idle_timeout)
+            if not self.rfile.peek(1):
+                return
+            self.connection.settimeout(_REQUEST_BODY_TIMEOUT_SECONDS)
             super().handle()
         except TimeoutError:
             self.close_connection = True
@@ -2679,7 +2698,7 @@ def serve_expense_report_local(
     # The server handles one connection at a time. Browsers open spare
     # connections that may never send a request; without a socket timeout one
     # of them blocks every later request.
-    handler = type("_BoundedIdleHandler", (_QuietIdleHandler,), {"timeout": idle_connection_timeout_seconds})
+    handler = type("_BoundedIdleHandler", (_QuietIdleHandler,), {"idle_timeout": idle_connection_timeout_seconds})
     server = make_server("127.0.0.1", port, app, handler_class=handler)
     server.ocr2_close = app.close
     return server

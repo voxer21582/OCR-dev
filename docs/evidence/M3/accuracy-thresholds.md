@@ -5,7 +5,7 @@
 **Insieme di prova:** `ocr2-field-benchmark-v1`, generato da `tools/field_benchmark_fixtures.py`.
 - 60 giustificativi sintetici: 30 in italiano e 30 in inglese; 30 PNG e 30 PDF raster.
 - Testo pulito con il carattere incluso in Pillow, una riga per campo.
-- **Controllo preliminare:** con una lettura perfetta del testo (token costruiti dalle righe del manifest), le regole di estrazione trovano il valore giusto nel 100% dei casi per ogni campo. Le differenze nella misura vera dipendono quindi dall'OCR.
+- **Controllo preliminare:** con una lettura perfetta del testo (token costruiti dalle righe del manifest), le regole di estrazione trovano il valore giusto nel 100% dei casi per ogni campo (verificato a mano prima della misura, poi fissato nel test `test_rules_find_every_field_when_the_text_is_read_perfectly`). Le differenze nella misura vera dipendono quindi dall'OCR.
 
 **Metrica:** quota di documenti in cui il primo valore che chi rivede vede per il campo è uguale al valore atteso. Il primo valore è quello osservato, oppure la prima alternativa di un candidato incerto.
 

@@ -57,3 +57,16 @@ def failed_rules_by_field(record: Mapping[str, Any]) -> dict[str, frozenset[str]
             if isinstance(name, str):
                 grouped.setdefault(name, set()).add(rule_id)
     return {name: frozenset(rules) for name, rules in grouped.items()}
+
+
+def shown_field_status(
+    extracted: Any, shown: Any, failed_rule_ids: frozenset[str] = frozenset(),
+) -> tuple[str, str]:
+    """State for the value a reviewer sees: a corrected value is not judged by
+    validation findings computed on the extracted one."""
+    if shown != extracted:
+        status, _reason = goal_status(shown)
+        if status == "valido":
+            return status, "corretto in revisione; le verifiche automatiche valgono per il valore estratto"
+        return status, _reason
+    return goal_status(shown, failed_rule_ids=failed_rule_ids)

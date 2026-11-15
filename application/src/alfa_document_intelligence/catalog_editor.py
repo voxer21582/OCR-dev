@@ -55,6 +55,8 @@ def family_from_form(*, label: str, title_cues: str, fields: str) -> dict[str, A
     if not cues:
         raise CatalogFormError("Scrivi almeno una parola chiave che compare sul documento.")
     family_fields: list[dict[str, Any]] = []
+    line_of_id: dict[str, int] = {}
+    seen_aliases: set[str] = set()
     for number, raw in enumerate(fields.splitlines(), 1):
         line = raw.strip()
         if not line:
@@ -67,7 +69,17 @@ def family_from_form(*, label: str, title_cues: str, fields: str) -> dict[str, A
         aliases = _split(aliases_text)
         if not field_label or not aliases:
             raise CatalogFormError(f"Campo alla riga {number}: servono un'etichetta e almeno un alias.")
-        field: dict[str, Any] = {"id": _slug(field_label, 20), "label": field_label, "aliases": aliases}
+        field_id = _slug(field_label, 20)
+        if field_id in line_of_id:
+            raise CatalogFormError(
+                f"I campi alle righe {line_of_id[field_id]} e {number} hanno etichette troppo simili: cambia una delle due."
+            )
+        line_of_id[field_id] = number
+        for alias in aliases:
+            if alias.casefold() in seen_aliases:
+                raise CatalogFormError(f"L'alias «{alias}» compare in più campi: ogni alias va usato una sola volta.")
+            seen_aliases.add(alias.casefold())
+        field: dict[str, Any] = {"id": field_id, "label": field_label, "aliases": aliases}
         for flag in (item.strip().lower() for item in flags):
             if flag in _TYPE_WORDS:
                 if _TYPE_WORDS[flag] != "text":
@@ -81,24 +93,68 @@ def family_from_form(*, label: str, title_cues: str, fields: str) -> dict[str, A
 
 
 def catalog_with_family(catalog: DocumentFamilyCatalog, family: Mapping[str, Any]) -> str:
-    """JSON of ``catalog`` plus ``family``; a type with the same id is refused."""
+    """JSON of ``catalog`` plus ``family``, in the catalog's own format.
+
+    A type with the same id is refused. The format is kept: changing it would
+    change the stored snapshot of every existing type.
+    """
     if any(existing.id == family["id"] for existing in catalog.families):
         raise CatalogFormError("Esiste già un tipo con questo nome: scegline un altro.")
-    payload = {"catalog_version": "2", "families": [item.as_dict() for item in catalog.families] + [dict(family)]}
+    if catalog.version == "1" and any("type" in field or "required" in field for field in family["fields"]):
+        raise CatalogFormError(
+            "Questo catalogo è nel formato 1, che non ammette tipi di campo né «obbligatorio»: "
+            "togli le opzioni tra parentesi quadre oppure importa un catalogo nel formato 2."
+        )
+    payload = {"catalog_version": catalog.version, "families": [item.as_dict() for item in catalog.families] + [dict(family)]}
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
-def save_with_history(store: DocumentFamilyCatalogStore, raw: str | bytes) -> DocumentFamilyCatalog:
-    """Validate and save ``raw``; the file it replaces is kept in ``catalog-history``."""
+def explain_catalog_error(error: DocumentFamilyCatalogError) -> str:
+    """An Italian sentence that says what to fix (the validator's text is technical)."""
+    text = str(error).lower()
+    if "limit" in text or "exceeds" in text or "too large" in text:
+        return ("Il catalogo è troppo grande: al massimo 64 KB, 25 tipi, 20 campi per tipo, "
+                "12 alias e 12 parole chiave.")
+    if "json" in text or "utf-8" in text:
+        return "Il file non è un catalogo valido (JSON non leggibile)."
+    if "title cue" in text:
+        return "Una parola chiave è ripetuta o è già usata da un altro tipo."
+    if "alias" in text:
+        return "Un alias è ripetuto all'interno di un tipo."
+    if "duplicate family" in text:
+        return "Due tipi hanno lo stesso nome."
+    if "id is invalid or duplicated" in text or "colliding" in text:
+        return "Due campi hanno etichette troppo simili."
+    return "Il catalogo non è valido e non è stato salvato."
+
+
+def save_with_history(
+    store: DocumentFamilyCatalogStore, raw: str | bytes, current: DocumentFamilyCatalog | None = None,
+) -> DocumentFamilyCatalog:
+    """Validate and save ``raw``; after a successful save the replaced file goes to ``catalog-history``.
+
+    A type that already exists with a different definition (or catalog format)
+    is refused: processed documents keep the old definition, and a changed one
+    under the same name would make their history ambiguous.
+    """
     catalog = load_custom_family_catalog(raw)  # validate before touching any file
+    if current is not None:
+        existing = {family.id: family for family in current.families}
+        for family in catalog.families:
+            old = existing.get(family.id)
+            if old is not None and (old.as_dict() != family.as_dict() or current.version != catalog.version):
+                raise CatalogFormError(
+                    f"Il tipo «{old.label}» esiste già con una definizione diversa. I documenti già elaborati "
+                    "usano quella precedente: per cambiarlo, crea un tipo con un nome nuovo."
+                )
     path = Path(store.path)
-    if path.is_file() and not path.is_symlink():
-        previous = path.read_bytes()
+    previous = path.read_bytes() if path.is_file() and not path.is_symlink() else None
+    store.save(raw)
+    if previous is not None:
         history = path.parent / "catalog-history"
         history.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         (history / f"{stamp}-{hashlib.sha256(previous).hexdigest()[:12]}.json").write_bytes(previous)
-    store.save(raw)
     return catalog
 
 

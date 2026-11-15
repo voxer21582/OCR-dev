@@ -53,3 +53,25 @@ def test_score_counts_matches_per_field_and_returns_numbers_only():
     assert score["total_amount"] == {"correct": 1, "total": 2, "rate": 0.5}
     assert score["currency"] == {"correct": 1, "total": 2, "rate": 0.5}
     assert all(isinstance(value, (int, float)) for item in score.values() for value in item.values())
+
+
+def test_rules_find_every_field_when_the_text_is_read_perfectly():
+    """Control for the OCR run: with ideal text the extraction rules score 100% on every field."""
+    from alfa_document_intelligence.ocr_adapter import OCRPageResult, OCRToken
+    from alfa_document_intelligence.semantic_proposals import propose_common_fields
+    from tools.field_benchmark_fixtures import _COUNT, _known
+
+    documents, records = [], {}
+    for index in range(_COUNT):
+        known = _known(index)
+        tokens = tuple(
+            OCRToken(f"t{row}", line, ((0.05, 0.08 + row * 0.17), (0.9, 0.08 + row * 0.17),
+                                       (0.9, 0.12 + row * 0.17), (0.05, 0.12 + row * 0.17)), 0.95)
+            for row, line in enumerate(known["lines"])
+        )
+        page = OCRPageResult(source_sha256="c" * 64, page_number=1, engine_name="ideal", engine_version="1",
+                             language="it+en", tokens=tokens)
+        records[f"d{index}"] = {"fields": propose_common_fields([page])}
+        documents.append({"document_id": f"d{index}", "expected": known["expected"]})
+    score = score_records({"documents": documents}, records)
+    assert {name: item["rate"] for name, item in score.items()} == {name: 1.0 for name in FIELDS}

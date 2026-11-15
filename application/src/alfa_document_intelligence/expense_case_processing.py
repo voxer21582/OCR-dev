@@ -226,7 +226,7 @@ class ExpenseCaseProcessingManager:
                 threading.Event(),
             )
             worker = threading.Thread(
-                target=self._run, args=(case_job, queued),
+                target=self._run, args=(case_job, queued, self._catalog),
                 name=f"expense-case-{job_id[:8]}", daemon=True,
             )
             case_job.thread = worker
@@ -277,7 +277,8 @@ class ExpenseCaseProcessingManager:
         if self._close_worker_on_close:
             self._worker.close()
 
-    def _run(self, job: _CaseJob, case: dict[str, Any]) -> None:
+    def _run(self, job: _CaseJob, case: dict[str, Any], catalog: Any = None) -> None:
+        # The catalog captured at start: a catalog saved during the job applies to later jobs only.
         expected_revision = case.get("case_revision")
         try:
             case.setdefault("processing", {})["state"] = "processing"
@@ -310,7 +311,7 @@ class ExpenseCaseProcessingManager:
                 decode_limits=self._decode_limits,
                 case_budget=case_budget,
                 max_input_frame_bytes=self._limits.max_input_frame_bytes,
-                custom_family_catalog=self._catalog,
+                custom_family_catalog=catalog,
             ):
                 if job.cancelled.is_set():
                     self._set_cancelled(job, expected_revision)
@@ -328,7 +329,7 @@ class ExpenseCaseProcessingManager:
                 try:
                     worker_job_id = self._worker.start(
                         job.generation_id, intake, decode_limits=self._decode_limits,
-                        custom_family_catalog=self._catalog, case_budget=case_budget,
+                        custom_family_catalog=catalog, case_budget=case_budget,
                     )
                 except BaseException:
                     raise ValueError("worker_start_failed") from None

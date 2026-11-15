@@ -30,5 +30,13 @@ class AttachedCurrencyAmountTests(unittest.TestCase):
         self.assertNotIn("total_amount", _fields("REF ABCEUR12.34X"))
 
 
+    def test_codes_after_other_labels_are_not_split(self):
+        for text in ("Rif:EUR2024,00", "Codice CAD82"):
+            with self.subTest(text=text):
+                fields = _fields(text)
+                self.assertNotIn("total_amount", fields)
+                self.assertNotIn("amount_candidates", fields)
+
+
 if __name__ == "__main__":
     unittest.main()

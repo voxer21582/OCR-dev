@@ -23,8 +23,8 @@
 - **Correzione:** commit `39dea21`, test `test_attached_currency_amounts` (prima rosso, poi verde). Le soglie non sono state toccate.
 
 **Errori rimasti (esecuzione 2):**
-- 6 nomi di esercente italiani letti dall'OCR senza spazio (per esempio `FarmaciaCentrale`). È un limite di lettura dell'OCR, non delle regole.
-- Con una lettura perfetta del testo, le regole danno 100% su ogni campo (controllo preliminare).
+- 6 nomi di esercente italiani mancati. Nei casi controllati l'OCR ha letto il nome senza spazio (per esempio `FarmaciaCentrale`); non tutti i 6 casi sono stati ispezionati.
+- Con una lettura perfetta del testo le regole danno 100% su ogni campo: lo verifica il test `test_rules_find_every_field_when_the_text_is_read_perfectly` in CI.
 
 **Limiti:**
 - testo sintetico pulito, un carattere, un PC;

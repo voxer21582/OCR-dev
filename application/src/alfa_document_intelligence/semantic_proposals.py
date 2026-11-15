@@ -216,7 +216,8 @@ _MERCHANT_TOP_BAND = 0.25
 _MERCHANT_MAX_LINES = 3
 _MERCHANT_SKIP_WORDS = re.compile(
     r"(?i)\b(?:fattura|ricevuta|scontrino|fiscale|totale|subtotale|data|pagina|documento|nota spese|"
-    r"invoice|receipt|total|date|page|iva|vat|p\.?\s*iva|c\.?f\.?)\b"
+    r"invoice|receipt|total|date|page|iva|vat|p\.?\s*iva|c\.?f\.?|"
+    r"spett(?:\.?le|abile)|gentile|egregio|alla\s+cortese|contratto|cliente|customer|dear)\b"
 )
 
 
@@ -228,7 +229,14 @@ _GLUED_CURRENCY = re.compile(r"(?i)(?:^|(?<=[\s:]))(EUR|USD|GBP|CHF|CAD|AUD|JPY)
 
 
 def _unglue_text(text: str) -> str:
-    return _GLUED_CURRENCY.sub(lambda match: match.group(1) + " ", text)
+    """Split only after nothing or an amount label (Totale, Total, Pagato, ...)."""
+    def split(match: re.Match) -> str:
+        prefix = text[:match.start()].rstrip(" :")
+        if not prefix or _TOTAL_LABEL.search(prefix) or _PAID_AMOUNT_LABEL.search(prefix) or _TIP_AMOUNT_LABEL.search(prefix):
+            return match.group(1) + " "
+        return match.group(0)
+
+    return _GLUED_CURRENCY.sub(split, text)
 
 
 def _unglued(token: OCRToken) -> OCRToken:
@@ -241,10 +249,12 @@ def _unglued(token: OCRToken) -> OCRToken:
 def _merchant_top_lines(page: OCRPageResult) -> list[_Proposal]:
     """Lines above the first structured line of a page that carries an amount.
 
-    A receipt or invoice starts with its issuer. A line qualifies only if the
-    page has an amount, the line sits above the first line carrying a label
-    (":"), a date, an amount or a currency, and it is mostly letters. Free
-    text on other documents never becomes a merchant.
+    A receipt starts with its issuer. A line qualifies only if the page has an
+    amount, the line sits above the first line carrying a label (":"), a
+    date, an amount or a currency, it is mostly letters and it is not a
+    heading or an addressee ("Spett.le", "Gentile", ...). The caller skips
+    expense reports and pages that name a supplier or customer by label. The
+    result is always uncertain: a hint for the reviewer, never a fact.
     """
     def structured(text: str) -> bool:
         return bool(":" in text or _AMOUNT.search(text) or _CURRENCY_CODE.search(text) or _date_proposals(text))
@@ -486,7 +496,9 @@ def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: st
                     "EUR", _evidence(page, token, literal), "explicit-euro-symbol", literal
                 ))
 
-    if not entity_proposals["merchant_name"] and ordered_pages:
+    other_parties = any(entity_proposals[name] for name in entity_proposals if name != "merchant_name")
+    if (not entity_proposals["merchant_name"] and ordered_pages and not other_parties
+            and document_family != "expense_report"):
         # REQ-052: with no "Esercente:" label, the first meaningful lines at the
         # top of the first page are offered as uncertain merchant readings.
         entity_proposals["merchant_name"] = _merchant_top_lines(ordered_pages[0])
