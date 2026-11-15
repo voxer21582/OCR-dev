@@ -4,7 +4,7 @@ import unittest
 from html.parser import HTMLParser
 from pathlib import Path
 
-from alfa_document_intelligence.review_ui import _render_record
+from alfa_document_intelligence.review_ui import _render_record, create_review_app
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "synthetic_invoice.json"
@@ -89,6 +89,34 @@ class SemanticFailureWarningTests(unittest.TestCase):
             with self.subTest(status=status):
                 _, text = self.render(status)
                 self.assertNotIn("estrazione automatica non completata", text)
+
+    def test_malformed_semantic_stage_shows_unknown_manual_review_warning(self):
+        malformed_stages = (
+            ["synthetic malformed stage"],
+            {},
+            {"status": "unsupported_synthetic_status"},
+            {"status": ["failed"]},
+        )
+        for stage in malformed_stages:
+            with self.subTest(stage=stage):
+                record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+                record["processing"]["semantic_extraction"] = stage
+                app = create_review_app({record["document_id"]: record})
+                captured = {}
+
+                def start_response(status, headers):
+                    captured["status"] = status
+
+                body = b"".join(app({
+                    "REQUEST_METHOD": "GET",
+                    "PATH_INFO": "/reviews/" + record["document_id"],
+                    "QUERY_STRING": "",
+                }, start_response))
+                text = document_text(body.decode("utf-8"))
+
+                self.assertEqual(captured["status"], "200 OK")
+                self.assertIn("stato estrazione automatica non disponibile", text)
+                self.assertIn("verifica manuale", text)
 
 
 if __name__ == "__main__":
