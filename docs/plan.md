@@ -18,7 +18,7 @@ Le vecchie M1 e M2 (PR #138–#143 su `main`; #144 in bozza) hanno prodotto il p
 ## M1 — Ordine e verificabilità
 
 **Perché:** prima di aggiungere funzioni, tutto ciò che esiste deve essere provabile secondo le regole di GOAL.
-**Requisiti:** REQ-001…004, REQ-010, 011, 013, 015, 024, 029, 062 (benchmark), 074, 076, 109, 120, 123.
+**Requisiti:** REQ-001…004, REQ-010, 011, 013, 015, 024, 029, 062 (benchmark), 074, 076, 109, 120, 123; in più M1 registra l'evidenza dei requisiti senza milestone in `requirements.md` (colonna M = «—»: REQ-040, 043, 044, 050, 054, 056, 061, 063, 071, 126), già coperti da test in CI.
 **Deliverable:**
 - rassegna delle PR aperte con una raccomandazione per ciascuna; decisione del proprietario; #144 unita o chiusa;
 - `docs/evidence/baseline/` con le evidenze esistenti (solo dati sintetici);
