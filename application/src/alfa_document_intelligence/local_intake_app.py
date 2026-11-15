@@ -12,6 +12,7 @@ import csv
 import hashlib
 import io
 import json
+import platform
 import re
 import secrets
 import threading
@@ -23,6 +24,8 @@ import zipfile
 from pathlib import Path
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 
+from . import __version__ as _PACKAGE_VERSION
+from .app_lifetime import AppInfo, AppLifetime
 from .chatgpt_handoff import ChatGPTHandoffError, build_chatgpt_handoff_prompt
 from .contracts import _validate_custom_value, validate_document_record
 from .expense_reports import (
@@ -324,11 +327,95 @@ def _multipart_files(environ: dict[str, Any]) -> list[tuple[str, bytes]]:
     return files
 
 
+_APP_WINDOW_SCRIPT = (
+    "(function(){"
+    "var key='ocr2-window-id',id=null;"
+    "try{id=sessionStorage.getItem(key);}catch(e){}"
+    "if(!id||!/^[A-Za-z0-9_-]{1,64}$/.test(id)){"
+    "var bytes=new Uint8Array(16);crypto.getRandomValues(bytes);"
+    "id=Array.prototype.map.call(bytes,function(b){return('0'+b.toString(16)).slice(-2);}).join('');"
+    "try{sessionStorage.setItem(key,id);}catch(e){}}"
+    "function beat(){fetch('/app/heartbeat?w='+id,{cache:'no-store'}).catch(function(){});}"
+    "beat();setInterval(beat,20000);"
+    "window.addEventListener('pagehide',function(){"
+    "var field=document.querySelector('form[action=\"/app/exit\"] input[name=\"_ocr2_csrf\"]');"
+    "if(!field){return;}"
+    "var data=new URLSearchParams();data.append('w',id);data.append('_ocr2_csrf',field.value);"
+    "navigator.sendBeacon('/app/closing',data);});"
+    "})();"
+)
+_APP_CONTROLS = (
+    '<nav aria-label="Applicazione"><form method="post" action="/app/exit"><button type="submit">Esci</button></form>'
+    ' <a href="/app/info">Informazioni</a></nav>'
+    '<script nonce="__CSP_NONCE__">' + _APP_WINDOW_SCRIPT + "</script>"
+)
+_APP_WINDOW_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def _app_info_page(info: AppInfo | None) -> str:
+    if info is None:
+        info = AppInfo(
+            version=_PACKAGE_VERSION, python_version=platform.python_version(),
+            ocr_engine=None, runtime_status="non verificato (avvio da sorgenti)",
+        )
+    rows = (
+        ("Versione", info.version),
+        ("Python", info.python_version),
+        ("Motore OCR", info.ocr_engine or "disattivato"),
+        ("Verifica del runtime", info.runtime_status),
+    )
+    return (
+        "<!doctype html><html lang=\"it\"><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        f'<meta name="ocr2-instance" content="{escape(info.instance_id, quote=True)}">'
+        "<title>Informazioni</title><main><h1>Informazioni</h1><dl>"
+        + "".join(f"<dt>{escape(label)}</dt><dd>{escape(value)}</dd>" for label, value in rows)
+        + '</dl><p><a href="/">Torna all’acquisizione temporanea</a></p></main></html>'
+    )
+
+
+def _app_window_form(environ: dict[str, Any], csrf_token: str) -> dict[str, list[str]] | None:
+    """Parse a small urlencoded app form; None unless it carries exactly the session token."""
+    if environ.get("_opaque_origin_csrf_validated") is True:
+        cached = environ.get("_parsed_form_values")
+        return cached if isinstance(cached, dict) else None
+    header = Message()
+    header["content-type"] = environ.get("CONTENT_TYPE", "")
+    if header.get_content_type() != "application/x-www-form-urlencoded":
+        return None
+    try:
+        length = int(environ.get("CONTENT_LENGTH", ""))
+    except (TypeError, ValueError):
+        return None
+    if length <= 0 or length > 4096:
+        return None
+    body = environ["wsgi.input"].read(length)
+    if not isinstance(body, bytes) or len(body) != length:
+        return None
+    try:
+        values = parse_qs(body.decode("ascii"), strict_parsing=True, keep_blank_values=True, max_num_fields=8)
+    except (UnicodeDecodeError, ValueError):
+        return None
+    tokens = values.pop("_ocr2_csrf", [])
+    if len(tokens) != 1 or not tokens[0].isascii() or not secrets.compare_digest(tokens[0], csrf_token):
+        return None
+    return values
+
+
 def _page(
     environ: dict[str, Any], start_response: Callable, status: str, body: str,
     content_type: str = "text/html; charset=utf-8", *, download_filename: str | None = None,
 ) -> list[bytes]:
     nonce = secrets.token_urlsafe(18)
+    app_controls = (
+        environ.get("_ocr2_app_lifetime") is not None
+        and content_type.split(";", 1)[0].strip().lower() == "text/html"
+    )
+    if app_controls:
+        # Before the CSRF field and nonce passes below, so the exit form gets
+        # its token and the script its nonce.
+        marker = body.rfind("</main>")
+        body = body + _APP_CONTROLS if marker < 0 else body[:marker] + _APP_CONTROLS + body[marker:]
     token = str(environ.get("_ocr2_csrf_token", ""))
     csrf_field = f'<input type="hidden" name="_ocr2_csrf" value="{escape(token, quote=True)}">'
     body = re.sub(
@@ -342,12 +429,13 @@ def _page(
     inline_style_nonce = '<style nonce="__CSP_NONCE__">' in body
     style_policy = f"style-src 'self' 'nonce-{nonce}'; " if inline_style_nonce else "style-src 'self'; "
     image_policy = "img-src 'self'; " if has_region_editor else ""
+    connect_policy = "connect-src 'self'; " if app_controls else ""
     headers = [
         ("Content-Type", content_type),
         ("Content-Length", str(len(payload))),
         ("Cache-Control", "no-store"),
         ("X-Content-Type-Options", "nosniff"),
-        ("Content-Security-Policy", f"default-src 'none'; {style_policy}{image_policy}script-src 'nonce-{nonce}'; base-uri 'none'; frame-ancestors 'none'"),
+        ("Content-Security-Policy", f"default-src 'none'; {style_policy}{image_policy}{connect_policy}script-src 'nonce-{nonce}'; base-uri 'none'; frame-ancestors 'none'"),
         ("Referrer-Policy", "no-referrer"),
     ]
     if download_filename is not None:
@@ -1827,6 +1915,8 @@ def create_expense_report_app(
     expense_case_processing_manager: ExpenseCaseProcessingManager | None = None,
     custom_family_catalog: Any | None = None,
     family_catalog_store: Any | None = None,
+    app_lifetime: AppLifetime | None = None,
+    app_info: AppInfo | None = None,
 ) -> Callable:
     """Create a loopback WSGI app with an idle-expiring session and optional explicit archive."""
     if not isinstance(idle_timeout_seconds, int) or isinstance(idle_timeout_seconds, bool) or idle_timeout_seconds <= 0:
@@ -1952,10 +2042,56 @@ def create_expense_report_app(
             if app_closed:
                 return _page(environ, start_response, "503 Service Unavailable", "Servizio locale in arresto")
         environ["_ocr2_csrf_token"] = csrf_token
+        if app_lifetime is not None:
+            environ["_ocr2_app_lifetime"] = app_lifetime
         if _loopback_host_parts(environ.get("HTTP_HOST", "")) is None:
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+        if app_lifetime is not None:
+            app_lifetime.presence.activity()
         if environ.get("REQUEST_METHOD", "") == "POST" and not environ.get("_review_post_validated") and not _validate_loopback_post(environ, csrf_token):
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+        app_path = environ.get("PATH_INFO", "")
+        if app_path.startswith("/app/"):
+            app_method = environ.get("REQUEST_METHOD", "")
+            if app_path == "/app/info":
+                if app_method != "GET":
+                    return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                return _page(environ, start_response, "200 OK", _app_info_page(app_info))
+            if app_lifetime is None or app_path not in {"/app/heartbeat", "/app/closing", "/app/exit"}:
+                return _page(environ, start_response, "404 Not Found", "Risorsa non trovata", "text/plain; charset=utf-8")
+            if app_path == "/app/heartbeat":
+                if app_method != "GET":
+                    return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                try:
+                    window_ids = parse_qs(str(environ.get("QUERY_STRING", "")), strict_parsing=True, max_num_fields=4).get("w", [])
+                except ValueError:
+                    window_ids = []
+                if len(window_ids) != 1 or _APP_WINDOW_ID.fullmatch(window_ids[0]) is None:
+                    return _page(environ, start_response, "400 Bad Request", "Finestra non valida", "text/plain; charset=utf-8")
+                app_lifetime.presence.heartbeat(window_ids[0])
+                start_response("204 No Content", [("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")])
+                return []
+            if app_method != "POST":
+                return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+            form = _app_window_form(environ, csrf_token)
+            if form is None:
+                return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+            if app_path == "/app/closing":
+                window_ids = form.get("w", [])
+                if len(window_ids) != 1 or _APP_WINDOW_ID.fullmatch(window_ids[0]) is None:
+                    return _page(environ, start_response, "400 Bad Request", "Finestra non valida", "text/plain; charset=utf-8")
+                app_lifetime.presence.closing(window_ids[0])
+                start_response("204 No Content", [("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")])
+                return []
+            # No exit button or heartbeat on the goodbye page; the guard thread
+            # stops the server once this response has been written (R1).
+            environ.pop("_ocr2_app_lifetime", None)
+            result = _page(environ, start_response, "200 OK", (
+                "<!doctype html><html lang=\"it\"><meta charset=\"utf-8\"><title>OCR2 chiuso</title>"
+                "<main><h1>OCR2 si è chiuso. Puoi chiudere questa finestra.</h1></main></html>"
+            ))
+            app_lifetime.request_exit()
+            return result
         now = clock()
         if state is not None and now - state.last_activity > idle_timeout_seconds:
             expired = state
@@ -3434,6 +3570,8 @@ def serve_expense_report_local(
     custom_family_catalog: Any | None = None,
     family_catalog_store: Any | None = None,
     idle_connection_timeout_seconds: float = _IDLE_CONNECTION_TIMEOUT_SECONDS,
+    app_lifetime: AppLifetime | None = None,
+    app_info: AppInfo | None = None,
 ):
     """Create a local HTTP server bound exclusively to IPv4 loopback."""
     if not isinstance(port, int) or isinstance(port, bool) or not 0 <= port <= 65535:
@@ -3449,6 +3587,8 @@ def serve_expense_report_local(
         expense_case_processing_manager=expense_case_processing_manager,
         custom_family_catalog=custom_family_catalog,
         family_catalog_store=family_catalog_store,
+        app_lifetime=app_lifetime,
+        app_info=app_info,
     )
     # The server handles one connection at a time. Browsers open spare
     # connections that may never send a request; without a socket timeout one

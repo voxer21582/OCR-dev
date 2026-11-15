@@ -69,6 +69,7 @@ jobs:
           python -B -m pytest -q -rs -p no:cacheprovider
           tests/test_analysis_pipeline.py
           tests/test_app_lifetime.py
+          tests/test_app_window_routes.py
           tests/test_archive_backup.py
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py
@@ -195,6 +196,7 @@ jobs:
           python -B -m pytest -q -rs -p no:cacheprovider
           tests/test_analysis_pipeline.py
           tests/test_app_lifetime.py
+          tests/test_app_window_routes.py
           tests/test_archive_backup.py
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py

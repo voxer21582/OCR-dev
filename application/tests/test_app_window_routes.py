@@ -1,0 +1,242 @@
+"""Exit button, window heartbeat and information page in the local app (REQ-101, REQ-106)."""
+from __future__ import annotations
+
+from io import BytesIO
+import platform
+import re
+import socket
+import threading
+import time
+from urllib.parse import urlencode
+import http.client
+
+import pytest
+
+import alfa_document_intelligence
+from alfa_document_intelligence.app_lifetime import AppInfo, AppLifetime, WindowPresence
+from alfa_document_intelligence.document_family_catalog import DocumentFamilyCatalogStore
+from alfa_document_intelligence.local_document_store import LocalDocumentStore
+from alfa_document_intelligence.local_intake_app import create_expense_report_app, serve_expense_report_local
+
+from test_local_document_store import SyntheticProtector
+
+HOST = "127.0.0.1:8080"
+ORIGIN = "http://127.0.0.1:8080"
+
+
+class _StopRecorder:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self) -> None:
+        self.calls += 1
+
+
+def _invoke(app, method, path, *, query="", body=b"", origin=ORIGIN,
+            content_type="application/x-www-form-urlencoded"):
+    environ = {"REQUEST_METHOD": method, "PATH_INFO": path, "QUERY_STRING": query, "HTTP_HOST": HOST}
+    if method == "POST":
+        if origin is not None:
+            environ["HTTP_ORIGIN"] = origin
+        environ.update(CONTENT_TYPE=content_type, CONTENT_LENGTH=str(len(body)), **{"wsgi.input": BytesIO(body)})
+    response = {}
+    payload = b"".join(app(environ, lambda status, headers: response.update(status=status, headers=dict(headers))))
+    return response["status"], response["headers"], payload.decode("utf-8")
+
+
+def _token(page: str) -> str:
+    match = re.search(r'name="_ocr2_csrf" value="([A-Za-z0-9_-]+)"', page)
+    assert match is not None
+    return match.group(1)
+
+
+@pytest.fixture
+def lifetime():
+    stop = _StopRecorder()
+    presence = WindowPresence()
+    return AppLifetime(presence, stop, poll_seconds=0.01), stop
+
+
+@pytest.fixture
+def app_mode(tmp_path, lifetime):
+    app_lifetime, stop = lifetime
+    app = create_expense_report_app(
+        archive_store=LocalDocumentStore(tmp_path / "archive.sqlite3", protector=SyntheticProtector()),
+        family_catalog_store=DocumentFamilyCatalogStore(tmp_path / "family-catalog.json"),
+        app_lifetime=app_lifetime,
+    )
+    yield app, app_lifetime, stop
+    app.close()
+
+
+def _assert_app_controls(page: str) -> None:
+    assert '<form method="post" action="/app/exit">' in page
+    assert '<button type="submit">Esci</button>' in page
+    assert '<a href="/app/info">Informazioni</a>' in page
+    assert "/app/heartbeat?w=" in page
+    assert "sendBeacon('/app/closing'" in page
+    exit_form = page[page.index('action="/app/exit"'):]
+    assert 'name="_ocr2_csrf"' in exit_form.split("</form>", 1)[0]
+
+
+def test_every_html_page_has_exit_button_and_heartbeat_in_app_mode(app_mode):
+    app = app_mode[0]
+    for path in ("/", "/archive", "/cases", "/catalog"):
+        status, headers, page = _invoke(app, "GET", path)
+        assert status.startswith("200"), path
+        _assert_app_controls(page)
+        controls = page.index('action="/app/exit"')
+        if "</main>" in page:
+            assert controls < page.rindex("</main>"), path
+    status, headers, page = _invoke(app, "POST", "/clear", body=b"clear=1", origin="https://untrusted.example")
+    assert status.startswith("403")
+    _assert_app_controls(page)
+
+
+def test_no_exit_button_without_app_mode(tmp_path):
+    app = create_expense_report_app(
+        archive_store=LocalDocumentStore(tmp_path / "archive.sqlite3", protector=SyntheticProtector()),
+    )
+    try:
+        for path in ("/", "/archive", "/cases"):
+            status, headers, page = _invoke(app, "GET", path)
+            assert status.startswith("200")
+            assert "/app/exit" not in page
+            assert "/app/heartbeat" not in page
+            assert "connect-src" not in headers["Content-Security-Policy"]
+        for method, path in (("GET", "/app/heartbeat"), ("POST", "/app/exit"), ("POST", "/app/closing")):
+            status, _, _ = _invoke(app, method, path, query="w=abc")
+            assert status.startswith("404"), path
+    finally:
+        app.close()
+
+
+def test_heartbeat_returns_204_and_marks_window(app_mode):
+    app, app_lifetime, _ = app_mode
+    presence = app_lifetime.presence
+    status, _, body = _invoke(app, "GET", "/app/heartbeat", query="w=finestra_1")
+    assert status.startswith("204")
+    assert body == ""
+    assert presence.should_stop() is False
+    assert presence._last_beat.keys() == {"finestra_1"}
+    for bad in ("", "w=", "w=" + "a" * 65, "w=a%2Fb", "w=a&w=b"):
+        status, _, _ = _invoke(app, "GET", "/app/heartbeat", query=bad)
+        assert status.startswith("400"), bad
+    _, _, page = _invoke(app, "GET", "/")
+    token = _token(page)
+    status, _, _ = _invoke(app, "POST", "/app/closing", body=urlencode({"w": "finestra_1", "_ocr2_csrf": token}).encode())
+    assert status.startswith("204")
+    assert presence._last_beat == {}
+    status, _, _ = _invoke(app, "POST", "/app/closing", body=urlencode({"w": "a/b", "_ocr2_csrf": token}).encode())
+    assert status.startswith("400")
+    status, _, _ = _invoke(app, "POST", "/app/closing", body=urlencode({"w": "finestra_2"}).encode())
+    assert status.startswith("403")
+
+
+def test_exit_requires_csrf(app_mode):
+    app, app_lifetime, stop = app_mode
+    app_lifetime.start()
+    status, _, _ = _invoke(app, "POST", "/app/exit", body=b"x=1")
+    assert status.startswith("403")
+    status, _, _ = _invoke(app, "POST", "/app/exit", body=b"_ocr2_csrf=wrong")
+    assert status.startswith("403")
+    status, _, _ = _invoke(app, "POST", "/app/exit", body=b"x=1", origin=None)
+    assert status.startswith("403")
+    time.sleep(0.1)
+    assert stop.calls == 0
+    assert not app_lifetime.stopped.is_set()
+
+
+def _port_is_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.5)
+        return probe.connect_ex(("127.0.0.1", port)) != 0
+
+
+def test_exit_stops_server_after_response():
+    holder: dict = {}
+    app_lifetime = AppLifetime(WindowPresence(), lambda: holder["server"].shutdown(), poll_seconds=0.05)
+    server = serve_expense_report_local(port=0, app_lifetime=app_lifetime)
+    holder["server"] = server
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    app_lifetime.start()
+    try:
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        connection.request("GET", "/", headers={"Host": f"127.0.0.1:{port}"})
+        page = connection.getresponse().read().decode("utf-8")
+        connection.close()
+        body = urlencode({"_ocr2_csrf": _token(page)})
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        connection.request("POST", "/app/exit", body=body, headers={
+            "Host": f"127.0.0.1:{port}", "Origin": f"http://127.0.0.1:{port}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        })
+        response = connection.getresponse()
+        exit_page = response.read().decode("utf-8")
+        connection.close()
+        assert response.status == 200
+        assert "OCR2 si è chiuso. Puoi chiudere questa finestra." in exit_page
+        assert app_lifetime.stopped.wait(5)
+        thread.join(5)
+        assert not thread.is_alive()
+        server.server_close()
+        deadline = time.monotonic() + 5
+        while not _port_is_free(port):
+            assert time.monotonic() < deadline, "port still in use"
+            time.sleep(0.05)
+    finally:
+        if thread.is_alive():
+            server.shutdown()
+        server.server_close()
+        server.ocr2_close()
+
+
+def test_info_page_shows_version_python_and_engine(tmp_path):
+    info = AppInfo(version="9.8.7", python_version="3.12.10", ocr_engine="rapidocr-v6",
+                   runtime_status="verificato", instance_id='abc"<x>')
+    stop = _StopRecorder()
+    app = create_expense_report_app(app_lifetime=AppLifetime(WindowPresence(), stop), app_info=info)
+    try:
+        status, _, page = _invoke(app, "GET", "/app/info")
+        assert status.startswith("200")
+        assert "<title>Informazioni</title>" in page
+        for text in ("Versione", "9.8.7", "Python", "3.12.10", "Motore OCR", "rapidocr-v6",
+                     "Verifica del runtime", "verificato"):
+            assert text in page
+        assert '<meta name="ocr2-instance" content="abc&quot;&lt;x&gt;">' in page
+        assert page.index('name="ocr2-instance"') < page.index("<main>")
+    finally:
+        app.close()
+    plain = create_expense_report_app()
+    try:
+        status, _, page = _invoke(plain, "GET", "/app/info")
+        assert status.startswith("200")
+        assert alfa_document_intelligence.__version__ in page
+        assert platform.python_version() in page
+        assert "disattivato" in page
+        assert "non verificato (avvio da sorgenti)" in page
+        assert "/app/exit" not in page
+    finally:
+        plain.close()
+
+
+def test_script_respects_csp_nonce(app_mode):
+    app = app_mode[0]
+    status, headers, page = _invoke(app, "GET", "/")
+    csp = headers["Content-Security-Policy"]
+    nonce = re.search(r"script-src 'nonce-([^']+)'", csp).group(1)
+    scripts = re.findall(r"<script\b[^>]*>", page)
+    assert scripts
+    assert all(f'nonce="{nonce}"' in tag for tag in scripts)
+    assert "__CSP_NONCE__" not in page
+    assert "connect-src 'self'" in csp
+
+
+def test_every_request_counts_as_activity(app_mode):
+    app, app_lifetime, _ = app_mode
+    presence = app_lifetime.presence
+    assert presence._last_activity is None
+    _invoke(app, "GET", "/")
+    assert presence._last_activity is not None

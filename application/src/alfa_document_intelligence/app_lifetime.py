@@ -8,6 +8,7 @@ exit was requested.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 import threading
 import time
@@ -20,6 +21,17 @@ def _check_window_id(window_id: str) -> str:
     if not isinstance(window_id, str) or _WINDOW_ID.fullmatch(window_id) is None:
         raise ValueError("invalid window id")
     return window_id
+
+
+@dataclass(frozen=True)
+class AppInfo:
+    """What the «Informazioni» page shows about the running program (REQ-106)."""
+
+    version: str
+    python_version: str
+    ocr_engine: str | None
+    runtime_status: str
+    instance_id: str = ""
 
 
 class WindowPresence:
@@ -98,6 +110,10 @@ class AppLifetime:
         self._start_lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self.stopped = threading.Event()
+
+    @property
+    def presence(self) -> WindowPresence:
+        return self._presence
 
     def start(self) -> None:
         with self._start_lock:
