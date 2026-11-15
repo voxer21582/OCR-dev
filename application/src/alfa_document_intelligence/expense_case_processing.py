@@ -25,7 +25,7 @@ _MAX_GROUP_DOCUMENTS = 20
 _POLL_INTERVAL_SECONDS = 0.05
 _SAFE_ERROR_CODES = frozenset({
     "case_page_limit", "case_pixel_limit", "job_timeout", "page_output_limit",
-    "worker_failed", "worker_protocol_failed", "worker_start_failed",
+    "worker_failed", "worker_protocol_failed", "worker_start_failed", "engine_identity_mismatch",
     "case_changed", "case_missing", "worker_result_missing", "worker_result_invalid",
     "case_result_limit", "case_input_limit", "case_state_invalid", "case_cancelled",
 })

@@ -92,6 +92,7 @@ jobs:
           tests/test_expense_report_intake_session.py
           tests/test_expense_reports.py
           tests/test_fingerprints.py
+          tests/test_gif_bmp_formats.py
           tests/test_handoff_latest_correction.py
           tests/test_hashed_lock.py
           tests/test_ingestion.py
@@ -106,10 +107,14 @@ jobs:
           tests/test_materialized_upload_batch.py
           tests/test_multipage_tiff_processing_contract.py
           tests/test_ocr_adapter.py
+          tests/test_ocr_engine_registry.py
           tests/test_ocr_job_ui.py
           tests/test_ocr_launcher_contract.py
           tests/test_ocr_processing.py
           tests/test_paddle_adapter.py
+          tests/test_page_orientation.py
+          tests/test_pdf_text_layer.py
+          tests/test_preview_isolation.py
           tests/test_public_data_guard.py
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
@@ -119,6 +124,7 @@ jobs:
           tests/test_security_gate.py
           tests/test_semantic_failure_warning.py
           tests/test_semantic_proposals.py
+          tests/test_synthetic_fixed_engine.py
           tests/test_synthetic_ocr_metrics.py
           tests/test_tax_exact_arithmetic.py
           tests/test_tiff_offset_fixture.py
@@ -192,6 +198,7 @@ jobs:
           tests/test_expense_report_intake_session.py
           tests/test_expense_reports.py
           tests/test_fingerprints.py
+          tests/test_gif_bmp_formats.py
           tests/test_handoff_latest_correction.py
           tests/test_hashed_lock.py
           tests/test_ingestion.py
@@ -206,10 +213,14 @@ jobs:
           tests/test_materialized_upload_batch.py
           tests/test_multipage_tiff_processing_contract.py
           tests/test_ocr_adapter.py
+          tests/test_ocr_engine_registry.py
           tests/test_ocr_job_ui.py
           tests/test_ocr_launcher_contract.py
           tests/test_ocr_processing.py
           tests/test_paddle_adapter.py
+          tests/test_page_orientation.py
+          tests/test_pdf_text_layer.py
+          tests/test_preview_isolation.py
           tests/test_public_data_guard.py
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
@@ -219,6 +230,7 @@ jobs:
           tests/test_security_gate.py
           tests/test_semantic_failure_warning.py
           tests/test_semantic_proposals.py
+          tests/test_synthetic_fixed_engine.py
           tests/test_synthetic_ocr_metrics.py
           tests/test_tax_exact_arithmetic.py
           tests/test_tiff_offset_fixture.py

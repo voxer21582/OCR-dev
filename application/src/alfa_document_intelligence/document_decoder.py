@@ -76,13 +76,28 @@ def iter_decoded_pages(
         raise DocumentDecodeError("source SHA-256 is required")
     if hashlib.sha256(source_bytes).hexdigest() != source_sha256.lower():
         raise DocumentDecodeError("source bytes do not match the supplied SHA-256")
-    if type(media_kind) is not str or media_kind not in {"pdf", "png", "jpeg", "tiff", "webp"}:
+    if type(media_kind) is not str or media_kind not in {"pdf", "png", "jpeg", "tiff", "webp", "gif", "bmp"}:
         raise DocumentDecodeError("unsupported media kind")
 
     if media_kind == "pdf":
         yield from _iter_pdf(source_bytes, source_sha256.lower(), limits)
     else:
         yield from _iter_raster(source_bytes, media_kind, source_sha256.lower(), limits)
+
+
+def _flatten_on_white(image):
+    """RGB copy; transparent areas become white, so dark-on-transparent text stays visible."""
+    if image.mode in ("RGBA", "LA", "PA") or (image.mode in ("P", "L", "RGB") and "transparency" in image.info):
+        from PIL import Image
+
+        rgba = image.convert("RGBA")
+        try:
+            background = Image.new("RGB", rgba.size, (255, 255, 255))
+            background.paste(rgba, mask=rgba.getchannel("A"))
+            return background
+        finally:
+            rgba.close()
+    return image.convert("RGB")
 
 
 def _iter_raster(
@@ -92,7 +107,7 @@ def _iter_raster(
         from PIL import Image, ImageOps
     except ImportError as exc:
         raise DocumentDecodeError("Pillow is required for raster decoding") from exc
-    expected_formats = {"png": "PNG", "jpeg": "JPEG", "tiff": "TIFF", "webp": "WEBP"}
+    expected_formats = {"png": "PNG", "jpeg": "JPEG", "tiff": "TIFF", "webp": "WEBP", "gif": "GIF", "bmp": "BMP"}
     try:
         with Image.open(io.BytesIO(data)) as source:
             if source.format != expected_formats[media_kind]:
@@ -100,8 +115,8 @@ def _iter_raster(
             count = getattr(source, "n_frames", 1)
             if not isinstance(count, int) or count < 1 or count > limits.max_pages:
                 raise DocumentDecodeError("image page count exceeds the configured limit")
-            if media_kind in {"png", "webp"} and count != 1:
-                raise DocumentDecodeError("animated PNG/WebP is not supported")
+            if media_kind in {"png", "webp", "gif"} and count != 1:
+                raise DocumentDecodeError("animated PNG/WebP/GIF is not supported")
             total_pixels = 0
             for index in range(count):
                 oriented = None
@@ -111,7 +126,9 @@ def _iter_raster(
                     _check_dimensions(*source.size, limits)
                     source.load()
                     oriented = ImageOps.exif_transpose(source)
-                    rgb = oriented.convert("RGB")
+                    # GIF transparency is flattened on white (format evaluation);
+                    # other formats keep their existing conversion.
+                    rgb = _flatten_on_white(oriented) if media_kind == "gif" else oriented.convert("RGB")
                     width, height = rgb.size
                     pixels = _check_dimensions(width, height, limits)
                     total_pixels += pixels

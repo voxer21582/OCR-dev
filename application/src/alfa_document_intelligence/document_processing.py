@@ -8,7 +8,10 @@ from typing import Any, Callable, Iterable
 from .analysis_pipeline import AnalysisPipelineError, AnalysisProposalLimitError, analyze_ocr_results
 from .document_family_catalog import DocumentFamilyCatalog
 from .document_decoder import DecodeLimits, DecodedPage, DocumentDecodeError, iter_decoded_pages
-from .ocr_adapter import OCRContractError, OCREngineAdapter, OCRPageResult, run_ocr
+from dataclasses import replace
+
+from .ocr_adapter import OCRContractError, OCREngineAdapter, OCRPageResult, OCRToken, RasterPage, run_ocr
+from .pdf_text_layer import PDF_TEXT_PRODUCER_NAME, PdfTextLayerReader, producer_version
 
 
 Decoder = Callable[..., Iterable[DecodedPage]]
@@ -50,6 +53,8 @@ def process_document_record(
         "image/jpeg": "jpeg",
         "image/tiff": "tiff",
         "image/webp": "webp",
+        "image/gif": "gif",
+        "image/bmp": "bmp",
     }.get(media_type)
     if media_kind is None:
         return _failed_copy(document, "unsupported_media_type")
@@ -57,6 +62,8 @@ def process_document_record(
     decoded_results: list[OCRPageResult] = []
     page_inventory: list[dict[str, int]] = []
     declared_page_count: int | None = None
+    text_layer_pages = 0
+    text_layer = PdfTextLayerReader(source_bytes) if media_kind == "pdf" else None
     try:
         pages = decoder(
             source_bytes,
@@ -77,12 +84,21 @@ def process_document_record(
             expected_page_number = len(decoded_results) + 1
             if decoded.raster.page_number != expected_page_number:
                 raise DocumentDecodeError("decoded page numbering is not contiguous")
-            result = run_ocr(
-                adapter,
-                (decoded.raster,),
-                source_sha256=source_hash,
-                languages=("it", "en"),
-            )[0]
+            page_adapter = adapter
+            if text_layer is not None:
+                text_tokens = text_layer.tokens(decoded.raster.page_number)
+                if text_tokens is not None:
+                    page_adapter = _TextLayerAdapter(text_tokens)
+                    text_layer_pages += 1
+            if page_adapter is adapter:
+                result = recognize_with_orientation(adapter, decoded.raster, source_sha256=source_hash)
+            else:
+                result = run_ocr(
+                    page_adapter,
+                    (decoded.raster,),
+                    source_sha256=source_hash,
+                    languages=("it", "en"),
+                )[0]
             decoded_results.append(result)
             page_inventory.append({
                 "page_number": result.page_number,
@@ -99,16 +115,21 @@ def process_document_record(
         return _failed_copy(document, "ocr_contract_failed")
     except Exception:
         return _failed_copy(document, "ocr_failed")
+    finally:
+        if text_layer is not None:
+            text_layer.close()
 
     prepared = deepcopy(document)
     prepared["source"]["page_count"] = declared_page_count
     prepared["pages"] = page_inventory
     prepared["processing"]["ocr"] = {
         "status": "completed",
+        # Every page's evidence names its own producer. The document-level
+        # producer is the text layer only when no page needed the OCR engine.
         "producer": {
             "stage": "ocr",
-            "name": adapter.name,
-            "version": adapter.version,
+            "name": PDF_TEXT_PRODUCER_NAME if text_layer_pages == declared_page_count else adapter.name,
+            "version": producer_version() if text_layer_pages == declared_page_count else adapter.version,
         },
     }
     try:
@@ -124,6 +145,94 @@ def process_document_record(
             "error_code": "semantic_extraction_failed",
         }
         return prepared
+
+
+_WEAK_TOKEN_COUNT = 1  # a page with no tokens at all is weak
+_WEAK_MEAN_CONFIDENCE = 0.5
+_BLANK_MIN_LEVEL = 200  # grey level: a page whose darkest pixel is lighter is blank
+# Inverse maps from a point of the page rotated counter-clockwise by the key
+# (in degrees) back to the original page, in normalized coordinates.
+_BACK_TO_ORIGINAL = {
+    90: lambda x, y: (1.0 - y, x),
+    180: lambda x, y: (1.0 - x, 1.0 - y),
+    270: lambda x, y: (y, 1.0 - x),
+}
+
+
+def _is_weak(result: OCRPageResult) -> bool:
+    if result.status != "complete" or len(result.tokens) < _WEAK_TOKEN_COUNT:
+        return True
+    scores = [token.confidence for token in result.tokens if token.confidence is not None]
+    return bool(scores) and sum(scores) / len(scores) < _WEAK_MEAN_CONFIDENCE
+
+
+def _strength(result: OCRPageResult) -> float:
+    if result.status != "complete" or not result.tokens:
+        return 0.0
+    scores = [token.confidence for token in result.tokens if token.confidence is not None]
+    mean = sum(scores) / len(scores) if scores else 1.0
+    return sum(len(token.text) for token in result.tokens) * mean
+
+
+def recognize_with_orientation(
+    adapter: OCREngineAdapter, raster: RasterPage, *, source_sha256: str,
+    languages: tuple[str, ...] = ("it", "en"),
+) -> OCRPageResult:
+    """Recognize a page; if the upright pass is weak, also try 90/180/270 degrees (REQ-028).
+
+    The strongest reading wins. Its boxes are mapped back to the original page,
+    so evidence always points at the page as stored.
+    """
+    upright = run_ocr(adapter, (raster,), source_sha256=source_sha256, languages=languages)[0]
+    if not _is_weak(upright):
+        return upright
+    # Only the image handling is best effort: a raster Pillow cannot read keeps
+    # the upright reading. Engine errors on a turned page are never swallowed
+    # (a swallowed output-limit error would still fail the job later).
+    try:
+        from PIL import Image
+
+        image = Image.frombytes("RGB", (raster.width_px, raster.height_px), raster.image_bytes)
+        darkest = image.convert("L").getextrema()[0]
+    except Exception:
+        return upright
+    if darkest >= _BLANK_MIN_LEVEL:
+        return upright  # nothing dark on the page: turning it cannot find text
+    best, best_angle = upright, 0
+    for angle in (90, 180, 270):
+        turned = image.rotate(angle, expand=True)
+        candidate = run_ocr(
+            adapter,
+            (RasterPage(raster.page_number, turned.width, turned.height, turned.tobytes()),),
+            source_sha256=source_sha256, languages=languages,
+        )[0]
+        turned.close()
+        if _strength(candidate) > _strength(best):
+            best, best_angle = candidate, angle
+    if best_angle == 0:
+        return upright
+    back = _BACK_TO_ORIGINAL[best_angle]
+    tokens = tuple(
+        OCRToken(
+            token_id=token.token_id, text=token.text, confidence=token.confidence,
+            polygon=tuple(back(x, y) for x, y in token.polygon),
+        )
+        for token in best.tokens
+    )
+    return replace(best, tokens=tokens)
+
+
+class _TextLayerAdapter:
+    """Presents tokens read from a PDF text layer through the OCR contract."""
+
+    name = PDF_TEXT_PRODUCER_NAME
+
+    def __init__(self, tokens):
+        self.version = producer_version()
+        self._tokens = tuple(tokens)
+
+    def recognize(self, page, languages):
+        return list(self._tokens)
 
 
 def _failed_copy(document: dict[str, Any], error_code: str) -> dict[str, Any]:

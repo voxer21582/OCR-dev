@@ -22,6 +22,8 @@ _MEDIA_TYPES = {
     "image/png": ".png",
     "image/tiff": ".tif",
     "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/bmp": ".bmp",
 }
 
 
@@ -36,6 +38,10 @@ def _signature_matches(data: bytes, media_type: str) -> bool:
         return data.startswith((b"II*\x00", b"MM\x00*"))
     if media_type == "image/webp":
         return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    if media_type == "image/gif":
+        return data.startswith((b"GIF87a", b"GIF89a"))
+    if media_type == "image/bmp":
+        return data.startswith(b"BM")
     return False
 
 

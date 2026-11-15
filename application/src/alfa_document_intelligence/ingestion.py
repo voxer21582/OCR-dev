@@ -13,7 +13,7 @@ import stat
 import zipfile
 from typing import BinaryIO, Iterable
 
-from .image_safety import ImageHeaderError, ImageInfo, inspect_image_header, inspect_tiff_snapshot
+from .image_safety import ImageHeaderError, ImageInfo, inspect_gif_snapshot, inspect_image_header, inspect_tiff_snapshot
 
 
 @dataclass(frozen=True)
@@ -81,6 +81,9 @@ _MAGIC = {
     "jpeg": b"\xff\xd8\xff",
     "tiff_le": b"II*\x00",
     "tiff_be": b"MM\x00*",
+    "gif87a": b"GIF87a",
+    "gif89a": b"GIF89a",
+    "bmp": b"BM",
 }
 
 _ZIP_EOCD_SIGNATURE = b"PK\x05\x06"
@@ -161,7 +164,7 @@ def _preflight_zip_entry_count(stream: BinaryIO, max_entries: int) -> None:
 
 
 _DRIVE_PREFIX = re.compile(r"^[a-zA-Z]:")
-_ALLOWED_ENTRY_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
+_ALLOWED_ENTRY_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".gif", ".bmp"}
 
 
 def _image_info(stream: BinaryIO, kind: str, limits: IngestionLimits, size: int | None = None) -> ImageInfo:
@@ -171,6 +174,9 @@ def _image_info(stream: BinaryIO, kind: str, limits: IngestionLimits, size: int 
                                          max_dimension=limits.max_image_dimension,
                                          max_pixels=limits.max_image_pixels,
                                          max_tiff_pages=limits.max_tiff_pages)
+        if kind == "gif" and size is not None:
+            return inspect_gif_snapshot(stream, size, max_dimension=limits.max_image_dimension,
+                                        max_pixels=limits.max_image_pixels)
         header = stream.read(limits.max_image_header_bytes)
         return inspect_image_header(
             header,
@@ -207,6 +213,10 @@ def _kind_from_header(header: bytes) -> str | None:
         return "png"
     if header.startswith(_MAGIC["jpeg"]):
         return "jpeg"
+    if header.startswith(_MAGIC["gif87a"]) or header.startswith(_MAGIC["gif89a"]):
+        return "gif"
+    if len(header) >= 26 and header.startswith(_MAGIC["bmp"]):
+        return "bmp"
     if header.startswith(_MAGIC["tiff_le"]) or header.startswith(_MAGIC["tiff_be"]):
         return "tiff"
     return None
@@ -297,10 +307,10 @@ def _inventory_archive(source: BinaryIO, limits: IngestionLimits) -> tuple[tuple
                     actual_total += size
                     digest = digest_obj.hexdigest()
                     kind = _kind_from_header(bytes(prefix))
-                    if kind is None or (suffix == ".pdf" and kind != "pdf") or (suffix in {".jpg", ".jpeg"} and kind != "jpeg") or (suffix == ".png" and kind != "png") or (suffix == ".webp" and kind != "webp") or (suffix in {".tif", ".tiff"} and kind != "tiff"):
+                    if kind is None or (suffix == ".pdf" and kind != "pdf") or (suffix in {".jpg", ".jpeg"} and kind != "jpeg") or (suffix == ".png" and kind != "png") or (suffix == ".webp" and kind != "webp") or (suffix in {".tif", ".tiff"} and kind != "tiff") or (suffix == ".gif" and kind != "gif") or (suffix == ".bmp" and kind != "bmp"):
                         raise UploadRejected("archive member extension does not match supported file content")
                     image = None
-                    if kind in {"png", "jpeg", "tiff", "webp"}:
+                    if kind in {"png", "jpeg", "tiff", "webp", "gif", "bmp"}:
                         member.seek(0)
                         image = _image_info(member, kind, limits, size)
                 documents.append(FileInventory(name, kind, size, digest, image.width_px if image else None, image.height_px if image else None, image.page_count if image else None))
@@ -376,7 +386,7 @@ def _inventory_snapshot(
         return UploadInventory("pending_security_scan", source, docs, True, duplicates)
     if source_kind is None:
         raise UploadRejected("unsupported or unrecognized file format")
-    if source_kind in {"png", "jpeg", "tiff", "webp"}:
+    if source_kind in {"png", "jpeg", "tiff", "webp", "gif", "bmp"}:
         snapshot.seek(0)
         image = _image_info(snapshot, source_kind, limits, size)
         source = FileInventory(source.name, source.media_kind, source.byte_length, source.sha256, image.width_px, image.height_px, image.page_count)

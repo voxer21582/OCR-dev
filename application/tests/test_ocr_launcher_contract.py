@@ -4,6 +4,16 @@ import unittest
 from unittest.mock import patch
 
 from alfa_document_intelligence import __main__ as launcher
+from alfa_document_intelligence.ocr_engine_registry import EngineManifest
+
+_SYNTHETIC_MANIFEST = EngineManifest(
+    engine_id="synthetic-x", name="SyntheticX", version="7", languages=("it",), license="MIT",
+    artifacts=(), factory_ref="tests.fake_engine:make", runtime_check_ref="tests.fake_engine:check",
+)
+_HIDDEN_MANIFEST = EngineManifest(
+    engine_id="hidden-x", name="Hidden", version="1", languages=("it",), license="MIT",
+    artifacts=(), factory_ref="tests.fake_engine:make", runtime_check_ref=None, selectable=False,
+)
 
 
 class _Report:
@@ -29,9 +39,10 @@ class _FakeServer:
 class _FakeManager:
     instances = []
 
-    def __init__(self, factory_ref, limits):
+    def __init__(self, factory_ref, limits, expected_identity=None):
         self.factory_ref = factory_ref
         self.limits = limits
+        self.expected_identity = expected_identity
         self.closed = False
         self.__class__.instances.append(self)
 
@@ -62,7 +73,7 @@ class OCRLauncherContractTests(unittest.TestCase):
         self.server = _FakeServer()
         self.calls = []
 
-    def _run(self, args, report=None):
+    def _run(self, args, report=None, engines=None):
         def create_server(**kwargs):
             self.calls.append(kwargs)
             manager = kwargs.get("ocr_processing_manager")
@@ -77,11 +88,15 @@ class OCRLauncherContractTests(unittest.TestCase):
             with patch.dict(os.environ, {"LOCALAPPDATA": local_app_data}):
                 with patch.object(launcher, "serve_expense_report_local", side_effect=create_server):
                     with patch.object(launcher, "OCRProcessingManager", _FakeManager):
-                        with patch.object(launcher, "check_rapidocr_runtime",
+                        with patch.object(launcher, "_runtime_check",
                                           return_value=report or _Report()) as check:
                             self.check = check
                             with patch.object(launcher, "ExpenseCaseProcessingManager", _FakeCaseProcessingManager):
-                                launcher.main(args)
+                                if engines is None:
+                                    launcher.main(args)
+                                else:
+                                    with patch.object(launcher, "discover_engines", return_value=engines):
+                                        launcher.main(args)
 
     def test_launcher_default_keeps_ocr_disabled(self):
         with patch("builtins.print") as output:
@@ -98,7 +113,11 @@ class OCRLauncherContractTests(unittest.TestCase):
         self._run(["--ocr-engine", "rapidocr-v6"])
         self.assertEqual(len(_FakeManager.instances), 1)
         manager = _FakeManager.instances[0]
-        self.assertEqual(manager.factory_ref, launcher._RAPIDOCR_FACTORY)
+        self.assertEqual(
+            manager.factory_ref,
+            "alfa_document_intelligence.rapidocr_runtime_factory:create_rapidocr_v6_multilingual_adapter",
+        )
+        self.assertEqual(manager.expected_identity, ("RapidOCR", "3.10.0"))
         self.assertEqual(manager.limits.job_timeout_seconds, 900)
         self.assertEqual(manager.limits.cleanup_grace_seconds, 3)
         self.assertEqual(manager.limits.child_memory_limit_bytes, 2 * 1024 * 1024 * 1024 - 1)
@@ -133,6 +152,36 @@ class OCRLauncherContractTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         text = " ".join(str(args) for args, _ in output.call_args_list)
         self.assertIn("pypdfium2", text)
+
+
+    def test_engine_choices_come_from_the_registry(self):
+        engines = {"synthetic-x": _SYNTHETIC_MANIFEST, "hidden-x": _HIDDEN_MANIFEST}
+        with patch("builtins.print"):
+            self._run(["--ocr-engine", "synthetic-x"], engines=engines)
+        manager = _FakeManager.instances[0]
+        self.assertEqual(manager.factory_ref, "tests.fake_engine:make")
+        self.assertEqual(manager.expected_identity, ("SyntheticX", "7"))
+        self.assertEqual(self.check.call_args.args[0], _SYNTHETIC_MANIFEST)
+
+    def test_unknown_or_hidden_engine_is_rejected(self):
+        engines = {"synthetic-x": _SYNTHETIC_MANIFEST, "hidden-x": _HIDDEN_MANIFEST}
+        for engine_id in ("does-not-exist", "hidden-x"):
+            with self.subTest(engine_id=engine_id):
+                with patch("sys.stderr"), self.assertRaises(SystemExit) as caught:
+                    self._run(["--ocr-engine", engine_id], engines=engines)
+                self.assertEqual(caught.exception.code, 2)
+                self.assertEqual(_FakeManager.instances, [])
+
+
+    def test_broken_engine_manifest_stops_with_a_message_not_a_traceback(self):
+        from alfa_document_intelligence.ocr_engine_registry import EngineRegistryError
+
+        with patch.object(launcher, "discover_engines", side_effect=EngineRegistryError("manifest_invalid")):
+            with patch.object(launcher, "serve_expense_report_local") as serve:
+                with patch("sys.stderr"), self.assertRaises(SystemExit) as caught:
+                    launcher.main([])
+        self.assertEqual(caught.exception.code, 2)
+        serve.assert_not_called()
 
 
 if __name__ == "__main__":

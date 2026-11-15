@@ -157,6 +157,8 @@ _MEDIA_TYPES = {
     "png": "image/png",
     "tiff": "image/tiff",
     "webp": "image/webp",
+    "gif": "image/gif",
+    "bmp": "image/bmp",
 }
 _DOCUMENT_FAMILIES = {
     "invoice", "fiscal_receipt", "parking_receipt", "hotel_document",

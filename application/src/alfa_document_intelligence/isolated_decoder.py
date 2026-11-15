@@ -170,7 +170,7 @@ def iter_decoded_pages_isolated(
         raise DocumentDecodeError("source bytes must be non-empty")
     if not isinstance(source_sha256, str) or len(source_sha256) != 64:
         raise DocumentDecodeError("source SHA-256 is required")
-    if media_kind not in {"pdf", "png", "jpeg", "tiff", "webp"}:
+    if media_kind not in {"pdf", "png", "jpeg", "tiff", "webp", "gif", "bmp"}:
         raise DocumentDecodeError("unsupported media kind")
     if not isinstance(limits, DecodeLimits):
         raise DocumentDecodeError("decode limits are invalid")

@@ -169,7 +169,10 @@ def run_case_benchmark(fixtures: Path, work_dir: Path, *, python: str = sys.exec
         timings["ocr_seconds"] = round(time.monotonic() - started, 1)
         pages = re.search(r"Pagine: (\d+)", page)
         if phase != "OCR completato":
-            raise BenchmarkError("OCR job did not complete")
+            code = re.search(r"Codice: ([A-Za-z0-9_]+)", page)
+            raise BenchmarkError(
+                f"OCR job did not complete (phase {phase or 'unknown'}, code {code.group(1) if code else 'none'})"
+            )
 
         status, exported = client.request("GET", f"/cases/{case_id}/export")
         if status != 200:

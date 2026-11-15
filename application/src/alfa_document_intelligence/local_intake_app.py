@@ -32,6 +32,7 @@ from .review_ledger import append_review_event, reviewed_overlay
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
+from .isolated_decoder import iter_decoded_pages_isolated
 from .expense_case_processing import ExpenseCaseProcessingManager, ExpenseCaseJobStatus
 from .expense_reconciliation import (
     ReconciliationError,
@@ -59,7 +60,7 @@ _MAX_UPLOAD_REQUEST_BYTES = 100 * 1024 * 1024
 _MAX_UPLOAD_FILES = 20
 _MAX_URLENCODED_FIELDS = 16
 _SESSION_IDLE_SECONDS = 30 * 60
-_ACCEPT = ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.webp,.zip"
+_ACCEPT = ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.webp,.gif,.bmp,.zip"
 _CASE_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:/attachments)?$")
 _CASE_RECONCILIATION_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/reconciliation$")
 _CASE_REVIEW_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/reconciliation/review$")
@@ -340,6 +341,9 @@ def _page(
     return [payload]
 
 
+_PREVIEW_TIMEOUT_SECONDS = 30.0
+
+
 def _source_page_png(record: dict[str, Any], source_bytes: bytes, page_number: int) -> bytes:
     """Render one verified source page to a bounded, in-memory PNG response."""
     source = record.get("source")
@@ -366,11 +370,15 @@ def _source_page_png(record: dict[str, Any], source_bytes: bytes, page_number: i
         raise DocumentDecodeError("source page is not in the record")
     media_kind = {
         "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpeg",
-        "image/tiff": "tiff", "image/webp": "webp",
+        "image/tiff": "tiff", "image/webp": "webp", "image/gif": "gif", "image/bmp": "bmp",
     }.get(source.get("media_type"))
     if media_kind is None:
         raise DocumentDecodeError("source media type is not supported")
-    decoded_pages = iter_decoded_pages(source_bytes, media_kind, source_sha256=digest, limits=limits)
+    # Native decoders never run in the web process (REQ-030): a malformed or
+    # hostile file can only fail or time out the bounded child.
+    decoded_pages = iter_decoded_pages_isolated(
+        source_bytes, media_kind, source_sha256=digest, limits=limits, timeout_seconds=_PREVIEW_TIMEOUT_SECONDS,
+    )
     try:
         for decoded in decoded_pages:
             if decoded.raster.page_number == page_number:
