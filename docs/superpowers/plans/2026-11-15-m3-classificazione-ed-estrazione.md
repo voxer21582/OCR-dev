@@ -160,3 +160,41 @@ Se un'etichetta esplicita esiste, resta la proposta preferita.
   Passi e risultati vanno in `docs/evidence/M3/browser-walkthrough.md`.
 - [ ] Revisione indipendente → `review.md`; correzioni con test.
 - [ ] Aggiornare `acceptance.md`, `requirements.md`, `decisions.md` (rinvii di REQ-053 e REQ-064) e `STATUS.md`; aprire la PR. Merge solo con il sì del proprietario (R8).
+
+---
+
+## Estensione del 2026-11-15 (decisione del proprietario: REQ-053 e REQ-064 entrano in M3)
+
+Annulla i rinvii DEC-021 e DEC-022.
+
+### Task 9: Righe di fattura e tabelle (REQ-053)
+
+**Files:** Create `application/src/alfa_document_intelligence/invoice_line_items.py`; Modify `analysis_pipeline.py`, `contracts.py`, `schemas/document.schema.json` (`line_items`, `$defs/lineItem`), `local_intake_app.py` (sezione «Righe del documento»); Test `test_invoice_line_items.py`; Create `tools/line_item_benchmark.py` (misura locale su fatture sintetiche).
+
+**Interfaces — Produces:**
+- `extract_line_items(pages) -> list[dict]` per i documenti che non sono note spese:
+  - una tabella inizia da una riga d'intestazione con una parola di descrizione (descrizione, description, articolo, item, prodotto, servizio) e una d'importo (importo, amount, prezzo, price, totale, total);
+  - le righe successive con un importo sono voci, fino alla riga del totale o del subtotale o alla fine della pagina;
+  - ogni voce ha `line_id` (`item-pNNNN-NNNNN`) e i campi `description`, `quantity`, `unit_price`, `amount`, tutti candidati `uncertain` con l'evidenza della riga (area e token);
+  - con due importi nella riga, il primo è il prezzo unitario e l'ultimo l'importo; la quantità è un intero o un decimale isolato, solo se l'intestazione ha una colonna quantità.
+- Verifica `line-items-sum-total` v1: confronta la somma dei primi valori degli importi con il primo valore del totale.
+  - Se coincidono: `pass` quando tutti i valori sono osservati, altrimenti `indeterminate` con `line_items_sum_matches_total_requires_review`.
+  - Se differiscono: `indeterminate` con `line_items_sum_differs_from_total` (sconti, IVA o arrotondamenti possono spiegarlo).
+- Test: fattura sintetica con intestazione, 3 voci, subtotale e totale; voci con evidenza; righe prima dell'intestazione e dopo il totale escluse; documento senza intestazione senza voci; nota spese senza voci; somma uguale o diversa dal totale; schema e contratto accettano `line_items`.
+
+### Task 10: Regole di verifica con versione (REQ-064)
+
+**Files:** Create `application/src/alfa_document_intelligence/validation_rules.py`; Modify `document_validation.py` (versioni dal registro), `analysis_pipeline.py` (scrive `validation_ruleset`), schema e contratto; Test `test_validation_rules.py`.
+
+**Interfaces — Produces:**
+- `RULES: dict[str, RuleSpec]`, con `RuleSpec(rule_id, version, dimension, description_it)`, per le regole hotel, aritmetica IVA, campi obbligatori del catalogo e somma delle voci;
+- `ruleset() -> dict[str, str]` (id → versione);
+- il record riceve `validation_ruleset` (oggetto id → versione) all'analisi;
+- `revalidate(record, *, rules=None) -> dict`:
+  - un record **revisionato** (con eventi di revisione) mantiene risultati e insieme di regole invariati;
+  - un record non revisionato viene verificato di nuovo e riceve il nuovo insieme di regole;
+- la pagina di revisione mostra la versione delle regole usate.
+- Test:
+  - ogni risultato porta la versione dal registro;
+  - con una regola aggiunta (registro di prova), un record non revisionato riceve il nuovo risultato e un record revisionato resta identico;
+  - `validation_ruleset` è nel record e nello schema.
