@@ -115,7 +115,7 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         self.assertTrue(response["status"].startswith("200"))
         decoded = DecodedPage(RasterPage(1, 1, 1, b"\xff\x00\x00"), 1)
         with patch(
-            "alfa_document_intelligence.local_intake_app.iter_decoded_pages",
+            "alfa_document_intelligence.local_intake_app.iter_decoded_pages_isolated",
             return_value=iter([decoded]),
         ) as decoder:
             response, preview = invoke({
@@ -228,13 +228,13 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         record["source"]["media_type"] = "image/png"
         decoded = DecodedPage(RasterPage(1, 1, 1, b"\xff\x00\x00"), 1)
         with patch(
-            "alfa_document_intelligence.local_intake_app.iter_decoded_pages",
+            "alfa_document_intelligence.local_intake_app.iter_decoded_pages_isolated",
             return_value=iter([decoded]),
         ) as decoder:
             preview = _source_page_png(record, source, 1)
             self.assertTrue(preview.startswith(b"\x89PNG\r\n\x1a\n"))
             decoder.assert_called_once()
-        with patch("alfa_document_intelligence.local_intake_app.iter_decoded_pages") as decoder:
+        with patch("alfa_document_intelligence.local_intake_app.iter_decoded_pages_isolated") as decoder:
             with self.assertRaises(DocumentDecodeError):
                 _source_page_png(record, source + b"tamper", 1)
             with self.assertRaises(DocumentDecodeError):

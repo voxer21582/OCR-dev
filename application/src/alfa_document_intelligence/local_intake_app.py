@@ -32,6 +32,7 @@ from .review_ledger import append_review_event, reviewed_overlay
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
+from .isolated_decoder import iter_decoded_pages_isolated
 from .expense_case_processing import ExpenseCaseProcessingManager, ExpenseCaseJobStatus
 from .expense_reconciliation import (
     ReconciliationError,
@@ -340,6 +341,9 @@ def _page(
     return [payload]
 
 
+_PREVIEW_TIMEOUT_SECONDS = 30.0
+
+
 def _source_page_png(record: dict[str, Any], source_bytes: bytes, page_number: int) -> bytes:
     """Render one verified source page to a bounded, in-memory PNG response."""
     source = record.get("source")
@@ -370,7 +374,11 @@ def _source_page_png(record: dict[str, Any], source_bytes: bytes, page_number: i
     }.get(source.get("media_type"))
     if media_kind is None:
         raise DocumentDecodeError("source media type is not supported")
-    decoded_pages = iter_decoded_pages(source_bytes, media_kind, source_sha256=digest, limits=limits)
+    # Native decoders never run in the web process (REQ-030): a malformed or
+    # hostile file can only fail or time out the bounded child.
+    decoded_pages = iter_decoded_pages_isolated(
+        source_bytes, media_kind, source_sha256=digest, limits=limits, timeout_seconds=_PREVIEW_TIMEOUT_SECONDS,
+    )
     try:
         for decoded in decoded_pages:
             if decoded.raster.page_number == page_number:
