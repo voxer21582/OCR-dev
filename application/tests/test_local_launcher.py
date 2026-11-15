@@ -27,14 +27,17 @@ class _FakeServer:
         self.closed = True
 
 
-def test_launcher_serves_on_configured_port_and_closes_cleanly(monkeypatch, capsys):
+def test_launcher_serves_on_configured_port_and_closes_cleanly(monkeypatch, capsys, tmp_path):
+    # Keep the Windows archive inside a temporary folder, never the real profile.
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     server = _FakeServer()
     calls = []
-    monkeypatch.setattr(
-        launcher,
-        "serve_expense_report_local",
-        lambda *, port: calls.append(port) or server,
-    )
+
+    def fake_serve(*, port, **_services):
+        calls.append(port)
+        return server
+
+    monkeypatch.setattr(launcher, "serve_expense_report_local", fake_serve)
 
     launcher.main(["--port", "8765"])
 
@@ -53,7 +56,7 @@ def test_launcher_rejects_invalid_port(value):
 
 
 
-def test_launcher_serves_real_loopback_http_request_and_stops():
+def test_launcher_serves_real_loopback_http_request_and_stops(tmp_path):
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     port = listener.getsockname()[1]
@@ -61,6 +64,7 @@ def test_launcher_serves_real_loopback_http_request_and_stops():
 
     root = Path(__file__).resolve().parents[1]
     environment = os.environ.copy()
+    environment["LOCALAPPDATA"] = str(tmp_path)
     process = subprocess.Popen(
         [sys.executable, "-m", "alfa_document_intelligence", "--port", str(port)],
         cwd=root,
