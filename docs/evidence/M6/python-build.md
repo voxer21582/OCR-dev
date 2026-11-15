@@ -1,0 +1,3 @@
+# Compilazione Python 3.13.18
+
+Il 2026-11-16 è stata avviata la build x64 Release con le dipendenze approvate e verificate in `python-source-dependencies.md`, senza Tcl/Tk. Visual Studio Build Tools 2022 / MSBuild è stato individuato; i sorgenti e le dipendenze erano nella cache del worktree. La compilazione è terminata con codice 1: 162 errori C1902, «Gestore database di programma incompatibile. Verificare l’installazione», nel progetto `_freeze_module`; nessun binario Python utilizzabile è stato verificato. Il log completo è nella cache locale `installer/.cache/python-build.log` (non versionato). La causa tecnica precisa non è stata accertata. Non sono state effettuate modifiche a Visual Studio o Windows né tentativi di compilazione alternativi.
