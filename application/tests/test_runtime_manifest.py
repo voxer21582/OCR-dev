@@ -1,5 +1,8 @@
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 
 import pytest
 
@@ -114,3 +117,29 @@ def test_link_entries_are_refused_without_creating_windows_symlinks(monkeypatch,
     monkeypatch.setattr(Path, "is_symlink", lambda path: path == entry or real_is_symlink(path))
     with pytest.raises(ValueError, match="symbolic links"):
         build_manifest(tmp_path, version="1", excluded_globs=())
+
+
+@pytest.mark.skipif(not os.environ.get("OCR2_TEST_RAPIDOCR_WITHOUT_FFMPEG"), reason="requires approved local RapidOCR runtime and opt-in")
+def test_rapidocr_runs_without_ffmpeg_dll(tmp_path):
+    """Compare OCR tokens with and without FFmpeg using generated data only."""
+    runtime = Path(os.environ["OCR2_TEST_RAPIDOCR_WITHOUT_FFMPEG"])
+    python = runtime / "Scripts" / "python.exe"
+    cv2 = runtime / "Lib" / "site-packages" / "cv2"
+    assert python.is_file() and cv2.is_dir()
+    shadow = tmp_path / "shadow"
+    shadow.mkdir()
+    shutil.copytree(cv2, shadow / "cv2", ignore=shutil.ignore_patterns("opencv_videoio_ffmpeg*.dll", "__pycache__"))
+    script = tmp_path / "recognize.py"
+    script.write_text('''from PIL import Image, ImageDraw, ImageFont\nimport json\nfrom alfa_document_intelligence.ocr_adapter import RasterPage\nfrom alfa_document_intelligence.rapidocr_runtime_factory import create_rapidocr_v6_multilingual_adapter\nimage = Image.new("RGB", (1000, 250), "white")\ndraw = ImageDraw.Draw(image)\nfont = ImageFont.truetype("arial.ttf", 48)\ndraw.text((40, 60), "TOTALE 123.45 EUR", font=font, fill="black")\npage = RasterPage(1, image.width, image.height, image.tobytes())\ntokens = create_rapidocr_v6_multilingual_adapter().recognize(page, ("it", "en"))\nprint("OCR2_RESULT=" + json.dumps([token.text for token in tokens], ensure_ascii=True))\n''', encoding="utf-8")
+    app_src = str(Path(__file__).resolve().parents[1] / "src")
+    results = []
+    for prefix in (None, shadow):
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(prefix) if prefix else None, app_src]))
+        run = subprocess.run([str(python), "-B", str(script)], capture_output=True, text=True, env=env, timeout=180)
+        assert run.returncode == 0, "synthetic OCR subprocess failed"
+        lines = [line for line in run.stdout.splitlines() if line.startswith("OCR2_RESULT=")]
+        assert len(lines) == 1
+        results.append(json.loads(lines[0].split("=", 1)[1]))
+    assert results[0] and results[1] == results[0]
+    assert any("123" in text for text in results[1])
