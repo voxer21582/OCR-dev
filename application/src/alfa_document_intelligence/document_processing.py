@@ -8,7 +8,9 @@ from typing import Any, Callable, Iterable
 from .analysis_pipeline import AnalysisPipelineError, AnalysisProposalLimitError, analyze_ocr_results
 from .document_family_catalog import DocumentFamilyCatalog
 from .document_decoder import DecodeLimits, DecodedPage, DocumentDecodeError, iter_decoded_pages
-from .ocr_adapter import OCRContractError, OCREngineAdapter, OCRPageResult, run_ocr
+from dataclasses import replace
+
+from .ocr_adapter import OCRContractError, OCREngineAdapter, OCRPageResult, OCRToken, RasterPage, run_ocr
 from .pdf_text_layer import PDF_TEXT_PRODUCER_NAME, extract_text_tokens, producer_version
 
 
@@ -85,12 +87,15 @@ def process_document_record(
                 if text_tokens is not None:
                     page_adapter = _TextLayerAdapter(text_tokens)
                     text_layer_pages += 1
-            result = run_ocr(
-                page_adapter,
-                (decoded.raster,),
-                source_sha256=source_hash,
-                languages=("it", "en"),
-            )[0]
+            if page_adapter is adapter:
+                result = recognize_with_orientation(adapter, decoded.raster, source_sha256=source_hash)
+            else:
+                result = run_ocr(
+                    page_adapter,
+                    (decoded.raster,),
+                    source_sha256=source_hash,
+                    languages=("it", "en"),
+                )[0]
             decoded_results.append(result)
             page_inventory.append({
                 "page_number": result.page_number,
@@ -134,6 +139,79 @@ def process_document_record(
             "error_code": "semantic_extraction_failed",
         }
         return prepared
+
+
+_WEAK_TOKEN_COUNT = 1  # a page with no tokens at all is weak
+_WEAK_MEAN_CONFIDENCE = 0.5
+# Inverse maps from a point of the page rotated counter-clockwise by the key
+# (in degrees) back to the original page, in normalized coordinates.
+_BACK_TO_ORIGINAL = {
+    90: lambda x, y: (1.0 - y, x),
+    180: lambda x, y: (1.0 - x, 1.0 - y),
+    270: lambda x, y: (y, 1.0 - x),
+}
+
+
+def _is_weak(result: OCRPageResult) -> bool:
+    if result.status != "complete" or len(result.tokens) < _WEAK_TOKEN_COUNT:
+        return True
+    scores = [token.confidence for token in result.tokens if token.confidence is not None]
+    return bool(scores) and sum(scores) / len(scores) < _WEAK_MEAN_CONFIDENCE
+
+
+def _strength(result: OCRPageResult) -> float:
+    if result.status != "complete" or not result.tokens:
+        return 0.0
+    scores = [token.confidence for token in result.tokens if token.confidence is not None]
+    mean = sum(scores) / len(scores) if scores else 1.0
+    return sum(len(token.text) for token in result.tokens) * mean
+
+
+def recognize_with_orientation(
+    adapter: OCREngineAdapter, raster: RasterPage, *, source_sha256: str,
+    languages: tuple[str, ...] = ("it", "en"),
+) -> OCRPageResult:
+    """Recognize a page; if the upright pass is weak, also try 90/180/270 degrees (REQ-028).
+
+    The strongest reading wins. Its boxes are mapped back to the original page,
+    so evidence always points at the page as stored.
+    """
+    upright = run_ocr(adapter, (raster,), source_sha256=source_sha256, languages=languages)[0]
+    if not _is_weak(upright):
+        return upright
+    # Best effort: any failure while trying a rotation keeps the upright reading.
+    try:
+        from PIL import Image
+
+        image = Image.frombytes("RGB", (raster.width_px, raster.height_px), raster.image_bytes)
+    except Exception:
+        return upright
+    best, best_angle = upright, 0
+    for angle in (90, 180, 270):
+        try:
+            turned = image.rotate(angle, expand=True)
+            candidate = run_ocr(
+                adapter,
+                (RasterPage(raster.page_number, turned.width, turned.height, turned.tobytes()),),
+                source_sha256=source_sha256, languages=languages,
+            )[0]
+        except OCRContractError:
+            raise  # an engine breaking the contract is never hidden
+        except Exception:
+            continue
+        if _strength(candidate) > _strength(best):
+            best, best_angle = candidate, angle
+    if best_angle == 0:
+        return upright
+    back = _BACK_TO_ORIGINAL[best_angle]
+    tokens = tuple(
+        OCRToken(
+            token_id=token.token_id, text=token.text, confidence=token.confidence,
+            polygon=tuple(back(x, y) for x, y in token.polygon),
+        )
+        for token in best.tokens
+    )
+    return replace(best, tokens=tokens)
 
 
 class _TextLayerAdapter:
