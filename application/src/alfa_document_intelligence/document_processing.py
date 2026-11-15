@@ -9,6 +9,7 @@ from .analysis_pipeline import AnalysisPipelineError, AnalysisProposalLimitError
 from .document_family_catalog import DocumentFamilyCatalog
 from .document_decoder import DecodeLimits, DecodedPage, DocumentDecodeError, iter_decoded_pages
 from .ocr_adapter import OCRContractError, OCREngineAdapter, OCRPageResult, run_ocr
+from .pdf_text_layer import PDF_TEXT_PRODUCER_NAME, extract_text_tokens, producer_version
 
 
 Decoder = Callable[..., Iterable[DecodedPage]]
@@ -57,6 +58,7 @@ def process_document_record(
     decoded_results: list[OCRPageResult] = []
     page_inventory: list[dict[str, int]] = []
     declared_page_count: int | None = None
+    text_layer_pages = 0
     try:
         pages = decoder(
             source_bytes,
@@ -77,8 +79,14 @@ def process_document_record(
             expected_page_number = len(decoded_results) + 1
             if decoded.raster.page_number != expected_page_number:
                 raise DocumentDecodeError("decoded page numbering is not contiguous")
+            page_adapter = adapter
+            if media_kind == "pdf":
+                text_tokens = extract_text_tokens(source_bytes, decoded.raster.page_number)
+                if text_tokens is not None:
+                    page_adapter = _TextLayerAdapter(text_tokens)
+                    text_layer_pages += 1
             result = run_ocr(
-                adapter,
+                page_adapter,
                 (decoded.raster,),
                 source_sha256=source_hash,
                 languages=("it", "en"),
@@ -105,10 +113,12 @@ def process_document_record(
     prepared["pages"] = page_inventory
     prepared["processing"]["ocr"] = {
         "status": "completed",
+        # Every page's evidence names its own producer. The document-level
+        # producer is the text layer only when no page needed the OCR engine.
         "producer": {
             "stage": "ocr",
-            "name": adapter.name,
-            "version": adapter.version,
+            "name": PDF_TEXT_PRODUCER_NAME if text_layer_pages == declared_page_count else adapter.name,
+            "version": producer_version() if text_layer_pages == declared_page_count else adapter.version,
         },
     }
     try:
@@ -124,6 +134,19 @@ def process_document_record(
             "error_code": "semantic_extraction_failed",
         }
         return prepared
+
+
+class _TextLayerAdapter:
+    """Presents tokens read from a PDF text layer through the OCR contract."""
+
+    name = PDF_TEXT_PRODUCER_NAME
+
+    def __init__(self, tokens):
+        self.version = producer_version()
+        self._tokens = tuple(tokens)
+
+    def recognize(self, page, languages):
+        return list(self._tokens)
 
 
 def _failed_copy(document: dict[str, Any], error_code: str) -> dict[str, Any]:

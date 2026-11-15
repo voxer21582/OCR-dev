@@ -111,6 +111,7 @@ jobs:
           tests/test_ocr_launcher_contract.py
           tests/test_ocr_processing.py
           tests/test_paddle_adapter.py
+          tests/test_pdf_text_layer.py
           tests/test_preview_isolation.py
           tests/test_public_data_guard.py
           tests/test_rapidocr_adapter.py
@@ -214,6 +215,7 @@ jobs:
           tests/test_ocr_launcher_contract.py
           tests/test_ocr_processing.py
           tests/test_paddle_adapter.py
+          tests/test_pdf_text_layer.py
           tests/test_preview_isolation.py
           tests/test_public_data_guard.py
           tests/test_rapidocr_adapter.py
