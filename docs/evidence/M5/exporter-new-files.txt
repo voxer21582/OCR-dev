@@ -1,0 +1,16 @@
+# REQ-090: a new export format is added with new files only
+
+Commit a39cd94 (hidden synthetic exporter and its test). The CI listing of the new test module is a separate commit, 3c326c8.
+
+$ git show --stat --format="%h %s" a39cd94
+a39cd94 test(R8): add a hidden synthetic exporter with new files only (REQ-090)
+
+ .../exporters/synthetic_field_list.py              | 25 ++++++++++++++++
+ application/tests/test_synthetic_exporter.py       | 35 ++++++++++++++++++++++
+ 2 files changed, 60 insertions(+)
+
+$ git show --stat --format="%h %s" 3c326c8
+3c326c8 ci: list test_synthetic_exporter
+
+ .github/workflows/ocr2-synthetic-taxonomy.yml | 2 ++
+ 1 file changed, 2 insertions(+)

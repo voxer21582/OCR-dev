@@ -96,16 +96,16 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | ID | Requisito | Pri | Criterio di accettazione | Vecchio ID | M | Stato |
 |---|---|---|---|---|---|---|
 | REQ-080 | Archivio locale cifrato per utente Windows; salva, apri, elimina espliciti. | MUST | Dopo riavvio, record e byte originali identici. | LIB-1 | M5 | `SYN-LOCAL`, `LOCAL-RUN` |
-| REQ-081 | Ricerca per testo, tipo, data, stato, etichetta; risultati limitati e paginati. | MUST | Test di ricerca a risposta nota. | LIB-2 | M5 | parziale |
-| REQ-082 | I fascicoli si salvano e riprendono (nota, allegati, blocchi, eventi). | MUST | Interruzione durante caricamento e OCR, poi ripresa. | LIB-3 | M5 | `SYN-LOCAL` |
-| REQ-083 | Rinomina di documenti e fascicoli. | MUST | Il nome cambia, l'identità e la storia no; evento registrato. | — | M5 | `OPEN` |
-| REQ-084 | Organizzazione con etichette (aggiungi, togli, filtra). | MUST | Test e percorso nel browser. | — | M5 | `OPEN` |
-| REQ-085 | Eliminazione di record e sorgenti, con limiti della cancellazione sicura documentati. | MUST | Dopo l'eliminazione, record e sorgenti non sono più leggibili dall'app. | LIB-4 | M5 | parziale |
-| REQ-086 | Backup e ripristino dell'archivio. | MUST | Backup, cancellazione, ripristino → contenuto identico (impronte). | LIB-5 | M5 | `OPEN` |
-| REQ-087 | Integrità, migrazione dello schema tra versioni, scritture interrotte. | MUST | Fixture sintetiche per ogni versione dello schema; test con interruzione simulata. | LIB-5 | M5 | `OPEN` |
-| REQ-088 | Export di un record in JSON completo e in CSV, su azione esplicita, dall'interfaccia. | MUST | Output deterministico; celle CSV protette da formule. | EXP-1 | M5 | `SYN-LOCAL`; link JSON e CSV nella pagina dell'archivio; accettazione `OPEN` |
-| REQ-089 | Export di una riconciliazione con suggerimenti, decisioni ed evidenze separati; reimportabile per verifica. | MUST | Andata e ritorno senza perdite. | EXP-2 | M5 | `OPEN` |
-| REQ-090 | Esportatori dietro un'interfaccia comune; un formato nuovo non cambia il resto. | MUST | Esportatore di prova aggiunto con soli file nuovi. | — | M5 | `OPEN` |
+| REQ-081 | Ricerca per testo, tipo, data, stato, etichetta; risultati limitati e paginati. | MUST | Test di ricerca a risposta nota. | LIB-2 | M5 | `SYN-CI`, `LOCAL-RUN` (M5, PR in bozza) |
+| REQ-082 | I fascicoli si salvano e riprendono (nota, allegati, blocchi, eventi). | MUST | Interruzione durante caricamento e OCR, poi ripresa. | LIB-3 | M5 | `SYN-CI` (M5, PR in bozza) |
+| REQ-083 | Rinomina di documenti e fascicoli. | MUST | Il nome cambia, l'identità e la storia no; evento registrato. | — | M5 | `SYN-CI`, `LOCAL-RUN` (M5, PR in bozza) |
+| REQ-084 | Organizzazione con etichette (aggiungi, togli, filtra). | MUST | Test e percorso nel browser. | — | M5 | `SYN-CI`, `LOCAL-RUN` (M5, PR in bozza) |
+| REQ-085 | Eliminazione di record e sorgenti, con limiti della cancellazione sicura documentati. | MUST | Dopo l'eliminazione, record e sorgenti non sono più leggibili dall'app. | LIB-4 | M5 | `SYN-CI`; limiti in `product/deletion-limits.md` (M5, PR in bozza) |
+| REQ-086 | Backup e ripristino dell'archivio. | MUST | Backup, cancellazione, ripristino → contenuto identico (impronte). | LIB-5 | M5 | `SYN-CI`, `LOCAL-RUN` (M5, PR in bozza) |
+| REQ-087 | Integrità, migrazione dello schema tra versioni, scritture interrotte. | MUST | Fixture sintetiche per ogni versione dello schema; test con interruzione simulata. | LIB-5 | M5 | `SYN-CI` (M5, PR in bozza) |
+| REQ-088 | Export di un record in JSON completo e in CSV, su azione esplicita, dall'interfaccia. | MUST | Output deterministico; celle CSV protette da formule. | EXP-1 | M5 | `SYN-CI`, `LOCAL-RUN` (M5, PR in bozza) |
+| REQ-089 | Export di una riconciliazione con suggerimenti, decisioni ed evidenze separati; reimportabile per verifica. | MUST | Andata e ritorno senza perdite. | EXP-2 | M5 | `SYN-CI`; non rileva falsificazioni volute (M5, PR in bozza) |
+| REQ-090 | Esportatori dietro un'interfaccia comune; un formato nuovo non cambia il resto. | MUST | Esportatore di prova aggiunto con soli file nuovi. | — | M5 | `SYN-CI` (M5, PR in bozza) |
 | REQ-091 | Altri formati (foglio di calcolo, PDF con evidenze) dopo valutazione. | COULD | Decisione registrata. | EXP-3 | — | `OPEN` |
 
 ## APP / INS — Applicazione, installazione, aggiornamento
@@ -130,7 +130,7 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 |---|---|---|---|---|---|---|
 | REQ-120 | Solo loopback; controlli di host, origine e token su ogni modifica. | MUST | Host, origine o token errati rifiutati. | SEC-1 | M1 | `SYN-CI` (M1) |
 | REQ-121 | Nessun traffico di rete in uscita durante l'uso. | MUST | Fascicolo completo con registrazione delle connessioni del processo senza modificare Windows (es. hook Python più elenco delle connessioni del processo dal sistema); limiti dichiarati. | SEC-2 | M7 | parziale |
-| REQ-122 | Archivio cifrato per utente; sessioni che scadono e si cancellano. | MUST | Test e verifica manuale. | SEC-4 | M5 | `SYN-LOCAL` |
+| REQ-122 | Archivio cifrato per utente; sessioni che scadono e si cancellano. | MUST | Test e verifica manuale. | SEC-4 | M5 | `SYN-CI` (M5, PR in bozza) |
 | REQ-123 | Anteprime e risposte con CSP, nosniff, no-store. | MUST | Test sulle intestazioni in CI. | SEC-6 | M1 | `SYN-CI` (M1) |
 | REQ-124 | Errori e log con codici stabili, mai testo dei documenti, percorsi o identificativi. | MUST | Checklist di revisione dei log. | SEC-7 | M7 | `OPEN` |
 | REQ-125 | Modello delle minacce e revisione di sicurezza indipendente (automatica) firmata dal proprietario. | MUST | Documento firmato in `docs/evidence/M7/` (DEC-008). | SEC-8 | M7 | `OPEN` |

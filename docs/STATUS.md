@@ -1,4 +1,13 @@
-STATO: MILESTONE COMPLETATA — M4 (M5 Libreria in corso)
+STATO: MILESTONE COMPLETATA — M5 (PR in bozza: serve l'approvazione esplicita del proprietario per R7 e R8)
+
+Criteri di accettazione M5 ed evidenze: [acceptance.md](evidence/M5/acceptance.md).
+- Libreria: ricerca con filtri e pagine (REQ-081); rinomina di documenti e fascicoli (REQ-083); etichette (REQ-084). [Percorso nel browser](evidence/M5/browser-walkthrough.md).
+- Archivio: eliminazione senza tracce nel file, con i [limiti documentati](product/deletion-limits.md) (REQ-085); backup e ripristino verificati (REQ-086); migrazione allo schema 4 e scritture interrotte (REQ-087); ripresa dei fascicoli dopo la riapertura (REQ-082).
+- Export: dalla pagina (REQ-088); export del fascicolo riletto (REQ-089, con il limite dichiarato); registro dei formati, con un formato nuovo aggiunto con [soli file nuovi](evidence/M5/exporter-new-files.txt) (REQ-090); archivio cifrato e sessioni (REQ-122).
+- [Revisione indipendente](evidence/M5/review.md): i quattro problemi importanti sono stati corretti in `75ce91d`.
+- Suite locale: 881 test passati ([output](evidence/M5/suite-75ce91d.md)).
+- La CI e il link alla PR sono nella PR. Nuova decisione: DEC-029. Domanda per M6: Q-003.
+
 
 # Stato del lavoro
 

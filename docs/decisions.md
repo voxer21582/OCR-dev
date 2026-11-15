@@ -34,3 +34,5 @@ Le decisioni del proprietario sono marcate **(P)**; le altre sono scelte reversi
 | DEC-027 | 2026-11-15 | CSV revisione v3: `review_events_json` contiene il registro completo solo nella prima riga; JSON rifiuta registri mancanti o alterati. | Ripetere la storia per ogni campo; mantenere v2 | Tornare al formato v2 e rimuovere la colonna con una migrazione esplicita dei consumatori |
 
 | DEC-028 | 2026-11-15 | Il controllo delle evidenze accetta solo tre screenshot sintetici M4 identificati da percorso e SHA-256, oltre ai formati testuali; revisione umana delle immagini obbligatoria. Il controllo non esamina i pixel. | Vietare ogni immagine; ammettere tutte le immagini | Rimuovere le voci e le immagini o introdurre una procedura di revisione diversa |
+
+| DEC-029 | 2026-11-15 | Il backup dell'archivio resta cifrato con la DPAPI dell'utente Windows: si ripristina solo con lo stesso utente sullo stesso PC (o con il profilo DPAPI migrato). | Backup portabile con password | Aggiungere un formato di backup portabile (Q-003) |
