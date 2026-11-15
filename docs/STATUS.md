@@ -12,13 +12,17 @@ Risultati principali:
 - catalogo dei tipi caricato dall'app e modificabile da una pagina «Catalogo», con storico delle versioni;
 - i quattro stati di GOAL con il motivo in revisione e nel CSV;
 - proposta del nome dell'esercente;
-- angolo di rotazione nel record.
+- angolo di rotazione nel record;
+- righe di fattura e tabelle, con la verifica «somma delle righe = totale»;
+- regole di verifica con versione: i documenti già in revisione non cambiano.
 
 Accuratezza sintetica (60 giustificativi): totale, data, valuta, numero e partita IVA 100%; esercente 90%; tutte le soglie fissate prima sono superate. Tre difetti dell'app trovati e corretti (valuta attaccata, server bloccato da connessioni inattive, modulo da pagina in sandbox).
 
-CI: Ubuntu 755 passati e 9 saltati con motivo; Windows 764 passati.
+Righe di fattura su 12 fatture sintetiche: 54/54 corrette, verifica della somma 12/12.
 
-Rinviati con decisione: REQ-053 (DEC-021), REQ-064 (DEC-022).
+CI: Ubuntu 783 passati e 9 saltati con motivo; Windows 792 passati.
+
+REQ-053 e REQ-064 inclusi in M3 su richiesta del proprietario.
 
 ## M2 — Motori e decodifica
 

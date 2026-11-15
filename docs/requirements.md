@@ -63,7 +63,7 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | REQ-050 | Modello del candidato: valore, stato, alternative, confidenza, evidenza, regola e versione di normalizzazione. | MUST | Schema e test; nessun campo confermato senza evidenza. | EXT-1 | — | `SYN-CI` |
 | REQ-051 | Campi comuni con evidenza: date per ruolo, importi, valuta, totali, IVA e identificativi fiscali, numero documento, riferimenti di pagamento, intestatario, mance. | MUST | Fixture per campo con casi positivi e negativi. | EXT-2 | M3 | `SYN-CI`, `LOCAL-RUN` (M3) |
 | REQ-052 | Nome dell'esercente con evidenza. | MUST | Fixture sintetiche; alternative quando ambiguo. | — | M3 | `SYN-CI`, `LOCAL-RUN` (M3) |
-| REQ-053 | Righe di fattura e tabelle con totali ed evidenza. | SHOULD | Fatture sintetiche producono righe legate alle aree. | EXT-3 | M3 | rinviato (DEC-021) |
+| REQ-053 | Righe di fattura e tabelle con totali ed evidenza. | SHOULD | Fatture sintetiche producono righe legate alle aree. | EXT-3 | M3 | `SYN-CI`, `LOCAL-RUN` (M3) |
 | REQ-054 | Righe della nota spese (data, descrizione, importo, valuta) con evidenza; valori incerti restano alternative. | MUST | Fixture a risposta nota. | EXT-4 | — | `SYN-CI`, `LOCAL-RUN` |
 | REQ-055 | Normalizzazione per lingua (virgola decimale, separatori, ordine giorno/mese) che conserva il letterale e ogni lettura ambigua. | MUST | Fixture a tabella per it-IT ed en. | EXT-5, D3 | M3 | `SYN-CI` |
 | REQ-056 | Valori mancanti, illeggibili e superamento dei limiti espliciti con codici stabili. | MUST | Test di overflow. | EXT-6 | — | `SYN-CI` |
@@ -77,7 +77,7 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | REQ-061 | Esiti di validazione deterministici (superato, fallito, indeterminato) con ID di regola stabili; aritmetica decimale esatta. | MUST | Test delle regole. | VAL-1 | — | `SYN-CI` |
 | REQ-062 | Riconciliazione tra righe della nota e giustificativi: conflitti d'importo, valuta, data; possibili duplicati; supporto mancante; solo suggerimenti. | MUST | Fixture a risposta nota in CI; benchmark del fascicolo rigenerabile (REQ-003). | VAL-2 | M1 | `SYN-CI`, `LOCAL-RUN` (M1); limite aperto: giustificativo avanzato proposto a righe dello stesso giorno (M3) |
 | REQ-063 | Nessuna approvazione automatica. | MUST | Nessun percorso scrive uno stato confermato senza un evento umano (test). | VAL-3 | — | `SYN-CI` |
-| REQ-064 | Regole di validazione versionate; i record già revisionati conservano i vecchi esiti. | SHOULD | Regola aggiunta; vecchi record invariati. | VAL-4 | M3 | rinviato (DEC-022) |
+| REQ-064 | Regole di validazione versionate; i record già revisionati conservano i vecchi esiti. | SHOULD | Regola aggiunta; vecchi record invariati. | VAL-4 | M3 | `SYN-CI` (M3) |
 
 ## REV — Revisione e correzione
 
