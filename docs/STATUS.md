@@ -1,6 +1,14 @@
-STATO: BLOCCATO — M4
+STATO: MILESTONE COMPLETATA — M4
 
 # Stato del lavoro
+
+M4 verificata sulla proposta della PR #149: REQ-070 ([percorso browser](evidence/M4/browser-walkthrough.md)), REQ-072 ([test export](evidence/M4/ci-security-suite.txt)), REQ-073 ([regione manuale](evidence/M4/missing-fields-review.md)) e REQ-075 ([checklist e riscontro vocale](evidence/M4/accessibility-checklist.md)). CI [Ubuntu](https://github.com/voxer21582/OCR-dev/actions/runs/43750928840/job/132924474854) e [Windows](https://github.com/voxer21582/OCR-dev/actions/runs/43750928840/job/132924474509) passata su `b6dc0f5`; revisione indipendente e approvazione esplicita R8 del proprietario in [audit](evidence/M4/review.md). La PR è in bozza e non è stata unita. CodeQL mantiene due avvisi medi, valutati senza divulgazioni concrete nei percorsi attuali ([limiti](evidence/M4/ci-security-review.md)).
+
+## Cronologia della chiusura
+
+Le voci successive descrivono lo stato al momento di ciascuna verifica e possono contenere attese successivamente risolte.
+
+Il 2026-11-15 il proprietario ha approvato esplicitamente in chat le modifiche all'export R8 della PR #149 e ha richiesto la chiusura M4. I job Ubuntu e Windows sono passati sul commit `b6dc0f5`; CodeQL segnala due avvisi medi residui, riesaminati senza individuare divulgazioni concrete nei percorsi attuali ([valutazione](evidence/M4/ci-security-review.md)). Audit conclusivo in corso; nessun merge effettuato.
 
 La PR #149 ha superato i job Ubuntu e Windows; resta in attesa dell'approvazione esplicita del proprietario per le modifiche all'export R8, richiesta da DEC-001. CodeQL mantiene due avvisi medi esaminati senza individuare divulgazioni concrete nei percorsi attuali ([valutazione](evidence/M4/ci-security-review.md)). Per riprendere serve la decisione del proprietario sulla PR; nessun merge è stato eseguito.
 
