@@ -18,7 +18,7 @@ import threading
 import time
 from typing import Any, Callable
 from urllib.parse import parse_qs, quote
-from wsgiref.simple_server import make_server
+from wsgiref.simple_server import WSGIRequestHandler, make_server
 
 from .chatgpt_handoff import ChatGPTHandoffError, build_chatgpt_handoff_prompt
 from .contracts import validate_document_record
@@ -2629,6 +2629,19 @@ def _multipart_scalar(
         raise IntakeRequestError("Seleziona esattamente una nota spese")
     return values[0]
 
+_IDLE_CONNECTION_TIMEOUT_SECONDS = 2.0
+
+
+class _QuietIdleHandler(WSGIRequestHandler):
+    """Drops a connection that sends nothing before the timeout, without a traceback."""
+
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except TimeoutError:
+            self.close_connection = True
+
+
 def serve_expense_report_local(
     *,
     port: int = 8000,
@@ -2640,10 +2653,13 @@ def serve_expense_report_local(
     expense_case_processing_manager: ExpenseCaseProcessingManager | None = None,
     custom_family_catalog: Any | None = None,
     family_catalog_store: Any | None = None,
+    idle_connection_timeout_seconds: float = _IDLE_CONNECTION_TIMEOUT_SECONDS,
 ):
     """Create a local HTTP server bound exclusively to IPv4 loopback."""
     if not isinstance(port, int) or isinstance(port, bool) or not 0 <= port <= 65535:
         raise ValueError("port must be between 0 and 65535")
+    if not isinstance(idle_connection_timeout_seconds, (int, float)) or not 0 < idle_connection_timeout_seconds <= 60:
+        raise ValueError("idle_connection_timeout_seconds must be between 0 and 60")
     app = create_expense_report_app(
         limits=limits,
         max_batch_document_bytes=max_batch_document_bytes,
@@ -2654,6 +2670,10 @@ def serve_expense_report_local(
         custom_family_catalog=custom_family_catalog,
         family_catalog_store=family_catalog_store,
     )
-    server = make_server("127.0.0.1", port, app)
+    # The server handles one connection at a time. Browsers open spare
+    # connections that may never send a request; without a socket timeout one
+    # of them blocks every later request.
+    handler = type("_BoundedIdleHandler", (_QuietIdleHandler,), {"timeout": idle_connection_timeout_seconds})
+    server = make_server("127.0.0.1", port, app, handler_class=handler)
     server.ocr2_close = app.close
     return server

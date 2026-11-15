@@ -130,6 +130,7 @@ jobs:
           tests/test_security_gate.py
           tests/test_semantic_failure_warning.py
           tests/test_semantic_proposals.py
+          tests/test_server_idle_connection.py
           tests/test_synthetic_fixed_engine.py
           tests/test_synthetic_ocr_metrics.py
           tests/test_tax_exact_arithmetic.py
@@ -242,6 +243,7 @@ jobs:
           tests/test_security_gate.py
           tests/test_semantic_failure_warning.py
           tests/test_semantic_proposals.py
+          tests/test_server_idle_connection.py
           tests/test_synthetic_fixed_engine.py
           tests/test_synthetic_ocr_metrics.py
           tests/test_tax_exact_arithmetic.py
