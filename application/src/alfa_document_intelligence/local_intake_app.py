@@ -410,7 +410,8 @@ def _upload_page(*, archive_enabled: bool = False) -> str:
         '<button type="submit">Carica e continua</button></form>'
         "<p>Dimensione massima della richiesta: 100 MiB; massimo 20 file.</p>"
         + ('<p><a href="/archive">Apri archivio locale</a> · '
-           '<a href="/cases">Gestisci fascicoli note spese</a></p>' if archive_enabled else "")
+           '<a href="/cases">Gestisci fascicoli note spese</a> · '
+           '<a href="/catalog">Catalogo dei tipi di documento</a></p>' if archive_enabled else "")
         + "</main></html>"
     )
 
