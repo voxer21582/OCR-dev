@@ -1,5 +1,9 @@
-STATO: MILESTONE COMPLETATA — M5 (R7/R8 approvati dal proprietario il 2026-11-15; limite di REQ-089 accettato)
+STATO: M6 IN CORSO — applicazione installabile; piano in [2026-11-15-m6-applicazione-installabile.md](superpowers/plans/2026-11-15-m6-applicazione-installabile.md)
 M6 (applicazione installabile) avviata il 2026-11-15 con le decisioni del proprietario: R-001 e R-002 approvate, Q-001 e Q-003 risolte (DEC-030, DEC-031, DEC-032); il collaudo su PC pulito lo esegue il proprietario con una procedura scritta.
+
+## M5 — completata (2026-11-15, #150)
+
+Approvazione: R7/R8 approvati dal proprietario il 2026-11-15; limite di REQ-089 accettato.
 
 Criteri di accettazione M5 ed evidenze: [acceptance.md](evidence/M5/acceptance.md).
 - Libreria: ricerca con filtri e pagine (REQ-081); rinomina di documenti e fascicoli (REQ-083); etichette (REQ-084). [Percorso nel browser](evidence/M5/browser-walkthrough.md).
@@ -7,7 +11,7 @@ Criteri di accettazione M5 ed evidenze: [acceptance.md](evidence/M5/acceptance.m
 - Export: dalla pagina (REQ-088); export del fascicolo riletto (REQ-089, con il limite dichiarato); registro dei formati, con un formato nuovo aggiunto con [soli file nuovi](evidence/M5/exporter-new-files.txt) (REQ-090); archivio cifrato e sessioni (REQ-122).
 - [Revisione indipendente](evidence/M5/review.md): i quattro problemi importanti sono stati corretti in `75ce91d`.
 - Suite locale: 881 test passati ([output](evidence/M5/suite-75ce91d.md)).
-- La CI e il link alla PR sono nella PR. Nuova decisione: DEC-029. Domanda per M6: Q-003.
+- La CI e il link alla PR sono nella PR. Nuova decisione: DEC-029. Q-003 risolta in M6 (DEC-031).
 
 
 # Stato del lavoro
