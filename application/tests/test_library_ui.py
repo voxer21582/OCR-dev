@@ -157,6 +157,22 @@ class LibraryPageTests(unittest.TestCase):
         self.assertIsNone(self.store.get("doc-002"))
         self.assertFalse(list(self.root.glob(".restore-*")), "no staging copy is left behind")
 
+    def test_cases_can_be_renamed_from_the_cases_page(self):
+        from test_expense_case_store import _case, _source_record
+
+        source = b"%PDF synthetic statement for the cases page"
+        statement = _source_record("statement-page", source)
+        case = self.store.create_case(_case(statement), statement, source)
+        body, content_type = _form(label="Trasferta Roma")
+        status, _, page = _request(self.app, "POST", f"/cases/{case['case_id']}/label", body, content_type)
+        self.assertEqual(status, "200 OK")
+        self.assertIn("Trasferta Roma", page.decode("utf-8"))
+        status, _, page = _request(self.app, path="/cases")
+        self.assertIn(f'href="/cases/{case["case_id"]}/intake">Trasferta Roma</a>', page.decode("utf-8"))
+        self.assertEqual(_request(self.app, "POST", f"/cases/{case['case_id']}/label", body, content_type,
+                                  origin="http://evil.example")[0], "403 Forbidden")
+        self.assertEqual(_request(self.app, "POST", "/cases/case-unknown/label", body, content_type)[0], "400 Bad Request")
+
     def test_page_has_no_raw_unescaped_names(self):
         body, content_type = _form(display_name='<script>alert(1)</script>', back="/archive")
         _, _, page = _request(self.app, "POST", "/archive/rename/doc-001", body, content_type)

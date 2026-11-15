@@ -75,6 +75,7 @@ _ACCEPT = ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.webp,.gif,.bmp,.zip"
 _CASE_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:/attachments)?$")
 _CASE_RECONCILIATION_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/reconciliation$")
 _CASE_REVIEW_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/reconciliation/review$")
+_CASE_LABEL_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/label$")
 _CASE_EXPORT_PATH = re.compile(r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/export$")
 _CASE_INCLUSION_PATH = re.compile(
     r"^/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/attachments/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/inclusion$"
@@ -424,15 +425,23 @@ def _upload_page(*, archive_enabled: bool = False) -> str:
     )
 
 
-def _expense_case_index_page(cases: list[dict[str, Any]]) -> str:
+def _expense_case_index_page(cases: list[dict[str, Any]], labels: dict[str, str | None] | None = None,
+                             notice: str = "") -> str:
+    labels = labels or {}
     items = []
     for case in cases:
         summary = _case_status_payload(case)
+        safe_case = escape(summary["case_id"], quote=True)
+        label = labels.get(summary["case_id"])
+        title = escape(label) if label else f'Fascicolo {escape(summary["case_id"])}'
         items.append(
-            f'<li><a href="/cases/{escape(summary["case_id"], quote=True)}/intake">Fascicolo '
-            f'{escape(summary["case_id"])}</a> — {summary["attachment_count"]} giustificativi, '
-            f'{escape(summary["processing_state"])}</li>'
+            f'<li><a href="/cases/{safe_case}/intake">{title}</a> — {summary["attachment_count"]} giustificativi, '
+            f'{escape(summary["processing_state"])}'
+            f'<form method="post" action="/cases/{safe_case}/label">'
+            f'<label>Nome del fascicolo <input name="label" maxlength="120" required value="{escape(label or "", quote=True)}"></label> '
+            '<button type="submit">Rinomina</button></form></li>'
         )
+    listing_notice = f'<p role="status">{escape(notice)}</p>' if notice else ""
     listing = "<ul>" + "".join(items) + "</ul>" if items else "<p>Nessun fascicolo salvato.</p>"
     create_id = "case-" + secrets.token_hex(18)
     return (
@@ -446,7 +455,7 @@ def _expense_case_index_page(cases: list[dict[str, Any]]) -> str:
         f'<input type="hidden" name="_case_id" value="{create_id}">'
         '<button type="submit">Crea fascicolo</button></form>'
         '<p>Ogni fascicolo può contenere al massimo 100 giustificativi, aggiunti in lotti di 20.</p>'
-        f'{listing}<p><a href="/">Torna all’acquisizione temporanea</a></p></main></html>'
+        f'{listing_notice}{listing}<p><a href="/">Torna all’acquisizione temporanea</a></p></main></html>'
     )
 
 
@@ -2010,8 +2019,9 @@ def create_expense_report_app(
         case_page_route = _CASE_PAGE_PATH.fullmatch(path)
         case_intake_route = re.fullmatch(r"/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/intake", path)
         case_work_route = _CASE_WORK_ROUTE.fullmatch(path)
+        case_label_route = _CASE_LABEL_PATH.fullmatch(path)
         is_case_route = (
-            path == "/cases" or case_route is not None
+            path == "/cases" or case_route is not None or case_label_route is not None
             or case_intake_route is not None or case_work_route is not None
             or case_reconciliation_route is not None or case_review_route is not None
             or case_export_route is not None or case_inclusion_route is not None
@@ -2020,11 +2030,30 @@ def create_expense_report_app(
         if is_case_route:
             if archive_store is None:
                 return _page(environ, start_response, "503 Service Unavailable", "Archivio locale non configurato")
+            if case_label_route is not None:
+                if method != "POST":
+                    return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                if not _same_origin_loopback_post(environ) and environ.get("_opaque_origin_csrf_validated") is not True:
+                    return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                try:
+                    values = _multipart_form_values(environ).get("label", [])
+                    if len(values) != 1:
+                        raise IntakeRequestError("nome mancante")
+                    archive_store.set_case_label(case_label_route.group(1), values[0], actor=_windows_review_actor())
+                    cases = archive_store.list_cases(limit=100)
+                    labels = {case["case_id"]: archive_store.case_label(case["case_id"]) for case in cases}
+                except (IntakeRequestError, StoreRejected):
+                    return _page(environ, start_response, "400 Bad Request",
+                                 '<p>Nome non valido: da 1 a 120 caratteri, per un fascicolo esistente.</p><a href="/cases">Fascicoli</a>')
+                except StoreError:
+                    return _page(environ, start_response, "500 Internal Server Error", "Fascicoli non disponibili")
+                return _page(environ, start_response, "200 OK", _expense_case_index_page(cases, labels, notice="Nome aggiornato."))
             if path == "/cases":
                 if method == "GET":
                     try:
                         cases = archive_store.list_cases(limit=100)
-                        return _page(environ, start_response, "200 OK", _expense_case_index_page(cases))
+                        labels = {case["case_id"]: archive_store.case_label(case["case_id"]) for case in cases}
+                        return _page(environ, start_response, "200 OK", _expense_case_index_page(cases, labels))
                     except StoreError:
                         return _page(environ, start_response, "500 Internal Server Error", "Fascicoli non disponibili")
                 if method == "POST":

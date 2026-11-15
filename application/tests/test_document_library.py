@@ -168,10 +168,34 @@ class FilteredSearchTests(LibraryTestCase):
 
 
 class CaseLabelTests(LibraryTestCase):
-    def test_a_case_label_is_stored_and_listed(self):
-        self.assertFalse(hasattr(self.store, "nope"))
+    def _create_case(self):
+        from test_expense_case_store import _case, _source_record
+
+        source = b"%PDF synthetic statement for a case label"
+        statement = _source_record("statement-label", source)
+        return self.store.create_case(_case(statement), statement, source)
+
+    def test_a_case_label_is_stored_without_changing_the_case(self):
+        case = self._create_case()
+        self.store.set_case_label(case["case_id"], "  Trasferta   Milano ", actor="synthetic-user")
+        self.assertEqual(self.store.case_label(case["case_id"]), "Trasferta Milano")
+        self.assertEqual(self.store.get_case(case["case_id"]), case, "identity, revision and history are unchanged")
+        self.assertNotIn(b"Trasferta", self.database.read_bytes())
+
+    def test_unknown_cases_and_bad_names_are_rejected(self):
+        case = self._create_case()
         with self.assertRaises(StoreRejected):
             self.store.set_case_label("case-" + "0" * 36, "Trasferta", actor="u")
+        with self.assertRaises(StoreRejected):
+            self.store.set_case_label(case["case_id"], " ", actor="u")
+        self.assertIsNone(self.store.case_label(case["case_id"]))
+
+    def test_deleting_a_case_removes_its_label(self):
+        case = self._create_case()
+        self.store.set_case_label(case["case_id"], "Trasferta", actor="u")
+        self.assertTrue(self.store.delete_case(case["case_id"]))
+        with closing(sqlite3.connect(self.database)) as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM document_library").fetchone()[0], 0)
 
 
 if __name__ == "__main__":
