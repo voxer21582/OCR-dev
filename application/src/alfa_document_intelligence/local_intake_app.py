@@ -17,7 +17,10 @@ import secrets
 import threading
 import time
 from typing import Any, Callable
-from urllib.parse import parse_qs, quote
+from urllib.parse import parse_qs, quote, urlencode
+import tempfile
+import zipfile
+from pathlib import Path
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 
 from .chatgpt_handoff import ChatGPTHandoffError, build_chatgpt_handoff_prompt
@@ -649,32 +652,172 @@ def _ocr_job_page(
     )
 
 
-def _archive_list_page(store: LocalDocumentStore, query: str = "") -> str:
-    summaries = store.search(query, limit=100)
+_FAMILY_LABELS_IT = {
+    "invoice": "Fattura", "expense_report": "Nota spese", "fiscal_receipt": "Scontrino",
+    "parking_receipt": "Ricevuta parcheggio", "hotel_document": "Documento hotel", "pos_slip": "Ricevuta POS",
+    "other": "Altro", "unknown": "Non riconosciuto",
+}
+_REVIEW_LABELS_IT = {
+    "not_started": "Da iniziare", "queued": "In coda", "in_progress": "In corso",
+    "completed": "Completata", "blocked": "Bloccata",
+}
+_ARCHIVE_PAGE_SIZE = 25
+_CUSTOM_FAMILY = re.compile(r"^custom_[a-z][a-z0-9_]{1,24}$")
+_ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_MAX_BACKUP_MEMBER_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def _archive_filters(raw_query: str) -> dict[str, Any]:
+    """Parse the library filters from the query string; ``ValueError`` when any is invalid."""
+    if len(raw_query) > 1024:
+        raise ValueError("query too long")
+    params = parse_qs(raw_query, keep_blank_values=True, max_num_fields=8)
+    allowed = {"q", "family", "status", "tag", "from", "to", "page"}
+    if set(params) - allowed or any(len(values) != 1 for values in params.values()):
+        raise ValueError("unexpected filter")
+    value = {key: params.get(key, [""])[0].strip() for key in allowed}
+    if len(value["q"]) > 200 or len(value["tag"]) > 40:
+        raise ValueError("filter too long")
+    if value["family"] and value["family"] not in _FAMILY_LABELS_IT and not _CUSTOM_FAMILY.fullmatch(value["family"]):
+        raise ValueError("unknown family")
+    if value["status"] and value["status"] not in _REVIEW_LABELS_IT:
+        raise ValueError("unknown status")
+    for key in ("from", "to"):
+        if value[key]:
+            if not _ISO_DAY.fullmatch(value[key]):
+                raise ValueError("bad date")
+            datetime.strptime(value[key], "%Y-%m-%d")
+    if value["page"] and (not value["page"].isdigit() or len(value["page"]) > 6):
+        raise ValueError("bad page")
+    value["page"] = int(value["page"] or 0)
+    return value
+
+
+def _archive_url(filters: dict[str, Any], **changes: Any) -> str:
+    merged = {**filters, **changes}
+    pairs = [(key, str(merged[key])) for key in ("q", "family", "status", "tag", "from", "to") if merged.get(key)]
+    if merged.get("page"):
+        pairs.append(("page", str(merged["page"])))
+    return "/archive" + ("?" + urlencode(pairs) if pairs else "")
+
+
+def _select(name: str, label: str, options: dict[str, str], current: str) -> str:
+    choices = '<option value="">Tutti</option>' + "".join(
+        f'<option value="{escape(key, quote=True)}"{" selected" if key == current else ""}>{escape(text)}</option>'
+        for key, text in options.items()
+    )
+    return f'<label>{escape(label)} <select name="{name}">{choices}</select></label> '
+
+
+def _archive_list_page(store: LocalDocumentStore, filters: dict[str, Any] | None = None, notice: str = "") -> str:
+    filters = filters or _archive_filters("")
+    page = filters["page"]
+    summaries, total = store.search_library(
+        filters["q"], family=filters["family"] or None, review_status=filters["status"] or None,
+        tag=filters["tag"] or None, saved_from=filters["from"] or None, saved_to=filters["to"] or None,
+        offset=page * _ARCHIVE_PAGE_SIZE, limit=_ARCHIVE_PAGE_SIZE,
+    )
+    back = _archive_url(filters)
     rows = []
     for item in summaries:
         identifier = quote(item.document_id, safe="")
+        title = item.display_name or item.filename or item.document_id
+        original = f' <small>(file: {escape(item.filename)})</small>' if item.display_name else ""
+        tags = ", ".join(item.tags)
+        tag_badges = (" · Etichette: " + escape(tags)) if item.tags else ""
         rows.append(
-            f'<li><strong>{escape(item.filename)}</strong> — {escape(item.document_family)}; '
-            f'{item.page_count} pagine; salvato {escape(item.saved_at)}; SHA-256 {escape(item.source_sha256)} '
+            f'<li><strong>{escape(title)}</strong>{original} — '
+            f'{escape(_FAMILY_LABELS_IT.get(item.document_family, item.document_family))}; '
+            f'revisione: {escape(_REVIEW_LABELS_IT.get(item.review_status, item.review_status))}; '
+            f'{item.page_count} pagine; salvato {escape(item.saved_at)}{tag_badges}'
+            f'<details><summary>Impronta SHA-256</summary><code>{escape(item.source_sha256)}</code></details>'
             f'<form method="post" action="/archive/open/{identifier}"><button type="submit">Apri</button></form> '
             + "".join(
-                f'<a href="/archive/export/{identifier}.{escape(exporter.suffix)}">{escape(exporter.suffix.upper())}</a> '
+                f'<a href="/archive/export/{identifier}.{escape(exporter.suffix)}">{escape(exporter.label_it)}</a> · '
                 for exporter in selectable_document_exporters()
-            ) +
-            f'<a href="/archive/delete/{identifier}">Elimina</a></li>'
+            )
+            + f'<a href="/archive/delete/{identifier}">Elimina</a>'
+            f'<form method="post" action="/archive/rename/{identifier}">'
+            f'<input type="hidden" name="back" value="{escape(back, quote=True)}">'
+            f'<label>Nome visualizzato <input name="display_name" maxlength="120" required value="{escape(title, quote=True)}"></label> '
+            '<button type="submit">Rinomina</button></form>'
+            f'<form method="post" action="/archive/tags/{identifier}">'
+            f'<input type="hidden" name="back" value="{escape(back, quote=True)}">'
+            f'<label>Etichette, separate da virgola <input name="tags" maxlength="900" value="{escape(tags, quote=True)}"></label> '
+            '<button type="submit">Salva etichette</button></form></li>'
         )
     empty = "<p>Nessun documento trovato.</p>" if not rows else ""
+    first = page * _ARCHIVE_PAGE_SIZE + 1 if rows else 0
+    last = page * _ARCHIVE_PAGE_SIZE + len(rows)
+    pages = max(1, -(-total // _ARCHIVE_PAGE_SIZE))
+    navigation = []
+    if page > 0:
+        navigation.append(f'<a href="{escape(_archive_url(filters, page=page - 1), quote=True)}">Pagina precedente</a>')
+    if last < total:
+        navigation.append(f'<a href="{escape(_archive_url(filters, page=page + 1), quote=True)}">Pagina successiva</a>')
+    notice_html = f'<p role="status">{escape(notice)}</p>' if notice else ""
     return (
         '<!doctype html><html lang="it"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>Archivio locale</title><main><h1>Archivio documenti locale</h1>'
-        '<p>Ricerca limitata ai primi 100 risultati. I dati restano su questo dispositivo.</p>'
-        '<form method="get" action="/archive"><label>Cerca <input name="q" maxlength="200" value="'
-        + escape(query, quote=True) + '"></label><button type="submit">Cerca</button></form>'
+        '<p>I dati restano su questo dispositivo, cifrati per il tuo utente Windows.</p>'
+        + notice_html
+        + '<form method="get" action="/archive"><fieldset><legend>Filtra</legend>'
+        '<label>Cerca <input name="q" maxlength="200" value="' + escape(filters["q"], quote=True) + '"></label> '
+        + _select("family", "Tipo", _FAMILY_LABELS_IT, filters["family"])
+        + _select("status", "Revisione", _REVIEW_LABELS_IT, filters["status"])
+        + '<label>Etichetta <input name="tag" maxlength="40" value="' + escape(filters["tag"], quote=True) + '"></label> '
+        + '<label>Salvato dal <input type="date" name="from" value="' + escape(filters["from"], quote=True) + '"></label> '
+        + '<label>al <input type="date" name="to" value="' + escape(filters["to"], quote=True) + '"></label> '
+        + '<button type="submit">Cerca</button> <a href="/archive">Azzera filtri</a></fieldset></form>'
+        + f'<p>Documenti {first}–{last} di {total} · pagina {page + 1} di {pages}</p>'
         + empty + f'<ul>{"".join(rows)}</ul>'
+        + ("<nav>" + " · ".join(navigation) + "</nav>" if navigation else "")
+        + '<h2>Backup</h2>'
+        '<p>Il backup resta cifrato: può essere ripristinato solo da questo stesso utente Windows.</p>'
+        '<p><a href="/archive/backup">Scarica backup (ZIP)</a></p>'
+        '<form method="post" action="/archive/restore" enctype="multipart/form-data"><fieldset>'
+        '<legend>Ripristina da backup</legend>'
+        '<p>Il ripristino sostituisce tutto l’archivio attuale; la copia attuale viene conservata accanto all’archivio.</p>'
+        '<label>File di backup <input type="file" name="files" accept=".zip" required></label> '
+        '<label><input type="checkbox" name="confirm" value="yes" required> Ho capito che l’archivio attuale verrà sostituito</label> '
+        '<button type="submit">Ripristina</button></fieldset></form>'
         + '<form method="post" action="/archive/return"><button type="submit">Torna alla sessione corrente</button></form>'
         + '</main></html>'
     )
+
+
+def _archive_backup_zip(store: LocalDocumentStore) -> tuple[bytes, dict]:
+    with tempfile.TemporaryDirectory(prefix="ocr2-backup-") as folder:
+        target = Path(folder) / "backup"
+        manifest = store.backup_to(target)
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.write(target / "manifest.json", "manifest.json")
+            archive.write(target / "archive.sqlite3", "archive.sqlite3")
+    return buffer.getvalue(), manifest
+
+
+def _archive_restore_zip(store: LocalDocumentStore, data: bytes) -> dict:
+    """Unpack a backup ZIP with exactly its two known members and restore from it."""
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+        members = {info.filename: info for info in archive.infolist()}
+    except (zipfile.BadZipFile, ValueError) as exc:
+        raise StoreRejected("the file is not an OCR2 backup ZIP") from exc
+    if set(members) != {"manifest.json", "archive.sqlite3"} or any(
+        info.file_size > _MAX_BACKUP_MEMBER_BYTES or info.flag_bits & 0x1 for info in members.values()
+    ):
+        raise StoreRejected("the ZIP does not contain exactly an OCR2 backup")
+    with tempfile.TemporaryDirectory(prefix="ocr2-restore-") as folder:
+        for name in ("manifest.json", "archive.sqlite3"):
+            with archive.open(members[name]) as source, open(Path(folder) / name, "wb") as target:
+                remaining = _MAX_BACKUP_MEMBER_BYTES
+                while chunk := source.read(1024 * 1024):
+                    remaining -= len(chunk)
+                    if remaining < 0:
+                        raise StoreRejected("backup member is larger than declared")
+                    target.write(chunk)
+        return store.restore_from(folder)
 
 
 def _archive_document_page(document_id: str, record: dict[str, Any]) -> str:
@@ -2355,6 +2498,9 @@ def create_expense_report_app(
                 or path.startswith("/archive/save/")
                 or path.startswith("/archive/open/")
                 or path.startswith("/archive/delete/")
+                or path.startswith("/archive/rename/")
+                or path.startswith("/archive/tags/")
+                or path == "/archive/restore"
                 or path == "/archive/return"
             )
             if pending and mutating_review:
@@ -2362,15 +2508,56 @@ def create_expense_report_app(
         if archive_store is not None and method == "GET" and path == "/archive":
             raw_query = environ.get("QUERY_STRING", "")
             try:
-                params = parse_qs(raw_query, keep_blank_values=True, max_num_fields=4)
-                query = params.get("q", [""])
-                if len(query) != 1 or len(query[0]) > 200:
-                    raise ValueError
-                return _page(environ, start_response, "200 OK", _archive_list_page(archive_store, query[0]))
+                filters = _archive_filters(raw_query)
+                return _page(environ, start_response, "200 OK", _archive_list_page(archive_store, filters))
             except ValueError:
                 return _page(environ, start_response, "400 Bad Request", "<p>Ricerca non valida</p>")
             except StoreError:
                 return _page(environ, start_response, "500 Internal Server Error", "<p>Archivio non disponibile</p>")
+        if archive_store is not None and method == "GET" and path == "/archive/backup":
+            try:
+                data, _manifest = _archive_backup_zip(archive_store)
+            except StoreError:
+                return _page(environ, start_response, "500 Internal Server Error", "<p>Backup non riuscito; archivio invariato.</p>")
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            start_response("200 OK", [
+                ("Content-Type", "application/zip"),
+                ("Content-Length", str(len(data))),
+                ("Content-Disposition", f'attachment; filename="ocr2-backup-{stamp}.zip"'),
+                ("Cache-Control", "no-store"),
+                ("X-Content-Type-Options", "nosniff"),
+                ("Content-Security-Policy", "default-src 'none'; sandbox"),
+                ("Referrer-Policy", "no-referrer"),
+            ])
+            return [data]
+        if archive_store is not None and method == "POST" and path == "/archive/restore":
+            if not _same_origin_loopback_post(environ) and environ.get("_opaque_origin_csrf_validated") is not True:
+                return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+            with state_lock:
+                busy = state is not None and (state.intake is not None or state.ocr_job_id is not None)
+            if busy:
+                return _page(environ, start_response, "409 Conflict",
+                             "<p>Chiudi la sessione corrente (Cancella sessione) prima di ripristinare un backup.</p>"
+                             '<a href="/archive">Archivio</a>')
+            try:
+                files, fields = _multipart_files_and_fields(environ, allowed_scalar_fields=frozenset({"confirm"}))
+                if len(files) != 1 or fields.get("confirm") != "yes":
+                    raise IntakeRequestError("conferma mancante")
+            except IntakeRequestError:
+                return _page(environ, start_response, "400 Bad Request",
+                             "<p>Seleziona un solo file di backup e conferma la sostituzione.</p><a href=\"/archive\">Archivio</a>")
+            try:
+                manifest = _archive_restore_zip(archive_store, files[0][1])
+            except StoreRejected:
+                return _page(environ, start_response, "400 Bad Request",
+                             "<p>Backup rifiutato: il file è danneggiato, modificato o appartiene a un altro utente Windows. "
+                             "L’archivio attuale non è stato toccato.</p><a href=\"/archive\">Archivio</a>")
+            except StoreError:
+                return _page(environ, start_response, "500 Internal Server Error",
+                             "<p>Ripristino non riuscito.</p><a href=\"/archive\">Archivio</a>")
+            notice = (f"Backup ripristinato: {int(manifest.get('documents', 0))} documenti e "
+                      f"{int(manifest.get('cases', 0))} fascicoli. La copia precedente è conservata accanto all’archivio.")
+            return _page(environ, start_response, "200 OK", _archive_list_page(archive_store, notice=notice))
         if archive_store is not None and path.startswith("/archive/") and path != "/archive/return":
             parts = path.split("/")
             if len(parts) != 4:
@@ -2441,6 +2628,29 @@ def create_expense_report_app(
                             state.archive_baselines[document_id] = _record_fingerprint(stored.record)
                             state.last_activity = now
                         return _page(environ, start_response, "200 OK", _archive_document_page(document_id, stored.record))
+                    if method == "POST" and parts[2] in {"rename", "tags"}:
+                        if not _same_origin_loopback_post(environ) and environ.get("_opaque_origin_csrf_validated") is not True:
+                            return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                        try:
+                            values = _multipart_form_values(environ)
+                            back_values = values.get("back", ["/archive"])
+                            field_name = "display_name" if parts[2] == "rename" else "tags"
+                            field_values = values.get(field_name, [])
+                            if len(field_values) != 1 or len(back_values) != 1:
+                                raise IntakeRequestError("campo mancante")
+                            back = back_values[0]
+                            filters = _archive_filters(back.partition("?")[2]) if back.startswith("/archive") else _archive_filters("")
+                            if parts[2] == "rename":
+                                archive_store.set_display_name(document_id, field_values[0], actor=_windows_review_actor())
+                                notice = "Nome aggiornato."
+                            else:
+                                archive_store.set_tags(document_id, field_values[0].split(","), actor=_windows_review_actor())
+                                notice = "Etichette aggiornate."
+                        except (IntakeRequestError, ValueError, StoreRejected):
+                            return _page(environ, start_response, "400 Bad Request",
+                                         "<p>Valore non valido: il nome va da 1 a 120 caratteri, al massimo 20 etichette.</p>"
+                                         '<a href="/archive">Archivio</a>')
+                        return _page(environ, start_response, "200 OK", _archive_list_page(archive_store, filters, notice=notice))
                     if method == "POST" and parts[2] == "delete":
                         if not _same_origin_loopback_post(environ):
                             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
