@@ -26,7 +26,7 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | REQ-011 | Limiti espliciti e configurabili (dimensione, membri, espansione, rapporto di compressione, pixel, pagine); archivi annidati e percorsi pericolosi rifiutati. | MUST | Test al limite e oltre ogni limite; nessun file scritto su disco durante l'inventario. | IMP-2 | M1 | `SYN-CI` |
 | REQ-012 | Un fascicolo: una nota spese più almeno 100 giustificativi, caricamento a blocchi ripetibile e riprendibile. | MUST | 5×20 blocchi accettati; ripetizione idempotente; 101° allegato rifiutato; caricamento interrotto riprende. | IMP-3 | M5 | `SYN-LOCAL`, `LOCAL-RUN` |
 | REQ-013 | Duplicati esatti segnalati, mai rimossi in silenzio. | MUST | Test con due copie: entrambe le identità elencate. | IMP-4 | M1 | `SYN-CI` |
-| REQ-014 | Altri formati ammessi solo dopo valutazione documentata; GIF a fotogramma singolo e BMP. | SHOULD | Per formato: decisione, limiti, test su input malformati, provenienza. | IMP-5, D4 | M2 | valutazione fatta, codice `OPEN` |
+| REQ-014 | Altri formati ammessi solo dopo valutazione documentata; GIF a fotogramma singolo e BMP. | SHOULD | Per formato: decisione, limiti, test su input malformati, provenienza. | IMP-5, D4 | M2 | `SYN-CI` (M2) |
 | REQ-015 | PDF cifrati o protetti rifiutati con messaggio chiaro. | MUST | Codice stabile, nessun crash, test in CI. | IMP-6 | M1 | `SYN-CI` (M1) |
 
 ## OCR — Riconoscimento con provenienza e più motori
@@ -34,16 +34,16 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | ID | Requisito | Pri | Criterio di accettazione | Vecchio ID | M | Stato |
 |---|---|---|---|---|---|---|
 | REQ-020 | Ogni testo riconosciuto è legato a SHA-256 del documento, pagina, area (poligono normalizzato), motore, versione del motore e modello, confidenza. | MUST | Test di contratto; le evidenze di un record risalgono ai byte originali. | OCR-1 | M2 | `SYN-CI`, `LOCAL-RUN` |
-| REQ-021 | Interfaccia di motore OCR intercambiabile. | MUST | Pipeline e revisione non importano alcun modulo specifico di un motore (test di importazione). | OCR-2 | M2 | `SYN-CI` parziale |
-| REQ-022 | Registro dei motori a manifest (nome, versione, lingue, licenza, impronte degli artefatti, factory), selezionabile per installazione e per lavoro, verificato nel worker. | MUST | Impronta o versione errata → errore con codice stabile, nessun OCR; il launcher sceglie il motore dal registro. | OCR-3 | M2 | `OPEN` |
-| REQ-023 | Aggiungere un motore non richiede modifiche al resto del sistema. | MUST | Il motore di prova si aggiunge con soli file nuovi (manifest + adattatore + test): il diff della sua PR non tocca altri file. | OCR-3 | M2 | `OPEN` |
+| REQ-021 | Interfaccia di motore OCR intercambiabile. | MUST | Pipeline e revisione non importano alcun modulo specifico di un motore (test di importazione). | OCR-2 | M2 | `SYN-CI` (M2) |
+| REQ-022 | Registro dei motori a manifest (nome, versione, lingue, licenza, impronte degli artefatti, factory), selezionabile per installazione e per lavoro, verificato nel worker. | MUST | Impronta o versione errata → errore con codice stabile, nessun OCR; il launcher sceglie il motore dal registro. | OCR-3 | M2 | `SYN-CI`, `LOCAL-RUN` (M2) |
+| REQ-023 | Aggiungere un motore non richiede modifiche al resto del sistema. | MUST | Il motore di prova si aggiunge con soli file nuovi (manifest + adattatore + test): il diff della sua PR non tocca altri file. | OCR-3 | M2 | fatto (M2, `evidence/M2/engine-diff.md`) |
 | REQ-024 | Worker OCR isolato con limiti di memoria e tempo, annullamento, comunicazione limitata, pubblicazione unica del risultato. | MUST | Test su limiti, annullamento, timeout e corse in CI. | OCR-4 | M1 | `SYN-CI` (M1; Job Object sul job Windows), `LOCAL-RUN` |
 | REQ-025 | Pagine parziali o fallite hanno codici non sensibili e non producono proposte. | MUST | Test di contratto. | OCR-5 | M2 | `SYN-CI` |
 | REQ-026 | Italiano e inglese riconosciuti. | MUST | Fixture sintetiche miste con soglie registrate (M3); campione reale in M8. | OCR-6 | M3/M8 | `LOCAL-RUN`, soglie `OPEN` |
-| REQ-027 | Uso del testo incorporato nei PDF, come produttore distinto. | SHOULD | Un PDF con testo produce token senza OCR raster; la provenienza nomina il produttore. | OCR-7 | M2 | `OPEN` |
-| REQ-028 | Orientamento: EXIF, rotazioni di 90°/180°/270°. | SHOULD | Fixture ruotate riconosciute. | OCR-8 | M2 | EXIF fatto, rotazione `OPEN` |
+| REQ-027 | Uso del testo incorporato nei PDF, come produttore distinto. | SHOULD | Un PDF con testo produce token senza OCR raster; la provenienza nomina il produttore. | OCR-7 | M2 | `SYN-CI` (M2) |
+| REQ-028 | Orientamento: EXIF, rotazioni di 90°/180°/270°. | SHOULD | Fixture ruotate riconosciute. | OCR-8 | M2 | `SYN-CI` (M2); angolo non registrato nel record (M3) |
 | REQ-029 | OCR spento salvo attivazione esplicita; il runtime incompleto è segnalato all'avvio. | MUST | Avvio con pacchetto o modello mancante → messaggio specifico, nulla avviato. | OCR-9 | M1 | `SYN-CI` (M1), `LOCAL-RUN` |
-| REQ-030 | Anche le anteprime delle pagine si decodificano in un worker isolato. | MUST | Un PDF malformato in anteprima non ferma il server (test). | SEC-3 | M2 | `OPEN` |
+| REQ-030 | Anche le anteprime delle pagine si decodificano in un worker isolato. | MUST | Un PDF malformato in anteprima non ferma il server (test). | SEC-3 | M2 | `SYN-CI` (M2) |
 
 ## CLS — Classificazione configurabile
 
