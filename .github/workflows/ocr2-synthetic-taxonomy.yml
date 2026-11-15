@@ -82,6 +82,7 @@ jobs:
           tests/test_document_decoder_contract.py
           tests/test_document_export.py
           tests/test_document_family_catalog.py
+          tests/test_document_library.py
           tests/test_document_processing.py
           tests/test_document_validation.py
           tests/test_evidence_linked_review_ui.py
@@ -127,8 +128,8 @@ jobs:
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
           tests/test_region_review_keyboard.py
-          tests/test_review_ledger.py
           tests/test_review_identity.py
+          tests/test_review_ledger.py
           tests/test_review_ui.py
           tests/test_security_gate.py
           tests/test_semantic_failure_warning.py
@@ -199,6 +200,7 @@ jobs:
           tests/test_document_decoder_contract.py
           tests/test_document_export.py
           tests/test_document_family_catalog.py
+          tests/test_document_library.py
           tests/test_document_processing.py
           tests/test_document_validation.py
           tests/test_evidence_linked_review_ui.py
@@ -244,8 +246,8 @@ jobs:
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
           tests/test_region_review_keyboard.py
-          tests/test_review_ledger.py
           tests/test_review_identity.py
+          tests/test_review_ledger.py
           tests/test_review_ui.py
           tests/test_security_gate.py
           tests/test_semantic_failure_warning.py
