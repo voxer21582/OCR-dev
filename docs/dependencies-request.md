@@ -10,7 +10,7 @@ R-001 (CPython 3.13 embeddable x64) e R-002 (NSIS 3.x portabile) sono state appr
 - Uno strumento per generare l'SBOM: preferenza per uno script nel repository che legge i lock (nessuna dipendenza nuova).
 
 
-## R-003 — Valutazione compilazione CPython 3.13.18 per M6 (in attesa)
+## R-003 — Valutazione compilazione CPython 3.13.18 per M6 (approvata il 2026-11-16)
 
 La release 3.13.18 corregge problemi di sicurezza ed è distribuita solo come sorgente; l'ultimo pacchetto Windows ufficiale della serie è 3.13.17. Fonte: https://www.python.org/downloads/release/python-31318/. R-001 approva esclusivamente l'archivio embeddable ufficiale e non copre una build locale.
 
