@@ -401,6 +401,7 @@ def build_reconciliation(
         line_date = _date(_candidate_value(line.get("date", {})))
         line_merchant = _merchant(_candidate_value(line.get("merchant", {})))
         possible_line_dates = {value for value, _, _ in _candidate_possible_values(line.get("date", {}), _date)}
+        line_amount_supported = any(_amount_currency_pair(line, record) for _, record in selected)
         uncertain = any(
             isinstance(line.get(field), dict)
             and line[field].get("status") in {"uncertain", "unreadable"}
@@ -465,9 +466,11 @@ def build_reconciliation(
             possible_date_name, possible_doc_dates = _possible_document_dates(record)
             possible_date_equal = not date_equal and bool(possible_line_dates & possible_doc_dates)
             # Uncertain dates (OCR receipts, ambiguous statement dates) support a
-            # *possible* conflict only for a receipt that fits no line by amount.
+            # *possible* conflict only between a line that no receipt fits by
+            # amount and a receipt that fits no line by amount.
             possible_amount_conflict = (
                 possible_date_equal
+                and not line_amount_supported
                 and amount_pair is None
                 and currency_pair is not None
                 and merchant_compatible

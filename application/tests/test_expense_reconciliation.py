@@ -658,6 +658,21 @@ class PossibleSignalReconciliationTests(unittest.TestCase):
         )
         self.assertEqual(lines["21/11/2026 Treno EUR 42,40"]["suggestions"], [])
 
+    def test_line_with_an_amount_match_gets_no_possible_conflict(self):
+        # Found in the M2 benchmark: an unused receipt of the same day tied with
+        # the right receipt and could be ranked first.
+        lines, result = self.build(
+            ["15/11/2026 Hotel EUR 29,18"],
+            {"r-hotel": ("7" * 64, "29.18", "2026-11-15"), "r-other": ("8" * 64, "144.26", "2026-11-15")},
+        )
+        hotel = lines["15/11/2026 Hotel EUR 29,18"]
+        self.assertEqual(
+            [(item["document_id"], item["reasons"]) for item in hotel["suggestions"]],
+            [("r-hotel", ["possible_amount_and_currency_match", "possible_date_match"])],
+        )
+        self.assertEqual(hotel["findings"], [])
+        self.assertEqual(result["unused_document_ids"], ["r-other"])
+
 
 if __name__ == "__main__":
     unittest.main()
