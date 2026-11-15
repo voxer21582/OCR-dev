@@ -25,4 +25,4 @@ The intake supports an in-memory session. A separate local encrypted archive imp
 
 ## Verification and unresolved gates
 
-The repository-root required GitHub Actions check runs only the taxonomy registry and binding contract tests. Application tests are present in this subdirectory but are not covered by that required check. The public migration does not activate model evaluation or native Windows workflows. Runtime dependency/license closure, Windows 11 installation and recovery acceptance, fiscal-rule approval, real-document safeguards, and overall product acceptance remain unverified.
+Continuous integration runs every module under `tests/` on Ubuntu (the required check) and on Windows; see the [repository README](../README.md#continuous-integration). A passing run covers only those synthetic contracts. The public migration does not activate model evaluation or native OCR in CI. Runtime dependency/license closure, Windows 11 installation and recovery acceptance, fiscal-rule approval, real-document safeguards, and overall product acceptance remain open (see `docs/plan.md`).

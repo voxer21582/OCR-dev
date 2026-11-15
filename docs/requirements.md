@@ -12,10 +12,10 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 
 | ID | Requisito | Pri | Criterio di accettazione | Vecchio ID | M | Stato |
 |---|---|---|---|---|---|---|
-| REQ-001 | I file di processo di GOAL esistono e `docs/STATUS.md` è aggiornato a ogni giro. | MUST | I nove file/cartelle di GOAL §4 Fase 0 esistono; ogni commit di milestone aggiorna `STATUS.md`. | — | 0 | `IN-PR` |
-| REQ-002 | Ogni affermazione di completamento rimanda a un'evidenza in `docs/evidence/`. | MUST | Ogni criterio marcato soddisfatto in `STATUS.md` ha un link a un file esistente in `docs/evidence/`. | — | M1 | `OPEN` |
-| REQ-003 | Tutte le fixture, compresi i benchmark, sono generate da script nel repository. | MUST | Lo script genera le fixture del benchmark del fascicolo due volte con impronta SHA-256 identica; nessun test legge file fuori dal repository o dalla cartella temporanea. | — | M1 | `OPEN` |
-| REQ-004 | Tutti i moduli di test girano in CI, senza salti non spiegati. | MUST | Il workflow elenca ogni `application/tests/test_*.py` e i test di tassonomia; ogni salto ha un motivo dichiarato; il job Windows esegue i test DPAPI e del launcher. | — | M1 | `OPEN` (19 moduli fuori da CI) |
+| REQ-001 | I file di processo di GOAL esistono e `docs/STATUS.md` è aggiornato a ogni giro. | MUST | I nove file/cartelle di GOAL §4 Fase 0 esistono; ogni commit di milestone aggiorna `STATUS.md`. | — | 0 | fatto (#145) |
+| REQ-002 | Ogni affermazione di completamento rimanda a un'evidenza in `docs/evidence/`. | MUST | Ogni criterio marcato soddisfatto in `STATUS.md` ha un link a un file esistente in `docs/evidence/`. | — | M1 | fatto per M1 (`evidence/M1/acceptance.md`) |
+| REQ-003 | Tutte le fixture, compresi i benchmark, sono generate da script nel repository. | MUST | Lo script genera le fixture del benchmark del fascicolo due volte con impronta SHA-256 identica; nessun test legge file fuori dal repository o dalla cartella temporanea. | — | M1 | fatto (M1) |
+| REQ-004 | Tutti i moduli di test girano in CI, senza salti non spiegati. | MUST | Il workflow elenca ogni `application/tests/test_*.py` e i test di tassonomia; ogni salto ha un motivo dichiarato; il job Windows esegue i test DPAPI e del launcher. | — | M1 | fatto (M1: Ubuntu + Windows) |
 | REQ-005 | Revisione indipendente prima di chiudere ogni milestone. | MUST | Rapporto del revisore in `docs/evidence/Mx/review.md` e correzioni registrate. | — | tutte | — |
 
 ## IMP — Importazione
@@ -27,7 +27,7 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | REQ-012 | Un fascicolo: una nota spese più almeno 100 giustificativi, caricamento a blocchi ripetibile e riprendibile. | MUST | 5×20 blocchi accettati; ripetizione idempotente; 101° allegato rifiutato; caricamento interrotto riprende. | IMP-3 | M5 | `SYN-LOCAL`, `LOCAL-RUN` |
 | REQ-013 | Duplicati esatti segnalati, mai rimossi in silenzio. | MUST | Test con due copie: entrambe le identità elencate. | IMP-4 | M1 | `SYN-CI` |
 | REQ-014 | Altri formati ammessi solo dopo valutazione documentata; GIF a fotogramma singolo e BMP. | SHOULD | Per formato: decisione, limiti, test su input malformati, provenienza. | IMP-5, D4 | M2 | valutazione fatta, codice `OPEN` |
-| REQ-015 | PDF cifrati o protetti rifiutati con messaggio chiaro. | MUST | Codice stabile, nessun crash, test in CI. | IMP-6 | M1 | `SYN-LOCAL` |
+| REQ-015 | PDF cifrati o protetti rifiutati con messaggio chiaro. | MUST | Codice stabile, nessun crash, test in CI. | IMP-6 | M1 | `SYN-CI` (M1) |
 
 ## OCR — Riconoscimento con provenienza e più motori
 
@@ -37,12 +37,12 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | REQ-021 | Interfaccia di motore OCR intercambiabile. | MUST | Pipeline e revisione non importano alcun modulo specifico di un motore (test di importazione). | OCR-2 | M2 | `SYN-CI` parziale |
 | REQ-022 | Registro dei motori a manifest (nome, versione, lingue, licenza, impronte degli artefatti, factory), selezionabile per installazione e per lavoro, verificato nel worker. | MUST | Impronta o versione errata → errore con codice stabile, nessun OCR; il launcher sceglie il motore dal registro. | OCR-3 | M2 | `OPEN` |
 | REQ-023 | Aggiungere un motore non richiede modifiche al resto del sistema. | MUST | Il motore di prova si aggiunge con soli file nuovi (manifest + adattatore + test): il diff della sua PR non tocca altri file. | OCR-3 | M2 | `OPEN` |
-| REQ-024 | Worker OCR isolato con limiti di memoria e tempo, annullamento, comunicazione limitata, pubblicazione unica del risultato. | MUST | Test su limiti, annullamento, timeout e corse in CI. | OCR-4 | M1 | `SYN-CI` parziale, `LOCAL-RUN` |
+| REQ-024 | Worker OCR isolato con limiti di memoria e tempo, annullamento, comunicazione limitata, pubblicazione unica del risultato. | MUST | Test su limiti, annullamento, timeout e corse in CI. | OCR-4 | M1 | `SYN-CI` (M1; Job Object sul job Windows), `LOCAL-RUN` |
 | REQ-025 | Pagine parziali o fallite hanno codici non sensibili e non producono proposte. | MUST | Test di contratto. | OCR-5 | M2 | `SYN-CI` |
 | REQ-026 | Italiano e inglese riconosciuti. | MUST | Fixture sintetiche miste con soglie registrate (M3); campione reale in M8. | OCR-6 | M3/M8 | `LOCAL-RUN`, soglie `OPEN` |
 | REQ-027 | Uso del testo incorporato nei PDF, come produttore distinto. | SHOULD | Un PDF con testo produce token senza OCR raster; la provenienza nomina il produttore. | OCR-7 | M2 | `OPEN` |
 | REQ-028 | Orientamento: EXIF, rotazioni di 90°/180°/270°. | SHOULD | Fixture ruotate riconosciute. | OCR-8 | M2 | EXIF fatto, rotazione `OPEN` |
-| REQ-029 | OCR spento salvo attivazione esplicita; il runtime incompleto è segnalato all'avvio. | MUST | Avvio con pacchetto o modello mancante → messaggio specifico, nulla avviato. | OCR-9 | M1 | `SYN-LOCAL`, `LOCAL-RUN` |
+| REQ-029 | OCR spento salvo attivazione esplicita; il runtime incompleto è segnalato all'avvio. | MUST | Avvio con pacchetto o modello mancante → messaggio specifico, nulla avviato. | OCR-9 | M1 | `SYN-CI` (M1), `LOCAL-RUN` |
 | REQ-030 | Anche le anteprime delle pagine si decodificano in un worker isolato. | MUST | Un PDF malformato in anteprima non ferma il server (test). | SEC-3 | M2 | `OPEN` |
 
 ## CLS — Classificazione configurabile
@@ -75,7 +75,7 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 |---|---|---|---|---|---|---|
 | REQ-060 | Ogni campo mostra uno dei quattro stati di GOAL (valido, incerto, mancante, non valido) con la motivazione, nell'interfaccia e nell'export. «Non applicabile» resta distinto e motivato. | MUST | Tabella di corrispondenza documentata (DEC-013); test per ogni stato interno; colonna stato e motivo nel CSV. | — | M3 | `OPEN` |
 | REQ-061 | Esiti di validazione deterministici (superato, fallito, indeterminato) con ID di regola stabili; aritmetica decimale esatta. | MUST | Test delle regole. | VAL-1 | — | `SYN-CI` |
-| REQ-062 | Riconciliazione tra righe della nota e giustificativi: conflitti d'importo, valuta, data; possibili duplicati; supporto mancante; solo suggerimenti. | MUST | Fixture a risposta nota in CI; benchmark del fascicolo rigenerabile (REQ-003). | VAL-2 | M1 | `SYN-CI`, `LOCAL-RUN`; segnali possibili `IN-PR` (#144) |
+| REQ-062 | Riconciliazione tra righe della nota e giustificativi: conflitti d'importo, valuta, data; possibili duplicati; supporto mancante; solo suggerimenti. | MUST | Fixture a risposta nota in CI; benchmark del fascicolo rigenerabile (REQ-003). | VAL-2 | M1 | `SYN-CI`, `LOCAL-RUN` (M1); limite aperto: giustificativo avanzato proposto a righe dello stesso giorno (M3) |
 | REQ-063 | Nessuna approvazione automatica. | MUST | Nessun percorso scrive uno stato confermato senza un evento umano (test). | VAL-3 | — | `SYN-CI` |
 | REQ-064 | Regole di validazione versionate; i record già revisionati conservano i vecchi esiti. | SHOULD | Regola aggiunta; vecchi record invariati. | VAL-4 | M3 | `OPEN` |
 
@@ -87,9 +87,9 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | REQ-071 | Correzioni solo in aggiunta: valore originale conservato; risultati derivati superati marcati. | MUST | Test di correzione, conflitto e invalidazione. | REV-2 | — | `SYN-CI` |
 | REQ-072 | Ogni evento di revisione registra chi (nome utente Windows) e quando (UTC), ed è nell'export. | MUST | Test: evento con utente e orario; export JSON e CSV li contengono. | — | M4 | `OPEN` |
 | REQ-073 | Selezione manuale dell'area per campi assenti, con mouse e tastiera. | MUST | Test DOM e percorso nel browser. | REV-3 | M4 | `SYN-CI` |
-| REQ-074 | Revisione della riconciliazione: conferma, rifiuto, ambiguo, supporto mancante, possibile duplicato, esclusione motivata, legata alla revisione corrente. | MUST | Revisioni obsolete rifiutate; storia solo in aggiunta. | REV-4 | M1 | `SYN-LOCAL`, `LOCAL-RUN` |
+| REQ-074 | Revisione della riconciliazione: conferma, rifiuto, ambiguo, supporto mancante, possibile duplicato, esclusione motivata, legata alla revisione corrente. | MUST | Revisioni obsolete rifiutate; storia solo in aggiunta. | REV-4 | M1 | `SYN-CI` (M1), `LOCAL-RUN` |
 | REQ-075 | Accessibilità: uso completo da tastiera, etichette, ordine del focus, contrasto. | MUST | Checklist compilata con l'Assistente vocale di Windows. | REV-5 | M4 | `OPEN` |
-| REQ-076 | Tempo di revisione registrato ed esportabile, mai usato per decidere. | SHOULD | Export CSV. | REV-6 | M1 | parziale |
+| REQ-076 | Tempo di revisione registrato ed esportabile, mai usato per decidere. | SHOULD | Export CSV. | REV-6 | M1 | `SYN-CI` (M1) |
 
 ## LIB / EXP — Archivio ed esportazione (R7/R8, responsabile: proprietario)
 
@@ -121,17 +121,17 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | REQ-106 | Un collegamento nel menu Start per l'utente; versione e identità del runtime visibili nell'app. | MUST | Checklist. | INS-5 | M6 | `OPEN` |
 | REQ-107 | SBOM e notice di licenza nell'installer; decisione su FFmpeg (Q-001). | MUST | SBOM generato dai lock; notice presenti; FFmpeg trattato come deciso. | SEC-5 | M6 | parziale |
 | REQ-108 | Pacchetto diagnostico senza contenuti, esportabile su richiesta. | SHOULD | Revisione del pacchetto. | OPS-1 | M7 | `OPEN` |
-| REQ-109 | I lavori seguono stop/no-retry; annullamento affidabile. | MUST | Test di annullamento e fallimento. | OPS-2 | M1 | `SYN-CI` parziale |
+| REQ-109 | I lavori seguono stop/no-retry; annullamento affidabile. | MUST | Test di annullamento e fallimento. | OPS-2 | M1 | `SYN-CI` (M1) |
 | REQ-110 | Interfaccia in italiano; inglese più avanti. | SHOULD | Catalogo dei testi. | OPS-3 | — | italiano fatto |
 
 ## SEC / PRF — Sicurezza e prestazioni
 
 | ID | Requisito | Pri | Criterio di accettazione | Vecchio ID | M | Stato |
 |---|---|---|---|---|---|---|
-| REQ-120 | Solo loopback; controlli di host, origine e token su ogni modifica. | MUST | Host, origine o token errati rifiutati. | SEC-1 | M1 | `SYN-CI`/`SYN-LOCAL` |
+| REQ-120 | Solo loopback; controlli di host, origine e token su ogni modifica. | MUST | Host, origine o token errati rifiutati. | SEC-1 | M1 | `SYN-CI` (M1) |
 | REQ-121 | Nessun traffico di rete in uscita durante l'uso. | MUST | Fascicolo completo con registrazione delle connessioni del processo senza modificare Windows (es. hook Python più elenco delle connessioni del processo dal sistema); limiti dichiarati. | SEC-2 | M7 | parziale |
 | REQ-122 | Archivio cifrato per utente; sessioni che scadono e si cancellano. | MUST | Test e verifica manuale. | SEC-4 | M5 | `SYN-LOCAL` |
-| REQ-123 | Anteprime e risposte con CSP, nosniff, no-store. | MUST | Test sulle intestazioni in CI. | SEC-6 | M1 | `SYN-LOCAL` |
+| REQ-123 | Anteprime e risposte con CSP, nosniff, no-store. | MUST | Test sulle intestazioni in CI. | SEC-6 | M1 | `SYN-CI` (M1) |
 | REQ-124 | Errori e log con codici stabili, mai testo dei documenti, percorsi o identificativi. | MUST | Checklist di revisione dei log. | SEC-7 | M7 | `OPEN` |
 | REQ-125 | Modello delle minacce e revisione di sicurezza indipendente (automatica) firmata dal proprietario. | MUST | Documento firmato in `docs/evidence/M7/` (DEC-008). | SEC-8 | M7 | `OPEN` |
 | REQ-126 | Repository e CI contengono solo dati sintetici. | MUST | Test di guardia. | SEC-9 | — | `SYN-CI` |

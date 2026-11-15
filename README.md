@@ -4,63 +4,27 @@ This public repository is the shared OCR2 workspace. It contains versioned taxon
 
 ## Continuous integration
 
-The GitHub Actions workflow [OCR2 synthetic taxonomy](.github/workflows/ocr2-synthetic-taxonomy.yml) runs on pushes, pull requests, and manual dispatch. It uses the standard Ubuntu 24.04 runner with CPython 3.13.18 and the hash-locked JSON Schema dependency closure from `requirements/ci-taxonomy-cp313-ubuntu-24_04.lock`. The `main` branch requires a pull request and a successful **Taxonomy registry and binding** check before merge.
+The GitHub Actions workflow [OCR2 synthetic taxonomy](.github/workflows/ocr2-synthetic-taxonomy.yml) runs on pushes, pull requests and manual dispatch, with read-only permissions and actions pinned by commit SHA. It has two jobs:
 
-Verified on 2026-11-08 at `main` commit `0a2fba0731e230f385e305826b66e4ce17df854d`: [Actions run 42519804658](https://github.com/voxer21582/OCR-dev/actions/runs/42519804658) passed **205 synthetic tests**: 22 taxonomy tests and 183 application tests from the 13 explicitly listed modules. The workflow uses no automatic test discovery. The application coverage includes ingestion and evidence contracts, semantic proposals and validation, loopback request protection, manual source-region review, the configurable document-family catalog, and the RapidOCR adapter contract with an injected synthetic engine.
+- **Taxonomy registry and binding** (Ubuntu 24.04, CPython 3.13.18): the required check for `main`. It installs the hash-locked `requirements/ci-*-cp313-ubuntu-24_04.lock` files, runs the taxonomy tests, then runs **every** module in `application/tests` with pytest.
+- **Windows application contracts** (windows-2025, CPython 3.13.17, the latest 3.13 build available for Windows runners): the same modules on Windows, from `requirements/ci-tests-cp313-win-amd64.lock`, so that the DPAPI archive, the launcher and Windows paths run for real (DEC-011).
 
-To reproduce the taxonomy portion on Ubuntu 24.04 x86-64 with Python 3.13, install the locked dependencies and run these two modules:
+Modules are listed explicitly, without discovery; `application/tests/test_ci_workflow.py` fails if a module is missing from either job. Every test uses synthetic inputs only, generated in the repository; no test runs native OCR, downloads a model or transmits a document.
 
-```sh
-python -m pip install --disable-pip-version-check --no-input \
-  --only-binary=:all: --require-hashes \
-  -r requirements/ci-taxonomy-cp313-ubuntu-24_04.lock
+To run the same suite locally on Windows, from `application/` in an environment built from the approved locks:
 
-PYTHONPATH=src:tests python -B -m unittest -v \
-  test_taxonomy_registry \
-  test_taxonomy_binding
+```powershell
+$env:PYTHONPATH='src;tests'
+python -B -m pytest -q -rs -p no:cacheprovider tests
 ```
 
-This first command selects 19 registry tests and 3 binding tests. To reproduce the current explicitly allowed application portion, run from `application/` in an existing approved Python environment. The selector list is intentional; it excludes tests importing the blocked local archive/store path, including `test_ocr_job_ui`, `test_ocr_launcher_contract`, `test_loopback_csrf`, and `test_manual_region_review`:
-
-```sh
-PYTHONPATH=src:tests python -B -m unittest -v \
-  test_public_data_guard \
-  test_contract_baseline \
-  test_document_contract \
-  test_document_decoder_contract \
-  test_ingestion \
-  test_tiff_offset_fixture.TiffOffsetFixtureTests \
-  test_tiff_offset_fixture.TiffBoundaryTests \
-  test_tiff_offset_fixture.TiffReviewTests \
-  test_ocr_adapter \
-  test_semantic_proposals \
-  test_analysis_pipeline \
-  test_document_validation \
-  test_rapidocr_adapter \
-  test_document_family_catalog \
-  test_catalog_alias_delimiters.CatalogAliasDelimiterTests \
-  test_rapidocr_runtime_factory \
-  test_document_processing.DocumentProcessingProgressTests \
-  test_document_processing.OverflowProcessingTests \
-  test_handoff_latest_correction.HandoffLatestCorrectionTests \
-  test_tax_exact_arithmetic.TaxExactArithmeticTests \
-  test_semantic_failure_warning.SemanticFailureWarningTests \
-  test_catalog_pipeline.CatalogSemanticProposalTests \
-  test_catalog_pipeline.CatalogAnalysisPipelineTests \
-  test_catalog_pipeline.RequiredCustomFieldValidationTests \
-  test_catalog_pipeline.CatalogDocumentProcessingTests \
-  test_region_review_keyboard
-```
-
-`test_region_review_keyboard` uses synthetic DOM doubles and Node's built-in VM. It skips when Node.js is not installed; a CI run that reports the selector as skipped does not verify that contract. On Windows PowerShell, set `$env:PYTHONPATH='src;tests'` first and invoke the same `python -B -m unittest` module list. These tests use synthetic inputs and isolated temporary files where required. They do not invoke an installed OCR engine, download models or transmit documents.
-
-The configurable document-family catalog and its separate CI extension were integrated through [PR #46](https://github.com/voxer21582/OCR-dev/pull/46) and [PR #47](https://github.com/voxer21582/OCR-dev/pull/47). The catalog's 41 synthetic tests are included in the `main` result above; this library coverage does not establish its UI or archive integration.
+A passing run covers only these synthetic contracts. It does not establish OCR accuracy on real documents, installer or Windows acceptance, or product completion: see [`docs/STATUS.md`](docs/STATUS.md) and [`docs/plan.md`](docs/plan.md).
 
 ## Data and scope
 
 Do not add company documents, personal data, OCR text, credentials, or derived sensitive values to this public repository or its CI. The workflow does not run native OCR or external document services. The public launcher leaves OCR disabled; configuring a real runtime and its background processing remains separate application work. The workflow has read-only repository permissions and references GitHub Actions by full commit SHA.
 
-This CI result covers only the named synthetic contract modules. It is not a full application test suite and does not establish OCR accuracy, Windows runtime readiness, real-document safety, pilot usefulness, or release readiness. For implementation evidence and limitations, see [application current state](application/CURRENT_STATE.md); remaining migration work is tracked in [issue #42](https://github.com/voxer21582/OCR-dev/issues/42).
+These synthetic tests do not establish OCR accuracy, Windows runtime readiness, real-document safety, pilot usefulness, or release readiness. For implementation evidence and limitations, see [application current state](application/CURRENT_STATE.md); remaining migration work is tracked in [issue #42](https://github.com/voxer21582/OCR-dev/issues/42).
 
 Project tracking: [OCR2 — Gestione e controllo](https://github.com/users/voxer21582/projects/1).
 
