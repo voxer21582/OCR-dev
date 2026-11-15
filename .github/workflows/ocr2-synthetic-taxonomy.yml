@@ -137,6 +137,7 @@ jobs:
           tests/test_synthetic_ocr_metrics.py
           tests/test_tax_exact_arithmetic.py
           tests/test_tiff_offset_fixture.py
+          tests/test_validation_rules.py
 
   windows-contracts:
     # DEC-011: the same modules on Windows, where the DPAPI archive, launcher
@@ -252,3 +253,4 @@ jobs:
           tests/test_synthetic_ocr_metrics.py
           tests/test_tax_exact_arithmetic.py
           tests/test_tiff_offset_fixture.py
+          tests/test_validation_rules.py

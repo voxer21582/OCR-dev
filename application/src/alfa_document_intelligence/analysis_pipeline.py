@@ -13,6 +13,7 @@ from typing import Any, Iterable
 from .document_family_catalog import DocumentFamilyCatalog, catalog_from_snapshots
 from .contracts import validate_document_record
 from .document_validation import DocumentValidationError, validate_document_consistency
+from .validation_rules import ruleset
 from .expense_line_extraction import ExpenseLineProposalLimitError, extract_expense_lines
 from .invoice_line_items import LineItemLimitError, extract_line_items
 from .ocr_adapter import OCRPageResult
@@ -171,6 +172,7 @@ def analyze_ocr_results(
         raise AnalysisPipelineError(f"document validation failed: {exc}") from exc
 
     result_document["validation_findings"] = findings
+    result_document["validation_ruleset"] = ruleset()
     if omitted_field_limit_code is None:
         result_document["processing"]["semantic_extraction"]["status"] = "completed"
     else:

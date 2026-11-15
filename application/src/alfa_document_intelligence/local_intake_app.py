@@ -36,6 +36,7 @@ from .catalog_editor import (
     render_catalog_page, save_with_history,
 )
 from .document_family_catalog import DocumentFamilyCatalogError, load_custom_family_catalog
+from .validation_rules import RULES as VALIDATION_RULES
 from .field_status import GOAL_STATUS_LABELS, failed_rules_by_field, goal_status, shown_field_status
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
 from .isolated_decoder import iter_decoded_pages_isolated
@@ -868,6 +869,23 @@ def _goal_status_text(extracted: Any, candidate: Any, failed: frozenset[str]) ->
     return f"Stato: {escape(GOAL_STATUS_LABELS[status])} — {escape(reason)}"
 
 
+def _render_ruleset(record: dict[str, Any]) -> str:
+    """Which rules (and versions) produced the findings shown (REQ-064)."""
+    used = record.get("validation_ruleset")
+    if not isinstance(used, dict) or not used:
+        return ""
+    items = []
+    for rule_id, version in sorted(used.items()):
+        spec = VALIDATION_RULES.get(rule_id)
+        label = spec.description_it if spec is not None else rule_id
+        items.append(f"<li>{escape(label)} (versione {escape(str(version))})</li>")
+    return (
+        "<section><h2>Verifiche</h2><p>Verifiche eseguite con le regole:</p>"
+        f"<ul>{''.join(items)}</ul>"
+        "<p><small>Se le regole cambiano, i documenti già in revisione conservano queste.</small></p></section>"
+    )
+
+
 def _render_line_items(record: dict[str, Any]) -> str:
     """Table of proposed line items (REQ-053): first readings, all to be checked."""
     items = record.get("line_items")
@@ -983,7 +1001,7 @@ def _render_editable_record(
         "<title>Revisione documento</title><main><p><a href=\"/\">Torna al fascicolo</a></p>"
         f"<h1>Revisione {escape(document_id)}</h1>"
         f"<p>Stato revisione: {escape(str(overlay['review_status']))}. Le correzioni si aggiungono al registro; i dati OCR non vengono sovrascritti.</p>"
-        f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{_render_line_items(record)}{completion}{archive_save}"
+        f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{_render_line_items(record)}{_render_ruleset(record)}{completion}{archive_save}"
         + (_REGION_REVIEW_STYLE if has_region_editor else "")
         + '<script nonce="__CSP_NONCE__">'
         + (_REGION_REVIEW_SCRIPT if has_region_editor else "")

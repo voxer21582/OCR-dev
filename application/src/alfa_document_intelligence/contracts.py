@@ -203,6 +203,12 @@ def validate_document_record(record: dict[str, Any]) -> list[str]:
                 issues.extend(validate_expense_lines(expense_lines, source_hash or "", page_numbers))
     elif expense_lines is not None:
         issues.append("expense_lines: requires document schema 0.3.0")
+    ruleset_value = record.get("validation_ruleset")
+    if ruleset_value is not None and (
+        not isinstance(ruleset_value, dict)
+        or not all(isinstance(key, str) and isinstance(value, str) and value.isdigit() for key, value in ruleset_value.items())
+    ):
+        issues.append("validation_ruleset: expected rule id to version text")
     if "line_items" in record:
         if schema_version != "0.3.0":
             issues.append("line_items: requires document schema 0.3.0")

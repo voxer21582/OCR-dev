@@ -10,6 +10,7 @@ import json
 import re
 from typing import Any
 
+from .validation_rules import version_of
 from .contracts import validate_document_record
 
 _RULES = {
@@ -93,7 +94,7 @@ def _tax_arithmetic_finding(fields: dict[str, Any]) -> dict[str, Any] | None:
         )
     return {
         "rule_id": "taxable-base-vat-total-arithmetic",
-        "rule_version": "1",
+        "rule_version": version_of("taxable-base-vat-total-arithmetic"),
         "dimension": "amount_arithmetic_consistency",
         "severity": severity,
         "outcome": outcome,
@@ -138,7 +139,7 @@ def _required_custom_field_findings(record: dict[str, Any]) -> list[dict[str, An
             missing = not isinstance(candidate, dict) or candidate.get("status") == "absent"
             findings.append({
                 "rule_id": "required-custom-field",
-                "rule_version": "1",
+                "rule_version": version_of("required-custom-field"),
                 "dimension": "document_consistency",
                 "severity": "warning",
                 "outcome": "indeterminate",
@@ -190,7 +191,7 @@ def _line_items_sum_finding(record: dict[str, Any]) -> dict[str, Any] | None:
         outcome, severity, message_code = "indeterminate", "warning", "line_items_sum_differs_from_total"
     return {
         "rule_id": "line-items-sum-total",
-        "rule_version": "1",
+        "rule_version": version_of("line-items-sum-total"),
         "dimension": "amount_arithmetic_consistency",
         "severity": severity,
         "outcome": outcome,
@@ -232,7 +233,7 @@ def validate_document_consistency(record: dict[str, Any]) -> list[dict[str, Any]
                 outcome, severity, message_code = "fail", "error", "hotel_checkout_precedes_checkin"
             findings.append({
                 "rule_id": rule_id,
-                "rule_version": "1",
+                "rule_version": version_of(rule_id),
                 "dimension": "date_consistency",
                 "severity": severity,
                 "outcome": outcome,
