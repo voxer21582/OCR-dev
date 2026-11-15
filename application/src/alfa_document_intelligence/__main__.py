@@ -22,6 +22,7 @@ from .document_family_catalog import DocumentFamilyCatalogError, DocumentFamilyC
 from .expense_case_processing import ExpenseCaseProcessingManager
 from .ocr_engine_registry import EngineManifest, EngineRegistryError, discover_engines
 from .ocr_processing import OCRProcessLimits, OCRProcessingManager
+from .runtime_manifest import verify_installation
 
 
 # The Edge app window and the single-instance lock are Windows features (REQ-100).
@@ -87,6 +88,17 @@ def _port(value: str) -> int:
     return port
 
 
+def _installation_root() -> Path:
+    return Path(sys.executable).resolve().parent.parent
+
+
+def _show_integrity_error(message: str) -> None:
+    """Show a local OS dialog without starting a server on an invalid install."""
+    if os.name == "nt":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, "OCR2 — installazione non valida", 0x10)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Start the loopback-only expense document review app.")
     parser.add_argument("--port", type=_port, default=None, help="loopback TCP port (default: 8000; 0 selects a free port)")
@@ -105,6 +117,19 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.port is None:
         args.port = 0 if args.app_window else 8000
+
+    install_root = _installation_root()
+    runtime_manifest = install_root / "runtime-manifest.json"
+    runtime_status = "non verificato (avvio da sorgenti)"
+    if runtime_manifest.exists():
+        verification = verify_installation(install_root, runtime_manifest)
+        if not verification.ok:
+            message = "Installazione non valida: " + "; ".join(verification.problems)
+            print(message, file=sys.stderr)
+            if args.app_window:
+                _show_integrity_error(message)
+            raise SystemExit(2)
+        runtime_status = "verificato"
 
     instance_lock = None
     app_data_dir = None
@@ -127,13 +152,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             _open_app_window(f"http://127.0.0.1:{running_port}/", app_data_dir)
             return
     try:
-        _serve(parser, args, engines, app_data_dir, instance_lock)
+        _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status)
     finally:
         if instance_lock is not None:
             instance_lock.release()
 
 
-def _serve(parser, args, engines, app_data_dir, instance_lock) -> None:
+def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="non verificato (avvio da sorgenti)") -> None:
     manifest = engines.get(args.ocr_engine)
     if manifest is not None:
         runtime = _runtime_check(manifest)
@@ -188,7 +213,7 @@ def _serve(parser, args, engines, app_data_dir, instance_lock) -> None:
                 version=__version__,
                 python_version=platform.python_version(),
                 ocr_engine=None if manifest is None else f"{manifest.name} {manifest.version}",
-                runtime_status="non verificato (avvio da sorgenti)",
+                runtime_status=runtime_status,
                 instance_id=instance_id,
             ),
         }

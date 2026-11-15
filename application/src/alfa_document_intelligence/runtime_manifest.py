@@ -19,13 +19,15 @@ class RuntimeVerification:
 
 def _inventory(root: Path, excluded_globs) -> dict:
     result = {}
+    def fail(error):
+        raise error
     for directory in ("app", "python"):
         base = root / directory
         if base.is_symlink():
             raise ValueError("symbolic links are not allowed")
-        if not base.exists():
-            continue
-        for current, dirs, files in os.walk(base, followlinks=False):
+        if not base.is_dir():
+            raise ValueError("payload directory missing")
+        for current, dirs, files in os.walk(base, followlinks=False, onerror=fail):
             for name in dirs + files:
                 path = Path(current) / name
                 if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
