@@ -53,7 +53,7 @@ def _token(page: str) -> str:
 @pytest.fixture
 def lifetime():
     stop = _StopRecorder()
-    presence = WindowPresence()
+    presence = WindowPresence(_FakeClock())
     return AppLifetime(presence, stop, poll_seconds=0.01), stop
 
 
@@ -124,6 +124,7 @@ def test_heartbeat_returns_204_and_marks_window(app_mode):
         assert status.startswith("400"), bad
     _, _, page = _invoke(app, "GET", "/")
     token = _token(page)
+    presence._clock.now += 3  # past the navigation window after GET /
     status, _, _ = _invoke(app, "POST", "/app/closing", body=urlencode({"w": "finestra_1", "_ocr2_csrf": token}).encode())
     assert status.startswith("204")
     assert presence._last_beat == {}
@@ -251,7 +252,7 @@ def test_request_after_closing_beacon_keeps_window_alive():
         token = _token(page)
         status, _, _ = _invoke(app, "GET", "/app/heartbeat", query="w=finestra")
         assert status.startswith("204")
-        clock.now += 1
+        clock.now += 3  # past the navigation window after GET /
         status, _, _ = _invoke(app, "POST", "/app/closing",
                                body=urlencode({"w": "finestra", "_ocr2_csrf": token}).encode())
         assert status.startswith("204")
@@ -275,9 +276,33 @@ def test_closing_beacon_does_not_restore_its_own_window():
         _, _, page = _invoke(app, "GET", "/")
         token = _token(page)
         _invoke(app, "GET", "/app/heartbeat", query="w=finestra")
-        clock.now += 1
+        clock.now += 3  # past the navigation window after GET /
         _invoke(app, "POST", "/app/closing", body=urlencode({"w": "finestra", "_ocr2_csrf": token}).encode())
         clock.now += 10
+        assert presence.should_stop() is True
+    finally:
+        app.close()
+
+
+def test_closing_right_after_a_non_html_request_counts_as_navigation():
+    clock = _FakeClock()
+    presence = WindowPresence(clock)
+    app = create_expense_report_app(app_lifetime=AppLifetime(presence, _StopRecorder()))
+    try:
+        _, _, page = _invoke(app, "GET", "/")
+        token = _token(page)
+        _invoke(app, "GET", "/app/heartbeat", query="w=finestra")
+        clock.now += 30
+        status, headers, _ = _invoke(app, "GET", "/risorsa-inesistente")
+        assert status.startswith("404")
+        assert headers["Content-Type"].startswith("text/plain")
+        clock.now += 1.5
+        status, _, _ = _invoke(app, "POST", "/app/closing",
+                               body=urlencode({"w": "finestra", "_ocr2_csrf": token}).encode())
+        assert status.startswith("204")
+        clock.now += 30
+        assert presence.should_stop() is False
+        clock.now += 151
         assert presence.should_stop() is True
     finally:
         app.close()

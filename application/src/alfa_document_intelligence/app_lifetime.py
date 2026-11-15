@@ -6,12 +6,16 @@ those signals into a ``should_stop()`` decision; ``AppLifetime`` runs a guard
 thread that stops the server when that decision is true or when an explicit
 exit was requested.
 
-A window sends "closing" on every ``pagehide``, navigation included.  Any other
-request that arrives within the closing grace restores that window as if it
-had just sent a heartbeat, so navigating to a page without the heartbeat script
-does not stop the server.  Limit: such a page (for example the raw view of an
-original document) keeps the server alive for at most the heartbeat expiry
-(180 s) after its request; the server then stops unless another window beats.
+A window sends "closing" on every ``pagehide``, navigation included.  Both
+orders of a navigation are treated as such: a closing that arrives at most
+``navigation_window_seconds`` (2 s) after another request, and any other
+request that arrives within the closing grace after a closing, keep that window
+alive as if it had just sent a heartbeat.  So navigating to a page without the
+heartbeat script does not stop the server.  Limit: such a page (for example the
+raw view of an original document) keeps the server alive for at most the
+heartbeat expiry (180 s) after the navigation; the server then stops unless
+another window beats.  A window really closed within 2 s of a request likewise
+keeps the server alive for up to 180 s.
 """
 from __future__ import annotations
 
@@ -51,11 +55,13 @@ class WindowPresence:
         heartbeat_expiry_seconds: float = 180.0,
         closing_grace_seconds: float = 10.0,
         startup_grace_seconds: float = 120.0,
+        navigation_window_seconds: float = 2.0,
     ) -> None:
         self._clock = clock
         self._expiry = heartbeat_expiry_seconds
         self._closing_grace = closing_grace_seconds
         self._startup_grace = startup_grace_seconds
+        self._navigation_window = navigation_window_seconds
         self._lock = threading.Lock()
         self._started = clock()
         self._last_beat: dict[str, float] = {}
@@ -64,6 +70,7 @@ class WindowPresence:
         self._last_closing: float | None = None
         self._last_activity: float | None = None
         self._pending_closing: dict[str, float] = {}
+        self._last_request: float | None = None  # last activity(), not heartbeat/closing
 
     def heartbeat(self, window_id: str) -> None:
         _check_window_id(window_id)
@@ -79,6 +86,14 @@ class WindowPresence:
         _check_window_id(window_id)
         with self._lock:
             now = self._clock()
+            if self._last_request is not None and 0 <= now - self._last_request <= self._navigation_window:
+                # The next page was requested just before this pagehide: a navigation.
+                self._pending_closing.pop(window_id, None)
+                self._last_beat[window_id] = now
+                self._ever_seen = True
+                self._last_beat_any = now
+                self._last_activity = now
+                return
             self._last_beat.pop(window_id, None)
             self._pending_closing[window_id] = now
             self._last_closing = now
@@ -89,6 +104,7 @@ class WindowPresence:
         with self._lock:
             now = self._clock()
             self._last_activity = now
+            self._last_request = now
             restored = False
             for window_id, closed_at in list(self._pending_closing.items()):
                 del self._pending_closing[window_id]

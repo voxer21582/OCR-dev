@@ -93,6 +93,32 @@ def test_closing_beacon_alone_still_stops_after_grace():
     assert presence.should_stop() is True
 
 
+def test_closing_right_after_a_request_counts_as_navigation():
+    clock, presence = _presence()
+    presence.heartbeat("w")
+    clock.advance(50)
+    presence.activity()
+    clock.advance(1)
+    presence.closing("w")
+    clock.advance(29)
+    assert presence.should_stop() is False
+    clock.advance(180 + 1 - 29)
+    assert presence.should_stop() is True
+
+
+def test_closing_long_after_a_request_still_stops():
+    clock, presence = _presence()
+    presence.heartbeat("w")
+    clock.advance(50)
+    presence.activity()
+    clock.advance(5)
+    presence.closing("w")
+    clock.advance(9)
+    assert presence.should_stop() is False
+    clock.advance(2)
+    assert presence.should_stop() is True
+
+
 def test_heartbeat_clears_pending_closing():
     clock, presence = _presence()
     presence.heartbeat("w")
