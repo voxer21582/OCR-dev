@@ -71,6 +71,7 @@ jobs:
           tests/test_case_benchmark_fixtures.py
           tests/test_case_benchmark_score.py
           tests/test_catalog_alias_delimiters.py
+          tests/test_catalog_editor.py
           tests/test_catalog_pipeline.py
           tests/test_chatgpt_handoff.py
           tests/test_ci_workflow.py
@@ -179,6 +180,7 @@ jobs:
           tests/test_case_benchmark_fixtures.py
           tests/test_case_benchmark_score.py
           tests/test_catalog_alias_delimiters.py
+          tests/test_catalog_editor.py
           tests/test_catalog_pipeline.py
           tests/test_chatgpt_handoff.py
           tests/test_ci_workflow.py

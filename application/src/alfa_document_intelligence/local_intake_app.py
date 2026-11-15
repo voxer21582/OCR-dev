@@ -31,6 +31,11 @@ from .ingestion import IngestionLimits, MaterializedBatch, UploadRejected, mater
 from .review_ledger import append_review_event, reviewed_overlay
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
+from .catalog_editor import (
+    CatalogFormError, catalog_with_family, family_from_form, read_urlencoded,
+    render_catalog_page, save_with_history,
+)
+from .document_family_catalog import DocumentFamilyCatalogError, load_custom_family_catalog
 from .field_status import GOAL_STATUS_LABELS, failed_rules_by_field, goal_status
 from .document_decoder import DecodeLimits, DocumentDecodeError, iter_decoded_pages
 from .isolated_decoder import iter_decoded_pages_isolated
@@ -1399,6 +1404,8 @@ def create_expense_report_app(
     if ocr_processing_manager is not None and document_processor is not None:
         raise ValueError("choose either a synchronous document processor or an OCR job manager")
     state: _VolatileSession | None = None
+    # The catalog can change from the catalog page; processing started later uses the new one.
+    catalog_state: dict[str, Any] = {"catalog": custom_family_catalog}
     csrf_token = secrets.token_urlsafe(32)
     state_lock = threading.RLock()
     app_closed = False
@@ -1497,6 +1504,50 @@ def create_expense_report_app(
         path = environ.get("PATH_INFO", "")
         case_route = _CASE_PATH.fullmatch(path)
         case_reconciliation_route = _CASE_RECONCILIATION_PATH.fullmatch(path)
+        if path == "/catalog" or path.startswith("/catalog/"):
+            if family_catalog_store is None:
+                return _page(environ, start_response, "503 Service Unavailable", "Catalogo dei tipi non configurato")
+            if method == "GET" and path == "/catalog":
+                return _page(environ, start_response, "200 OK", render_catalog_page(catalog_state["catalog"]))
+            if method == "GET" and path == "/catalog/export":
+                catalog = catalog_state["catalog"]
+                body = catalog.as_json() if catalog is not None else '{"catalog_version":"2","families":[]}\n'
+                return _page(environ, start_response, "200 OK", body, "application/json; charset=utf-8",
+                             download_filename="ocr2-catalogo-tipi.json")
+            if method == "POST" and path in {"/catalog/families", "/catalog/import"}:
+                if not _same_origin_loopback_post(environ):
+                    return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                current = catalog_state["catalog"]
+                try:
+                    if path == "/catalog/families":
+                        form = read_urlencoded(environ)
+                        family = family_from_form(
+                            label=form.get("label", ""), title_cues=form.get("title_cues", ""),
+                            fields=form.get("fields", ""),
+                        )
+                        base = current if current is not None else load_custom_family_catalog('{"catalog_version":"2","families":[]}')
+                        raw = catalog_with_family(base, family)
+                        done = f"Tipo «{family['label']}» aggiunto."
+                    else:
+                        files, _fields = _multipart_files_and_fields(environ)
+                        if len(files) != 1:
+                            raise CatalogFormError("Scegli un solo file di catalogo.")
+                        raw = files[0][1]
+                        done = "Catalogo importato."
+                    with state_lock:
+                        saved = save_with_history(family_catalog_store, raw)
+                        catalog_state["catalog"] = saved
+                        setter = getattr(expense_case_processing_manager, "set_custom_family_catalog", None)
+                        if callable(setter):
+                            setter(saved)
+                except CatalogFormError as exc:
+                    return _page(environ, start_response, "400 Bad Request", render_catalog_page(current, error=str(exc)))
+                except (DocumentFamilyCatalogError, IntakeRequestError, UploadRejected):
+                    return _page(environ, start_response, "400 Bad Request", render_catalog_page(
+                        current, error="Il catalogo non è valido e non è stato salvato. Il catalogo precedente resta in uso.",
+                    ))
+                return _page(environ, start_response, "200 OK", render_catalog_page(saved, message=done))
+            return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
         case_review_route = _CASE_REVIEW_PATH.fullmatch(path)
         case_export_route = _CASE_EXPORT_PATH.fullmatch(path)
         case_inclusion_route = _CASE_INCLUSION_PATH.fullmatch(path)
@@ -2237,7 +2288,7 @@ def create_expense_report_app(
                             session.generation_id,
                             intake,
                             decode_limits=DecodeLimits(),
-                            custom_family_catalog=custom_family_catalog,
+                            custom_family_catalog=catalog_state["catalog"],
                         )
                     except BaseException:
                         with state_lock:

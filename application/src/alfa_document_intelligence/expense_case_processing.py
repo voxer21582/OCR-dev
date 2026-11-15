@@ -260,6 +260,11 @@ class ExpenseCaseProcessingManager:
             if job.worker_job_id is not None:
                 self._worker.mark_cancelled(job.generation_id)
 
+    def set_custom_family_catalog(self, catalog: Any) -> None:
+        """Use ``catalog`` for case jobs started from now on; running jobs keep theirs."""
+        with self._lock:
+            self._catalog = catalog
+
     def close(self) -> None:
         with self._lock:
             self._closed = True
