@@ -1,4 +1,5 @@
 import io
+import re
 from urllib.parse import urlencode
 import zipfile
 
@@ -75,7 +76,10 @@ def test_browser_shows_manual_prompt_only_after_human_field_confirmation(monkeyp
     assert b"confirm fields first" in page
     assert b"<textarea readonly" not in page
 
-    correction = urlencode({"value": "100.00"}).encode()
+    result, review_page = _request(app, path="/reviews/doc-001")
+    assert result["status"] == "200 OK"
+    head = re.search(rb'name="expected_review_head" value="([a-f0-9]{64})"', review_page).group(1).decode()
+    correction = urlencode({"value": "100.00", "expected_review_head": head}).encode()
     result, _ = _request(
         app,
         "POST",
@@ -95,3 +99,130 @@ def test_browser_shows_manual_prompt_only_after_human_field_confirmation(monkeyp
     assert b"private-trip.zip" not in page
     assert b"OCR raw total" not in page
     assert b"non lo invia" in page
+
+
+def test_blocked_review_requires_confirmation_of_current_prompt(monkeypatch):
+    from alfa_document_intelligence.review_ledger import append_review_event
+    real = local_intake_app.create_expense_report_intake_session
+    captured = {}
+    def blocked(*args, **kwargs):
+        session = real(*args, **kwargs)
+        record = session.documents["doc-001"]
+        for action in ("queued", "opened", "flagged"):
+            kw = {"reason_code": "synthetic_block"} if action == "flagged" else {}
+            record = append_review_event(record, actor_id="synthetic", action=action, timestamp="2026-11-15T12:00:00Z", **kw)
+        session.documents["doc-001"] = record
+        captured["session"] = session
+        return session
+    monkeypatch.setattr(local_intake_app, "create_expense_report_intake_session", blocked)
+    monkeypatch.setattr(local_intake_app, "build_chatgpt_handoff_prompt", lambda bundle, docs: "synthetic prompt " + docs["doc-001"]["document_family"])
+    app = create_expense_report_app(); _upload(app)
+    _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")
+    result, page = _request(app, path="/chatgpt")
+    assert result["status"] == "200 OK"
+    assert "revisione bloccata".encode() in page.lower()
+    assert b"<textarea readonly" not in page
+    digest = re.search(rb'name="prompt_sha256" value="([a-f0-9]{64})"', page).group(1).decode()
+    form = urlencode({"prompt_sha256": digest, "confirmation": "1"}).encode()
+    result, page = _request(app, "POST", "/chatgpt/confirm", form, "application/x-www-form-urlencoded")
+    assert result["status"] == "200 OK" and b"<textarea readonly" in page
+    draft_head = re.search(rb'name="draft_prompt_sha256" value="([a-f0-9]{64})"', page).group(1).decode()
+    captured["session"].documents["doc-001"]["document_family"] = "other"
+    stale = urlencode({"draft_prompt_sha256": draft_head, "draft": "testo sintetico"}).encode()
+    result, _ = _request(app, "POST", "/chatgpt/return", stale, "application/x-www-form-urlencoded")
+    assert result["status"] == "409 Conflict"
+    result, page = _request(app, path="/chatgpt")
+    assert b"<textarea readonly" not in page
+    result, _ = _request(app, "POST", "/chatgpt/confirm", form, "application/x-www-form-urlencoded")
+    assert result["status"] == "409 Conflict"
+
+
+def test_clearing_session_during_draft_save_does_not_crash_or_save(monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    real = local_intake_app.create_expense_report_intake_session
+    def create(*args, **kwargs): return real(*args, **kwargs)
+    monkeypatch.setattr(local_intake_app, "create_expense_report_intake_session", create)
+    monkeypatch.setattr(local_intake_app, "build_chatgpt_handoff_prompt", lambda bundle, docs: "synthetic")
+    app = create_expense_report_app(); _upload(app)
+    _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")
+    page = _request(app, path="/chatgpt")[1]
+    digest = re.search(rb'name="draft_prompt_sha256" value="([a-f0-9]{64})"', page).group(1).decode()
+    entered, release = threading.Event(), threading.Event()
+    original = local_intake_app._handoff_state
+    def delayed(state):
+        result = original(state); entered.set()
+        if not release.wait(3): raise RuntimeError("test release timed out")
+        return result
+    form = urlencode({"draft_prompt_sha256": digest, "draft": "synthetic"}).encode()
+    try:
+        monkeypatch.setattr(local_intake_app, "_handoff_state", delayed)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            future = pool.submit(_request, app, "POST", "/chatgpt/return", form, "application/x-www-form-urlencoded")
+            assert entered.wait(2)
+            assert _request(app, "POST", "/clear", b"clear=1", "application/x-www-form-urlencoded")[0]["status"] == "200 OK"
+            release.set()
+            assert future.result(timeout=3)[0]["status"] == "409 Conflict"
+    finally: release.set()
+
+
+def test_old_page_cannot_erase_new_draft(monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    real = local_intake_app.create_expense_report_intake_session
+    captured = {}
+    def create(*args, **kwargs):
+        session = real(*args, **kwargs); captured["session"] = session; return session
+    monkeypatch.setattr(local_intake_app, "create_expense_report_intake_session", create)
+    monkeypatch.setattr(local_intake_app, "build_chatgpt_handoff_prompt", lambda bundle, docs: "synthetic " + docs["doc-001"]["document_family"])
+    app=create_expense_report_app(); _upload(app)
+    _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")
+    entered, release = threading.Event(), threading.Event()
+    original = local_intake_app._handoff_state
+    old_thread = [None]
+    def delayed(session):
+        result=original(session)
+        if threading.get_ident() == old_thread[0]:
+            entered.set()
+            if not release.wait(3): raise RuntimeError("test release timed out")
+        return result
+    def old_get():
+        old_thread[0] = threading.get_ident()
+        return _request(app, path="/chatgpt")
+    try:
+        monkeypatch.setattr(local_intake_app, "_handoff_state", delayed)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            old = pool.submit(old_get); assert entered.wait(2)
+            captured["session"].documents["doc-001"]["document_family"] = "other"
+            def save_new():
+                page = _request(app, path="/chatgpt")[1]
+                digest = re.search(rb'name="draft_prompt_sha256" value="([a-f0-9]{64})"', page).group(1).decode()
+                form = urlencode({"draft_prompt_sha256": digest, "draft": "synthetic draft"}).encode()
+                return _request(app, "POST", "/chatgpt/return", form, "application/x-www-form-urlencoded")
+            saved = pool.submit(save_new)
+            release.set(); old.result(timeout=3)
+            assert saved.result(timeout=3)[0]["status"] == "200 OK"
+            assert b"synthetic draft" in _request(app, path="/chatgpt")[1]
+    finally: release.set()
+
+
+def test_slow_handoff_render_does_not_block_clear(monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    monkeypatch.setattr(local_intake_app, "build_chatgpt_handoff_prompt", lambda bundle, docs: "synthetic")
+    app=create_expense_report_app(); _upload(app)
+    _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")
+    entered, release=threading.Event(), threading.Event()
+    original=local_intake_app._handoff_state
+    def delayed(session):
+        entered.set()
+        if not release.wait(3): raise RuntimeError("test release timed out")
+        return original(session)
+    try:
+        monkeypatch.setattr(local_intake_app, "_handoff_state", delayed)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            page=pool.submit(_request, app, path="/chatgpt"); assert entered.wait(2)
+            clear=pool.submit(_request, app, "POST", "/clear", b"clear=1", "application/x-www-form-urlencoded")
+            assert clear.result(timeout=1)[0]["status"] == "200 OK"
+            release.set(); assert page.result(timeout=3)[0]["status"] == "409 Conflict"
+    finally: release.set()

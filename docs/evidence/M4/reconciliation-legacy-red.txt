@@ -1,0 +1,16 @@
+test_legacy_review_replay_preserves_original_event (test_expense_reconciliation.ExpenseReconciliationTests.test_legacy_review_replay_preserves_original_event) ... ERROR
+
+======================================================================
+ERROR: test_legacy_review_replay_preserves_original_event (test_expense_reconciliation.ExpenseReconciliationTests.test_legacy_review_replay_preserves_original_event)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    replay = append_line_review(first, expected_case_revision=result["case_revision"], actor_id="synthetic-user", **review)
+[percorso locale omesso]
+    raise ReconciliationError("conflicting review event replay")
+alfa_document_intelligence.expense_reconciliation.ReconciliationError: conflicting review event replay
+
+----------------------------------------------------------------------
+Ran 1 test in 0.017s
+
+FAILED (errors=1)

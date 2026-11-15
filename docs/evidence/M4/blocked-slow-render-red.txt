@@ -1,0 +1,70 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+________________ test_slow_handoff_render_does_not_block_clear ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000021495300770>
+
+    def test_slow_handoff_render_does_not_block_clear(monkeypatch):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        monkeypatch.setattr(local_intake_app, "build_chatgpt_handoff_prompt", lambda bundle, docs: "synthetic")
+        app=create_expense_report_app(); _upload(app)
+        _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")
+        entered, release=threading.Event(), threading.Event()
+        original=local_intake_app._handoff_state
+        def delayed(session):
+            entered.set()
+            if not release.wait(3): raise RuntimeError("test release timed out")
+            return original(session)
+        try:
+            monkeypatch.setattr(local_intake_app, "_handoff_state", delayed)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                page=pool.submit(_request, app, path="/chatgpt"); assert entered.wait(2)
+                clear=pool.submit(_request, app, "POST", "/clear", b"clear=1", "application/x-www-form-urlencoded")
+>               assert clear.result(timeout=1)[0]["status"] == "200 OK"
+                       ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_manual_chatgpt_handoff_ui.py:226:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = None, timeout = 1
+
+    def result(self, timeout=None):
+        """Return the result of the call that the future represents.
+
+        Args:
+            timeout: The number of seconds to wait for the result if the
+                future isn't done.  If None, then there is no limit on the
+                wait time.
+
+        Returns:
+            The result of the call that the future represents.
+
+        Raises:
+            CancelledError: If the future was cancelled.
+            TimeoutError: If the future didn't finish executing before the
+                given timeout.
+            Exception: If the call raised then that exception will be
+                raised.
+        """
+        try:
+            with self._condition:
+                if self._state in [CANCELLED, CANCELLED_AND_NOTIFIED]:
+                    raise CancelledError()
+                elif self._state == FINISHED:
+                    return self.__get_result()
+
+                self._condition.wait(timeout)
+
+                if self._state in [CANCELLED, CANCELLED_AND_NOTIFIED]:
+                    raise CancelledError()
+                elif self._state == FINISHED:
+                    return self.__get_result()
+                else:
+>                   raise TimeoutError()
+E                   TimeoutError
+
+..\..\..\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py:462: TimeoutError
+=========================== short test summary info ===========================
+FAILED tests/test_manual_chatgpt_handoff_ui.py::test_slow_handoff_render_does_not_block_clear
+1 failed in 3.48s

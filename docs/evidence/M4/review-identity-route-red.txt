@@ -1,0 +1,31 @@
+test_review_page_handles_unavailable_identity_without_recording_events (test_review_identity.ReviewIdentityTests.test_review_page_handles_unavailable_identity_without_recording_events) ... ERROR
+
+======================================================================
+ERROR: test_review_page_handles_unavailable_identity_without_recording_events (test_review_identity.ReviewIdentityTests.test_review_page_handles_unavailable_identity_without_recording_events)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    status, body = _request(app, path="/reviews/doc-001")
+                   ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[percorso locale omesso]
+    payload = b"".join(app(environ, start_response))
+                       ~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+[percorso locale omesso]
+    record = _begin_document_review(record, timestamp=timestamp)
+[percorso locale omesso]
+    updated = append_review_event(updated, actor_id=_windows_review_actor(), action="queued", timestamp=timestamp)
+                                                    ~~~~~~~~~~~~~~~~~~~~~^^
+[percorso locale omesso]
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[percorso locale omesso]
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[percorso locale omesso]
+    raise effect
+alfa_document_intelligence.local_intake_app.IntakeRequestError: identity unavailable
+
+----------------------------------------------------------------------
+Ran 1 test in 0.008s
+
+FAILED (errors=1)

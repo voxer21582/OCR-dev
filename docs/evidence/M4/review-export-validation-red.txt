@@ -1,0 +1,49 @@
+test_export_rejects_missing_or_tampered_review_ledger (test_document_export.DocumentExportTests.test_export_rejects_missing_or_tampered_review_ledger) ...
+  test_export_rejects_missing_or_tampered_review_ledger (test_document_export.DocumentExportTests.test_export_rejects_missing_or_tampered_review_ledger) (exporter='export_document_json', case='missing') ... FAIL
+  test_export_rejects_missing_or_tampered_review_ledger (test_document_export.DocumentExportTests.test_export_rejects_missing_or_tampered_review_ledger) (exporter='export_document_csv', case='missing') ... ERROR
+  test_export_rejects_missing_or_tampered_review_ledger (test_document_export.DocumentExportTests.test_export_rejects_missing_or_tampered_review_ledger) (exporter='export_document_json', case='tampered') ... FAIL
+  test_export_rejects_missing_or_tampered_review_ledger (test_document_export.DocumentExportTests.test_export_rejects_missing_or_tampered_review_ledger) (exporter='export_document_csv', case='tampered') ... FAIL
+
+======================================================================
+ERROR: test_export_rejects_missing_or_tampered_review_ledger (test_document_export.DocumentExportTests.test_export_rejects_missing_or_tampered_review_ledger) (exporter='export_document_csv', case='missing')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    exporter(invalid)
+    ~~~~~~~~^^^^^^^^^
+[percorso locale omesso]
+    "review_events_json": _json_text(document["review"]["events"]),
+                                     ~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+KeyError: 'events'
+
+======================================================================
+FAIL: test_export_rejects_missing_or_tampered_review_ledger (test_document_export.DocumentExportTests.test_export_rejects_missing_or_tampered_review_ledger) (exporter='export_document_json', case='missing')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    with self.assertRaises(ExportValidationError):
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ExportValidationError not raised
+
+======================================================================
+FAIL: test_export_rejects_missing_or_tampered_review_ledger (test_document_export.DocumentExportTests.test_export_rejects_missing_or_tampered_review_ledger) (exporter='export_document_json', case='tampered')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    with self.assertRaises(ExportValidationError):
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ExportValidationError not raised
+
+======================================================================
+FAIL: test_export_rejects_missing_or_tampered_review_ledger (test_document_export.DocumentExportTests.test_export_rejects_missing_or_tampered_review_ledger) (exporter='export_document_csv', case='tampered')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    with self.assertRaises(ExportValidationError):
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ExportValidationError not raised
+
+----------------------------------------------------------------------
+Ran 1 test in 0.009s
+
+FAILED (failures=3, errors=1)

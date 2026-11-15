@@ -1,0 +1,15 @@
+test_stale_review_form_is_rejected_without_overwriting_new_event (test_review_identity.ReviewIdentityTests.test_stale_review_form_is_rejected_without_overwriting_new_event) ... FAIL
+
+======================================================================
+FAIL: test_stale_review_form_is_rejected_without_overwriting_new_event (test_review_identity.ReviewIdentityTests.test_stale_review_form_is_rejected_without_overwriting_new_event)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    self.assertIsNotNone(token)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^
+AssertionError: unexpectedly None
+
+----------------------------------------------------------------------
+Ran 1 test in 0.022s
+
+FAILED (failures=1)

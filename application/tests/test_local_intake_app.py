@@ -1,5 +1,6 @@
 import io
-from urllib.parse import urlencode
+from urllib.parse import urlencode, parse_qs
+import re
 import zipfile
 
 from alfa_document_intelligence.local_intake_app import create_expense_report_app
@@ -28,6 +29,14 @@ def _multipart(filename, data, boundary="test-boundary"):
 
 def _request(app, method="GET", path="/", body=b"", content_type=""):
     response = {}
+    if method == "POST" and path.startswith("/reviews/") and path.endswith(("/complete", "/document-family", "/fiscal-state")):
+        document_id = path.split("/")[2]
+        _, _, current = _request(app, path="/reviews/" + document_id)
+        match = re.search(rb'name="expected_review_head" value="([a-f0-9]{64})"', current)
+        if match:
+            values = parse_qs(body.decode("ascii"), keep_blank_values=True)
+            values["expected_review_head"] = [match.group(1).decode()]
+            body = urlencode(values, doseq=True).encode()
 
     def start_response(status, headers):
         response["status"] = status
@@ -135,6 +144,33 @@ def test_reviewer_can_select_only_an_evidence_bound_document_family():
     assert status == "200 OK"
     assert b"Stato attuale: payment_evidence" in fiscal_reviewed
     assert b"Famiglia attualmente revisionata: pos_slip" in fiscal_reviewed
+
+
+def test_browser_selects_observed_custom_family_from_document_snapshot():
+    from test_catalog_pipeline import _catalog, _family, FAMILY_ID
+
+    def processor(record, _source_bytes):
+        record["schema_version"] = "0.2.0"
+        record["document_family_definitions"] = [_catalog(_family()).snapshot_for(FAMILY_ID)]
+        record["pages"] = [{"page_number": 1}]
+        evidence = {"source_sha256": record["source"]["sha256"], "page_number": 1,
+                    "token_ids": ["synthetic-cue"], "literal": "RICEVUTA TAXI",
+                    "producer": {"stage": "ocr", "name": "synthetic", "version": "1"}}
+        record["fields"]["document_family_candidates"] = {
+            "value": None, "status": "uncertain", "evidence": [evidence],
+            "alternatives": [{"value": FAMILY_ID, "status": "observed", "evidence": [evidence]}],
+        }
+        return record
+
+    app = create_expense_report_app(document_processor=processor)
+    body, content_type = _multipart("trasferta.zip", _zip_bytes())
+    _request(app, "POST", "/upload", body, content_type)
+    _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")
+    status, _, page = _request(app, path="/reviews/doc-002")
+    assert status == "200 OK" and b"Ricevuta taxi" in page
+    selected = urlencode({"document_family": FAMILY_ID, "review_seconds": "1"}).encode()
+    status, _, page = _request(app, "POST", "/reviews/doc-002/document-family", selected, "application/x-www-form-urlencoded")
+    assert status == "200 OK" and b"Famiglia attualmente revisionata: custom_taxi_receipt" in page
 def test_clear_releases_volatile_session_and_returns_to_upload_form():
     app = create_expense_report_app()
     body, content_type = _multipart("trasferta.zip", _zip_bytes())
@@ -208,7 +244,8 @@ def test_chatgpt_prompt_page_warns_before_manual_external_transfer(monkeypatch):
 
 
 
-def test_chatgpt_response_is_returned_as_escaped_unapproved_volatile_draft():
+def test_chatgpt_response_is_returned_as_escaped_unapproved_volatile_draft(monkeypatch):
+    monkeypatch.setattr("alfa_document_intelligence.local_intake_app.build_chatgpt_handoff_prompt", lambda bundle, docs: "synthetic prompt")
     app = create_expense_report_app()
     body, content_type = _multipart("trasferta.zip", _zip_bytes())
     _request(app, "POST", "/upload", body, content_type)
@@ -217,13 +254,14 @@ def test_chatgpt_response_is_returned_as_escaped_unapproved_volatile_draft():
 
     status, _, page = _request(app, path="/chatgpt")
     assert status == "200 OK"
-    assert b"copiarlo in ChatGPT" not in page
+    assert b"synthetic prompt" in page
     assert b' action="/chatgpt/return"' in page
     assert b"bozza" in page
 
     returned = "<script>alert('x')</script> rimborso approvato"
+    head = re.search(rb'name="draft_prompt_sha256" value="([a-f0-9]{64})"', page).group(1).decode()
     status, headers, page = _request(
-        app, "POST", "/chatgpt/return", urlencode({"draft": returned}).encode(),
+        app, "POST", "/chatgpt/return", urlencode({"draft": returned, "draft_prompt_sha256": head}).encode(),
         "application/x-www-form-urlencoded",
     )
     assert status == "200 OK"
@@ -373,7 +411,7 @@ def test_review_timer_rejects_invalid_or_decreasing_duration_and_clears_volatile
         urlencode({"review_seconds": "11"}).encode(),
         "application/x-www-form-urlencoded",
     )
-    assert status == "400 Bad Request"
+    assert status in {"400 Bad Request", "409 Conflict"}
 
     status, _, _ = _request(app, "POST", "/clear", b"clear=1", "application/x-www-form-urlencoded")
     assert status == "200 OK"

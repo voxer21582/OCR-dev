@@ -5,6 +5,7 @@ from pathlib import Path
 
 from alfa_document_intelligence.review_ledger import (
     ReviewRejected,
+    _validate_candidate,
     append_review_event,
     verify_review_ledger,
     reviewed_overlay,
@@ -18,6 +19,63 @@ T0 = "2026-10-14T10:00:00Z"
 class ReviewLedgerTests(unittest.TestCase):
     def setUp(self):
         self.record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+    def test_custom_review_candidate_uses_record_snapshot_and_type(self):
+        from test_catalog_pipeline import _catalog, _family, FAMILY_ID, FIELD_NAME
+
+        family = _family()
+        family["fields"][0]["type"] = "date"
+        self.record["schema_version"] = "0.2.0"
+        self.record["document_family_definitions"] = [_catalog(family, version="2").snapshot_for(FAMILY_ID)]
+        candidate = copy.deepcopy(self.record["fields"]["merchant_name"])
+        candidate["value"] = "2026-11-15"
+        _validate_candidate(self.record, FIELD_NAME, candidate)
+        candidate["value"] = "not-a-date"
+        with self.assertRaises(ReviewRejected):
+            _validate_candidate(self.record, FIELD_NAME, candidate)
+        candidate["value"] = "2026-11-15"
+        with self.assertRaises(ReviewRejected):
+            _validate_candidate(self.record, FAMILY_ID + "_undeclared", candidate)
+
+    def test_custom_family_selection_binds_snapshot_and_original_evidence(self):
+        from test_catalog_pipeline import _catalog, _family, FAMILY_ID
+        from alfa_document_intelligence.local_intake_app import _apply_document_family_selection, _render_editable_record
+        from alfa_document_intelligence.review_ledger import _event_hash
+        from test_document_contract import SCHEMA_PATH, Draft202012Validator
+
+        self.record["schema_version"] = "0.2.0"
+        snapshot = _catalog(_family()).snapshot_for(FAMILY_ID)
+        self.record["document_family_definitions"] = [snapshot]
+        evidence = copy.deepcopy(self.record["fields"]["merchant_name"]["evidence"])
+        self.record["fields"]["document_family_candidates"] = {
+            "value": None, "status": "uncertain", "evidence": evidence,
+            "alternatives": [{"value": FAMILY_ID, "status": "observed", "evidence": evidence}],
+        }
+        self.assertIn("Ricevuta taxi", _render_editable_record(self.record, document_id="synthetic", has_source=False))
+        result = _apply_document_family_selection(self.record, family=FAMILY_ID, timestamp=T0)
+        event = result["review"]["events"][-1]
+        self.assertEqual(event["document_family_snapshot"], snapshot)
+        self.assertEqual(event["candidate"]["evidence"], evidence)
+        self.assertEqual(reviewed_overlay(result)["reviewed_document_family"], FAMILY_ID)
+        page = _render_editable_record(result, document_id="synthetic", has_source=False)
+        self.assertNotIn('/fields/document_family"', page)
+        self.assertEqual(self.record["document_family"], "invoice")
+        self.assertIsNotNone(verify_review_ledger(result))
+        if Draft202012Validator is not None:
+            schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+            self.assertFalse(list(Draft202012Validator(schema).iter_errors(result)))
+        for mutation in ("missing", "altered"):
+            changed = copy.deepcopy(result)
+            changed_event = changed["review"]["events"][-1]
+            if mutation == "missing":
+                del changed_event["document_family_snapshot"]
+            else:
+                changed_event["document_family_snapshot"]["family"]["label"] = "Diversa"
+            changed_event["event_hash"] = _event_hash({k: v for k, v in changed_event.items() if k != "event_hash"})
+            with self.subTest(mutation=mutation), self.assertRaises(ReviewRejected):
+                verify_review_ledger(changed)
+        with self.assertRaises(ValueError):
+            _apply_document_family_selection(self.record, family="custom_other", timestamp=T0)
 
     def _event(self, record, action, actor, event_id, **kwargs):
         return append_review_event(
@@ -48,6 +106,15 @@ class ReviewLedgerTests(unittest.TestCase):
         self.assertEqual(result["review"]["status"], "completed")
         self.assertEqual(result["review"]["events"][2]["candidate"]["value"], "Hotel Demo S.r.l.")
         self.assertEqual(verify_review_ledger(result), result["review"]["events"][-1]["event_hash"])
+
+    def test_selected_alternative_must_match_an_observed_original(self):
+        result = self._event(self.record, "queued", "synthetic", "alt-1")
+        result = self._event(result, "opened", "synthetic", "alt-2")
+        candidate = copy.deepcopy(self.record["fields"]["merchant_name"])
+        candidate["value"] = "invented"
+        candidate["alternatives"] = []
+        with self.assertRaises(ReviewRejected):
+            self._event(result, "alternative_selected", "synthetic", "alt-3", field_name="merchant_name", reason_code="human_selected_alternative", candidate=candidate)
 
     def test_document_family_review_is_evidence_bound_and_separate_from_fiscal_state(self):
         original = copy.deepcopy(self.record)

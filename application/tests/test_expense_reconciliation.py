@@ -240,6 +240,43 @@ class ExpenseReconciliationTests(unittest.TestCase):
             append_line_review(result, expected_case_revision=result["case_revision"], **{**review, "candidate_sources": bad["candidate_sources"]})
         validate_reconciliation(first, {"statement": _case()[1]["statement"], "receipt-1": _case()[1]["receipt-1"]})
 
+    def test_reconciliation_review_records_actor_utc_and_replays_safely(self):
+        result = self.build()
+        line = result["lines"][0]
+        review = dict(line_id=line["line_id"], expected_line_evidence_sha256=line["evidence_sha256"],
+                      action="rejected", candidate_sources=[], event_id="event-audit",
+                      reviewer_note=None, actor_id="synthetic-user", timestamp="2026-11-15T12:00:00+00:00")
+        first = append_line_review(result, expected_case_revision=result["case_revision"], **review)
+        event = first["review_events"][0]
+        self.assertEqual(event["actor_id"], "synthetic-user")
+        self.assertEqual(event["timestamp"], "2026-11-15T12:00:00+00:00")
+        replay = append_line_review(first, expected_case_revision=result["case_revision"], **{**review, "timestamp": "2026-11-15T12:01:00+00:00"})
+        self.assertEqual(replay, first)
+        with self.assertRaises(ReconciliationError):
+            append_line_review(first, expected_case_revision=result["case_revision"], **{**review, "actor_id": "different-user"})
+        validate_reconciliation(first, _case()[1])
+
+    def test_legacy_review_replay_preserves_original_event(self):
+        from alfa_document_intelligence.expense_reconciliation import _canonical_digest
+        result = self.build()
+        line = result["lines"][0]
+        review = dict(line_id=line["line_id"], expected_line_evidence_sha256=line["evidence_sha256"],
+                      action="rejected", candidate_sources=[], event_id="legacy-event", reviewer_note=None)
+        first = append_line_review(result, expected_case_revision=result["case_revision"], **review)
+        event = first["review_events"][0]
+        del event["actor_id"], event["timestamp"]
+        event["event_sha256"] = _canonical_digest({k: v for k, v in event.items() if k not in {"sequence", "event_sha256"}})
+        replay = append_line_review(first, expected_case_revision=result["case_revision"], actor_id="synthetic-user", **review)
+        self.assertEqual(replay, first)
+
+    def test_reconciliation_rejects_non_utc_timestamp(self):
+        result = self.build()
+        line = result["lines"][0]
+        with self.assertRaises(ReconciliationError):
+            append_line_review(result, expected_case_revision=result["case_revision"], line_id=line["line_id"],
+                expected_line_evidence_sha256=line["evidence_sha256"], action="rejected", candidate_sources=[],
+                event_id="event-bad-time", reviewer_note=None, actor_id="synthetic", timestamp="2026-11-15T12:00:00+01:00")
+
     def test_review_history_remains_valid_but_stale_after_source_revision_changes(self):
         original = self.build()
         line = original["lines"][0]

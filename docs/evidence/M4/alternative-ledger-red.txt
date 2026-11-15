@@ -1,0 +1,15 @@
+test_selected_alternative_must_match_an_observed_original (test_review_ledger.ReviewLedgerTests.test_selected_alternative_must_match_an_observed_original) ... FAIL
+
+======================================================================
+FAIL: test_selected_alternative_must_match_an_observed_original (test_review_ledger.ReviewLedgerTests.test_selected_alternative_must_match_an_observed_original)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    with self.assertRaises(ReviewRejected):
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+AssertionError: ReviewRejected not raised
+
+----------------------------------------------------------------------
+Ran 1 test in 0.002s
+
+FAILED (failures=1)

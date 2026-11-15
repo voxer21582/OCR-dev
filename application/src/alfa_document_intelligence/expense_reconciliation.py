@@ -6,7 +6,7 @@ approve fiscal, reimbursement, accounting, or payment outcomes.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
@@ -14,6 +14,7 @@ import re
 from typing import Any, Mapping
 
 from .contracts import validate_document_record
+from .review_identity import local_review_actor
 
 
 class ReconciliationError(ValueError):
@@ -121,10 +122,26 @@ def _validate_review_event(event: Any, expected_sequence: int | None = None) -> 
         raise ReconciliationError("reviewer note is invalid")
     if action == "excluded_with_reason" and not (isinstance(note, str) and note.strip()):
         raise ReconciliationError("exclusion requires a reviewer reason")
+    actor, stamp = event.get("actor_id"), event.get("timestamp")
+    if ("actor_id" in event) != ("timestamp" in event):
+        raise ReconciliationError("review identity and timestamp must be paired")
+    if "actor_id" in event:
+        _validate_review_identity(actor, stamp)
     digest = event.get("event_sha256")
     body = {key: value for key, value in event.items() if key not in {"sequence", "event_sha256"}}
     if not isinstance(digest, str) or _canonical_digest(body) != digest:
         raise ReconciliationError("review event digest is invalid")
+
+
+def _validate_review_identity(actor: Any, timestamp: Any) -> None:
+    if not isinstance(actor, str) or not actor.strip() or len(actor) > 256:
+        raise ReconciliationError("review actor is invalid")
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+    except (ValueError, TypeError):
+        raise ReconciliationError("review timestamp is invalid") from None
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        raise ReconciliationError("review timestamp must be UTC")
 
 
 def _valid_id(value: Any, label: str) -> str:
@@ -705,6 +722,8 @@ def append_line_review(
     candidate_sources: list[dict],
     event_id: str,
     reviewer_note: str | None,
+    actor_id: str | None = None,
+    timestamp: str | None = None,
 ) -> dict:
     """Append a source- and revision-bound human review event, idempotently."""
     result = deepcopy(reconciliation)
@@ -745,7 +764,6 @@ def append_line_review(
         "candidate_sources": normalized_sources,
         "reviewer_note": reviewer_note,
     }
-    digest = _canonical_digest(body)
     events = result.setdefault("review_events", [])
     bindings = result.get("attachments", [])
     current_lines = result.get("lines", [])
@@ -779,9 +797,18 @@ def append_line_review(
             raise ReconciliationError("current line review projection does not match append-only events")
     prior = next((event for event in events if event.get("event_id") == event_id), None)
     if prior is not None:
-        if prior.get("event_sha256") != digest:
+        prior_body = {key: prior.get(key) for key in body}
+        if prior_body != body or (actor_id is not None and "actor_id" in prior and prior["actor_id"] != actor_id):
             raise ReconciliationError("conflicting review event replay")
         return result
+    try:
+        actor_id = actor_id if actor_id is not None else local_review_actor()
+    except OSError as exc:
+        raise ReconciliationError("review actor unavailable") from exc
+    timestamp = timestamp if timestamp is not None else datetime.now(timezone.utc).isoformat()
+    _validate_review_identity(actor_id, timestamp)
+    body.update(actor_id=actor_id, timestamp=timestamp)
+    digest = _canonical_digest(body)
     event = {**body, "sequence": len(events) + 1, "event_sha256": digest}
     _validate_review_event(event, len(events) + 1)
     events.append(event)

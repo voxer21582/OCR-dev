@@ -1,6 +1,88 @@
-STATO: MILESTONE COMPLETATA — M3
+STATO: M4 IN CORSO
 
 # Stato del lavoro
+
+Proposta locale separata preparata dalla base `origin/main`: i file applicativi e le evidenze riproducono il risultato revisionato senza includere la cronologia precedente del ramo M4. La suite sintetica nel nuovo worktree passa con 835 test e 365 sottocasi ([output](evidence/M4/proposal-windows-suite.txt)); il controllo privacy non ha trovato il percorso del profilo nel contenuto preparato. Restano pubblicazione della proposta, CI Ubuntu/Windows e approvazione esplicita del proprietario sulla PR che tocca R8 ([dettagli](evidence/M4/proposal-review.md)).
+
+Il proprietario ha ascoltato la prova aggiornata con Assistente vocale e riferisce comprensibili famiglia, stato fiscale, coordinate, errore e conflitto con collegamento; percorso e limiti nella [checklist](evidence/M4/accessibility-checklist.md).
+
+Il riesame indipendente conferma le prove del percorso vocale nei limiti dichiarati. La chiusura resta subordinata ai gate del piano: CI Ubuntu e Windows sul risultato finale e approvazione esplicita del proprietario sulla PR che tocca R8. Prima di pubblicare serve evitare l'esposizione di un percorso personale presente nella storia locale del ramo ([audit](evidence/M4/review.md)).
+
+# Prova browser del recupero conflitto sulla versione `3ff4e28`: due schede sintetiche, rifiuto del modulo obsoleto e ritorno alla revisione aggiornata con Tab e Invio ([evidenza](evidence/M4/conflict-recovery-review.md)). Il riscontro dell'Assistente vocale sui controlli recenti resta necessario.
+
+# Conflitti di revisione: i cinque percorsi che rifiutano un modulo obsoleto mostrano una pagina con titolo, lingua e collegamento diretto alla revisione aggiornata; la modifica non salvata è esplicitata. Revisione indipendente senza difetti concreti ([evidenza](evidence/M4/conflict-recovery-review.md)); suite completa 835 test e 365 sottocasi passati ([output](evidence/M4/conflict-recovery-suite.txt)). Il riscontro con Assistente vocale rimane in attesa.
+
+# Correzioni accessibilità sul percorso custom: pagina di errore con lingua, titolo e nome del campo; campo revisionato con etichetta leggibile; rimosso modulo generico duplicato della famiglia. Revisione indipendente e prove in [evidenza](evidence/M4/accessibility-errors-review.md); suite completa 835 test e 360 sottocasi passati ([output](evidence/M4/accessibility-errors-suite.txt)). Rimane il riscontro vocale sulla versione corrente.
+
+# Audit finale M4 in corso: revisione indipendente completata e rapporto per requisito in [review.md](evidence/M4/review.md). Sulla versione attuale sono stati provati nel browser famiglia e campo personalizzato, errore di formato e classificazione fiscale; resta da completare il riscontro dell'Assistente vocale sui controlli recenti. Nessuna dichiarazione di completamento finché la verifica non è conclusa.
+
+#94: selezione della famiglia personalizzata supportata da proposta OCR, con snapshot validato e incluso nell'hash dell'evento; revisione indipendente senza difetti nel perimetro ([evidenza](evidence/M4/custom-family-review.md)). Suite sintetica completa: 835 test e 360 sottocasi passati ([output](evidence/M4/custom-family-review-suite.txt)). Resta l'audit indipendente finale dei criteri M4.
+
+## Cronologia M4
+
+Le annotazioni successive registrano lo stato al momento di ciascun passaggio; indicazioni di blocchi, attività aperte o modifiche non committate possono essere state superate dalle voci più recenti sopra.
+
+#69 e #71: aggiunti campi standard mancanti e campi personalizzati dichiarati negli snapshot; anteprima prodotta per la pagina richiesta, controlli di tipo e recupero del modulo in caso di errore. Revisione indipendente e prova browser sintetica documentate in [evidenza](evidence/M4/missing-fields-review.md). Suite completa: 833 test e 358 sottocasi passati ([output](evidence/M4/missing-fields-suite.txt)); test mirati aggiornati 61 e 19 sottocasi ([output](evidence/M4/missing-fields-green.txt)). Resta aperta la selezione della famiglia personalizzata #94 e l'audit finale della milestone.
+
+#71 parziale: il registro valida i candidati personalizzati usando versione e snapshot del documento; test mirati 47 passati e 19 sottocasi, revisione indipendente senza difetti nel perimetro ([evidenza](evidence/M4/custom-review-validation-review.md)). Suite sintetica completa: 832 test e 358 sottocasi passati ([output](evidence/M4/custom-review-validation-suite.txt)). Restano le funzioni aperte nell'audit, tra cui aggiunta dei campi mancanti e selezione di famiglie personalizzate.
+
+#96: selezione di alternative originali osservate con evento e prove; revisione indipendente e limite legacy in [evidenza](evidence/M4/alternative-review.md). Suite Windows completa: 831 test e 358 sottocasi passati ([output](evidence/M4/alternative-final-suite.txt)). Altre voci dell’audit M4 restano aperte.
+
+#103 verificata: avviso e conferma per revisione bloccata, bozza vincolata al contesto e gestione di concorrenza; revisione indipendente nel perimetro senza ulteriori difetti ([evidenza](evidence/M4/blocked-handoff-review.md)). Suite Windows finale: 827 test e 354 sottocasi passati ([output](evidence/M4/blocked-final-suite.txt)). Le altre voci dell’audit M4 restano aperte.
+
+#103 ancora in corso: corretti i casi di bozza obsoleta, hash non ASCII e GET concorrente; 18 test e 5 sottocasi passati ([evidenza](evidence/M4/blocked-handoff-race-green.txt)). Il revisore ha segnalato che il calcolo del fingerprint sotto lock può ritardare annullamento: rifattorizzare con snapshot e controlli brevi, testare e far riesaminare prima del commit. Modifiche non committate.
+
+In corso #103: avviso e conferma per revisione bloccata con fingerprint del contesto; la bozza richiede fingerprint corrente. Test sintetici mirati: 16 passati e 5 sottocasi ([evidenza](evidence/M4/blocked-handoff-green.txt)). Revisione indipendente ha individuato una corsa tra `/chatgpt/return` e `/clear`: da riprodurre e correggere prima di commit e suite completa. Modifiche non committate.
+
+Controllo #95 verificato: moduli obsoleti ricevono 409; corse tra revisione, anteprima, archivio e sessione affrontate con test sintetici. Revisione indipendente senza ulteriori difetti nel perimetro ([evidenza](evidence/M4/review-conflict-review.md)); suite Windows completa 823 test e 354 sottocasi passati ([output](evidence/M4/review-final-suite-v4.txt)). Le altre voci dell’audit M4 restano aperte.
+
+Controllo concorrente #95: dopo le correzioni successive, suite Windows con loopback autorizzato 823 passati e 354 sottocasi sul codice prima dell’ultima correzione snapshot ([evidenza](evidence/M4/review-final-suite-v3.txt)); ultima correzione snapshot preview verificata con 36 test e 4 sottocasi ([evidenza](evidence/M4/review-preview-snapshot-green.txt)). Riesame indipendente e suite completa sull’ultimo codice ancora necessari; modifiche non committate.
+
+Revisione #95 ancora in corso: corretta la riapertura di archivio che poteva scartare revisioni non salvate ([test](evidence/M4/review-archive-aba-green.txt)). Il revisore ha individuato due problemi ancora aperti: body POST di revisione lento può bloccare annullamento; anteprima completata dopo rimozione del documento nella stessa sessione può restituire dati non più disponibili. Correggere con test prima di commit e suite completa; modifiche non committate.
+
+Revisione concorrente #95: il riesame ha individuato il blocco su upload/anteprima lenti e la pubblicazione dopo chiusura della sessione; aggiunti test e correzioni, rispettivamente 9 test ([anteprima](evidence/M4/review-preview-green.txt)) e 37 test ([processor](evidence/M4/review-processor-green.txt)) passati. Restano da correggere e verificare le corse nei percorsi archivio open/delete, quindi rieseguire la suite e la revisione indipendente. Modifiche non committate.
+
+Il proprietario ha richiesto di riprendere: eseguiti i test loopback fuori dalla sandbox, 8 passati ([evidenza](evidence/M4/loopback-authorized.txt)); suite completa prima del fix della corsa: 812 test e 354 sottocasi passati ([evidenza](evidence/M4/review-conflict-suite-authorized.txt)). Revisione indipendente ha individuato una corsa GET/POST; aggiunti test e lock, 32 test mirati e 4 sottocasi passati ([evidenza](evidence/M4/review-race-green.txt)). Riesame e suite finale in corso.
+
+Suite M4 bloccata da permessi loopback: esecuzione completa Windows con 808 passati, 354 sottocasi passati e 4 fallimenti, inclusi errori socket `WinError 10013` e un test applicativo che richiede aggiornamento al token ([evidenza](evidence/M4/review-conflict-suite.txt)). Nessun nuovo tentativo per aggirare il problema esterno (GOAL V6). Serve una nuova osservazione discriminante o un ambiente dove la connessione loopback sia autorizzata. Il passo #95 è non committato e non è pronto; test mirati 38 passati e 4 sottocasi ([evidenza](evidence/M4/review-conflict-green.txt)).
+
+In corso #95: aggiunto token della testa del registro nei moduli e rifiuto 409 per una revisione obsoleta; il nuovo test mirato passa ([evidenza](evidence/M4/review-conflict-green.txt)). Verifica regressioni incompleta: cinque test precedenti inviano moduli privi del nuovo token e falliscono; aggiornarli e verificare anche la concorrenza atomica prima di considerare completo il passo. Modifiche di codice e test non committate.
+
+Revisore indipendente nuovamente disponibile: revisione del commit `0d20b89` conclusa senza difetti nel perimetro, 33 test e 4 sottocasi passati ([evidenza](evidence/M4/family-provenance-review.md)). Restano le funzioni dell’audit PR e la verifica finale della milestone.
+
+Revisione indipendente finale bloccata: il revisore assegnato ha segnalato il raggiungimento del limite di utilizzo ed è terminato prima di completare la verifica della cronologia corretta. Non è stato ritentato o sostituito per aggirare il limite (GOAL V6). Serve disponibilità ripristinata del revisore o altra nuova osservazione che consenta una revisione indipendente autorizzata. Restano anche le funzioni elencate nell’audit PR M4; milestone non completata.
+
+Corretto il rilievo sulla provenienza: la famiglia iniziale mostra prove non disponibili, senza attribuire automaticamente quelle di una proposta corrispondente. Test mirati: 33 passati e 4 sottocasi ([evidenza](evidence/M4/family-provenance-green.txt)).
+
+Revisione indipendente della cronologia: individuata e corretta la famiglia iniziale mostrata come `None`; aggiunta regressione su due cambi e prove, 33 test e 4 sottocasi passati ([evidenza](evidence/M4/family-history-green.txt)).
+
+Implementata la presentazione della cronologia di correzioni e decisioni fiscali con autore, momento, valori e prove precedenti/nuove; 33 test e 4 sottocasi passati ([evidenza](evidence/M4/review-history-green.txt)); revisione indipendente in corso.
+
+Audit indipendente dei ref locali delle nove PR assegnate a M4: #75 coperta; altre funzioni risultano mancanti o parziali. Dettagli in [audit PR](evidence/M4/pr-scope-audit.md). La milestone resta in corso.
+
+Il proprietario ha reso disponibile il desktop. Cattura ripresa con una pagina locale sintetica: tre schermate salvate e ispezionate da revisore indipendente; lista di ammissione immagini vincolata a percorso e hash (DEC-028). Eseguita la conclusione con tastiera, ripetuto il gesto mouse sulla versione corretta e documentati focus e contrasto nella [checklist](evidence/M4/accessibility-checklist.md). In corso verifica completa e audit finale; non è ancora dichiarata la chiusura.
+
+M4 bloccata sulla cattura: durante la selezione dello screenshot la finestra in primo piano è cambiata e l’osservazione successiva ha mostrato contenuti estranei alla prova. Nessuna immagine è stata salvata. Per GOAL V6 non si ripete il tentativo senza una nuova osservazione discriminante. Se la selezione di cattura è ancora visibile, il proprietario può annullarla con Esc e comunicare quando il desktop è disponibile per una prova isolata.
+
+Dopo le due correzioni della revisione indipendente la suite Windows completa riporta 806 test e 354 sottocasi passati ([evidenza](evidence/M4/windows-suite-current.txt)); la revisione dei due fix non ha rilevato regressioni. Restano screenshot sintetici, checklist completa e audit finale.
+
+Il proprietario ha chiuso Strumento di cattura; l’inventario ha confermato la chiusura. Corrette le due regressioni segnalate dalla revisione indipendente: alternative originali visibili anche dopo correzione e successive correzioni di un campo manuale con riuso della regione. Test mirati: 31 passati e 4 sottocasi ([evidenza](evidence/M4/review-regressions-green.txt)).
+
+Revisione indipendente: corretta la seconda modifica di un campo inizialmente assente; la regione verificata viene riutilizzata.
+
+Revisione indipendente aggiuntiva: le alternative OCR sono ora mostrate dopo una correzione manuale; regressione verificata.
+
+M4 temporaneamente bloccata: durante la predisposizione degli screenshot, l’azione per chiudere la finestra «Strumento di cattura» ha restituito «coordinate input geometry is unavailable». Per GOAL V6 non è stata ripetuta né aggirata. Serve una nuova osservazione discriminante, ad esempio la chiusura manuale della finestra da parte del proprietario. Non è stato salvato alcuno screenshot in questo tentativo.
+
+Suite Windows dopo l’export CSV della riconciliazione: 804 test e 354 sottocasi passati ([evidenza](evidence/M4/windows-suite-after-csv.txt)). La lettura vocale del percorso da tastiera è stata confermata dal proprietario e la selezione con mouse è stata provata ([evidenza](evidence/M4/browser-walkthrough.md)). Restano screenshot, checklist completa di contrasto/accessibilità, revisione indipendente finale e bonifica della cronologia Git locale prima della pubblicazione.
+
+M4 ripresa: il proprietario ha aperto Assistente vocale e l’inventario conferma che è in esecuzione. È stato percorso un ciclo sintetico da tastiera nel browser con Assistente vocale attivo; il proprietario ha confermato la lettura comprensibile dei controlli e del messaggio della regione durante il percorso sintetico. Nessuna impostazione Windows modificata. Dettagli precedenti: [prova browser](evidence/M4/browser-walkthrough.md).
+
+Suite Windows con dipendenze approvate e hash-locked installate nella cartella del progetto: 802 test e 354 sottocasi passati ([evidenza](evidence/M4/windows-suite-green.txt)). Una regressione iniziale nella descrizione delle regioni umane è stata corretta ([test mirati](evidence/M4/human-region-green.txt)); il percorso di correzione sintetica da tastiera è stato eseguito nel browser. La prova del mouse nel browser è stata eseguita e il proprietario ha confermato la lettura vocale del percorso da tastiera ([evidenza](evidence/M4/browser-walkthrough.md)). Mancano screenshot, checklist completa di contrasto/accessibilità, audit dei requisiti e revisione indipendente finale. Non pubblicare il ramo: una versione precedente di un’evidenza contiene un percorso locale nella cronologia Git.
+
+Il primo tentativo di commit M4 era fallito per identità Git assente. Su richiesta del proprietario, è stata impostata solo per questo repository l’identità già usata nei commit recenti; il lavoro può riprendere.
+
+M4: progetto approvato dal proprietario; piano in `docs/superpowers/plans/2026-11-15-m4-revisione.md`. Identità locale negli eventi di revisione documento e cronologia CSV implementate; 29 test sintetici passati ([evidenza](evidence/M4/review-export-green.txt)). Anche gli eventi di riconciliazione registrano ora utente locale e UTC, con conservazione dei vecchi eventi e ripetizione idempotente; 77 test sintetici e controllo privacy passati ([evidenza](evidence/M4/reconciliation-green.txt)). I contratti sintetici esistenti di selezione con mouse e tastiera e presentazione degli stati passano (8 test; [evidenza](evidence/M4/review-ui-contracts.txt)). La cronologia delle revisioni della riconciliazione è ora esportabile anche in CSV, con autore, UTC e prove; test sintetici mirati: 77 passati ([evidenza](evidence/M4/case-csv-green.txt)). Restano percorso completo documentato con screenshot, checklist di contrasto/accessibilità e revisione indipendente. Revisione indipendente iniziale: individuati e corretti valore etichettato come verificato, alternative e coordinate mancanti, errori di identità non gestiti e validazione/compatibilità CSV; nuovo formato v3 (DEC-027). Verifica mirata: 89 test, incluso l’export di archivio e il controllo privacy ([evidenza](evidence/M4/review-fixes-green.txt)). La revisione finale resta aperta. Il ramo contiene un percorso locale nella cronologia di un commit non pubblicato: bonificare prima di qualsiasi pubblicazione.
 
 Aggiornato: 2026-11-15.
 

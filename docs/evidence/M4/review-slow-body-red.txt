@@ -1,0 +1,17 @@
+test_slow_review_body_does_not_block_clear (test_review_identity.ReviewIdentityTests.test_slow_review_body_does_not_block_clear) ... ERROR
+
+======================================================================
+ERROR: test_slow_review_body_does_not_block_clear (test_review_identity.ReviewIdentityTests.test_slow_review_body_does_not_block_clear)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    self.assertEqual(clear.result(timeout=1)[0], "200 OK")
+                     ~~~~~~~~~~~~^^^^^^^^^^^
+[percorso locale omesso]
+    raise TimeoutError()
+TimeoutError
+
+----------------------------------------------------------------------
+Ran 1 test in 3.019s
+
+FAILED (errors=1)

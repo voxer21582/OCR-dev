@@ -1,0 +1,18 @@
+test_csv_has_goal_status_and_reason_columns (test_field_status_presentation.FieldStatusPresentationTests.test_csv_has_goal_status_and_reason_columns) ... ok
+test_review_page_shows_state_label_and_reason (test_field_status_presentation.FieldStatusPresentationTests.test_review_page_shows_state_label_and_reason) ... ok
+test_review_shows_alternatives_regions_and_neutral_value_label (test_field_status_presentation.FieldStatusPresentationTests.test_review_shows_alternatives_regions_and_neutral_value_label) ... ok
+test_local_account_can_be_resolved (test_review_identity.ReviewIdentityTests.test_local_account_can_be_resolved) ... ok
+test_new_events_use_server_identity (test_review_identity.ReviewIdentityTests.test_new_events_use_server_identity) ... ok
+test_review_page_handles_unavailable_identity_without_recording_events (test_review_identity.ReviewIdentityTests.test_review_page_handles_unavailable_identity_without_recording_events) ... ok
+test_unavailable_identity_cannot_create_events (test_review_identity.ReviewIdentityTests.test_unavailable_identity_cannot_create_events) ... ok
+test_changing_page_clears_old_region_and_announces_new_page (test_region_review_keyboard.RegionReviewKeyboardTests.test_changing_page_clears_old_region_and_announces_new_page) ... ok
+test_geometry_contract_rejects_inverted_coordinates (test_region_review_keyboard.RegionReviewKeyboardTests.test_geometry_contract_rejects_inverted_coordinates) ... ok
+test_inverted_coordinates_are_rejected_instead_of_misleading_preview (test_region_review_keyboard.RegionReviewKeyboardTests.test_inverted_coordinates_are_rejected_instead_of_misleading_preview) ... ok
+test_keyboard_coordinates_update_overlay_and_live_status (test_region_review_keyboard.RegionReviewKeyboardTests.test_keyboard_coordinates_update_overlay_and_live_status) ... ok
+test_partial_or_out_of_range_coordinates_clear_the_preview (test_region_review_keyboard.RegionReviewKeyboardTests.test_partial_or_out_of_range_coordinates_clear_the_preview) ... ok
+test_pointer_selection_still_updates_coordinates_and_status (test_region_review_keyboard.RegionReviewKeyboardTests.test_pointer_selection_still_updates_coordinates_and_status) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.486s
+
+OK

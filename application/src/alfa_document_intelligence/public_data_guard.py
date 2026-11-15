@@ -6,6 +6,7 @@ It scans only the explicitly allowlisted public benchmark inputs.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -105,6 +106,13 @@ def scan_public_benchmark(root: str | Path) -> int:
 
 
 _EVIDENCE_SUFFIXES = {".md", ".json", ".txt", ".csv"}
+# Individually reviewed synthetic captures. A change requires a new review and hash.
+# The guard cannot inspect pixels and does not establish that an image is synthetic.
+_EVIDENCE_IMAGE_HASHES = {
+    "M4/browser-alternatives.jpg": "4853149cf989f146423cad4ab6caa8851d29692a008e1a9b29787a8e73cf4fbf",
+    "M4/browser-completed.jpg": "56cc37fa443c408e822db15704a4ae36999a1f9449a53e135ff00c578a6e5609",
+    "M4/browser-screen.jpg": "2925d0366d7f375a0596a12cf01954b099d230b209bc266683a28bc4ee3ad183",
+}
 _EVIDENCE_PATTERNS = {
     # The phone pattern is omitted here: CI run ids and timings in evidence
     # files are long digit runs that would match it.
@@ -128,7 +136,23 @@ def scan_evidence_folder(root: str | Path) -> int:
         if path.is_dir():
             continue
         relative = path.relative_to(directory).as_posix()
-        if path.is_symlink() or path.suffix.casefold() not in _EVIDENCE_SUFFIXES:
+        if path.is_symlink():
+            issues.append(f"{relative}: not an allowed evidence file")
+            continue
+        if path.suffix.casefold() == ".jpg":
+            expected = _EVIDENCE_IMAGE_HASHES.get(relative)
+            try:
+                if not expected or path.stat().st_size > _MAX_FILE_BYTES:
+                    raise ValueError("image not approved")
+                data = path.read_bytes()
+                if not data.startswith(b"\xff\xd8\xff") or hashlib.sha256(data).hexdigest() != expected:
+                    raise ValueError("image hash mismatch")
+            except (OSError, ValueError):
+                issues.append(f"{relative}: screenshot is not an approved exact image")
+                continue
+            checked += 1
+            continue
+        if path.suffix.casefold() not in _EVIDENCE_SUFFIXES:
             issues.append(f"{relative}: not an allowed evidence file")
             continue
         try:

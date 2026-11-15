@@ -1,0 +1,18 @@
+test_preview_rejects_document_removed_during_decode (test_local_document_archive_ui.LocalDocumentArchiveUiTests.test_preview_rejects_document_removed_during_decode) ... FAIL
+
+======================================================================
+FAIL: test_preview_rejects_document_removed_during_decode (test_local_document_archive_ui.LocalDocumentArchiveUiTests.test_preview_rejects_document_removed_during_decode)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    self.assertEqual(request.result(timeout=3)[0], "409 Conflict")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '200 OK' != '409 Conflict'
+- 200 OK
++ 409 Conflict
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.105s
+
+FAILED (failures=1)
