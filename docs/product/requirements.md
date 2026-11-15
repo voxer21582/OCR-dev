@@ -1,5 +1,7 @@
 # OCR2 Document Intelligence — product requirements baseline
 
+> **Nota (2026-11-15):** dalla Fase 0 di `GOAL.md` i requisiti vigenti sono in [`docs/requirements.md`](../requirements.md) (REQ-xxx, con il vecchio ID di questo file) e le milestone in [`docs/plan.md`](../plan.md). Questo file resta come storico della baseline.
+
 Status: **draft for owner review**. This document defines what the complete Windows product must do and records, for every requirement, what is actually verified today. It does not claim that any requirement is accepted; acceptance needs the evidence gates in section 12.
 
 ## 1. Purpose, scope and how to read this document

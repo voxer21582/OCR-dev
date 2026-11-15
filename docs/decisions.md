@@ -1,0 +1,26 @@
+# Decisioni
+
+Le decisioni del proprietario sono marcate **(P)**; le altre sono scelte reversibili del costruttore (GOAL §3). Il ragionamento completo è in [`superpowers/specs/2026-11-15-ocr2-product-completion-design.md`](superpowers/specs/2026-11-15-ocr2-product-completion-design.md). Le decisioni D1–D4 precedenti restano valide come registrate in `docs/product/requirements.md` §13.
+
+| ID | Data | Decisione | Alternative | Come tornare indietro |
+|---|---|---|---|---|
+| DEC-001 (P) | 2026-11-15 | Il proprietario è responsabile di R7 (archivio e ripristino) e R8 (esportazione). Ogni PR che li tocca lo dichiara e richiede la sua approvazione esplicita prima del merge. Stop/no-retry resta valido. | Responsabile esterno; R7/R8 congelati | Nuova decisione del proprietario |
+| DEC-002 (P) | 2026-11-15 | Approvati i gruppi 1–3 di `dependencies-approved.md`. | Solo CI; nessuno | Rimuovere voci dal file |
+| DEC-003 | 2026-11-15 | Multi-motore dimostrato con un registro a manifest e un motore di prova nei test; un secondo motore vero è una richiesta separata. | Integrare subito un secondo motore vero | Aggiungere un manifest |
+| DEC-004 (P) | 2026-11-15 | Finestra: Microsoft Edge in modalità app, con comando «Esci» e spegnimento automatico del server. | pywebview; scheda del browser | Cambiare solo il launcher |
+| DEC-005 (P) | 2026-11-15 | L'ultima milestone (M8) è una prova su 30–50 documenti veri, eseguita dal costruttore sul PC del proprietario con le regole di privacy del design §5.3. | Solo dati sintetici | Nuova decisione del proprietario |
+| DEC-006 | 2026-11-15 | Se M8 non raggiunge le soglie: correzione e **una** ripetizione su un campione nuovo; abbassare le soglie richiede la firma del proprietario; dopo, decide il proprietario. | Ripetizioni illimitate | Cambiare il numero di tentativi |
+| DEC-007 (P) | 2026-11-15 | Prove di installazione, aggiornamento e disinstallazione su un altro PC del proprietario. | Secondo account; macchina virtuale | — |
+| DEC-008 (P) | 2026-11-15 | Revisione di sicurezza: revisore automatico indipendente più firma del proprietario; il limite è dichiarato nell'evidenza. | Esperto umano esterno | Aggiungere una revisione umana |
+| DEC-009 (P) | 2026-11-15 | Nessun dato da conservare nell'archivio esistente; migrazioni collaudate solo con dati sintetici. | Backup e conversione dei dati esistenti | — |
+| DEC-010 | 2026-11-15 | L'installer porta il proprio Python 3.13 embeddable (richiesta R-001) e usa NSIS (R-002). | Python del PC; PyInstaller | Cambiare il pacchetto del runtime |
+| DEC-011 | 2026-11-15 | CI: job aggiuntivo su runner Windows di GitHub per archivio DPAPI, launcher e test Windows; Ubuntu resta il controllo obbligatorio esistente. | Solo Ubuntu con simulazioni | Togliere il job |
+| DEC-012 | 2026-11-15 | Requisiti rinumerati REQ-xxx in `docs/requirements.md` con il vecchio ID; `docs/product/requirements.md` resta come storico. | Vecchi ID | Ripristinare il vecchio file |
+| DEC-013 | 2026-11-15 | Stati dei campi: i sei stati interni restano; una tabella li riconduce ai quattro di GOAL (REQ-060). | Ridurre a quattro stati interni | Cambiare la tabella |
+| DEC-014 | 2026-11-15 | Organizzazione dell'archivio con rinomina ed etichette, non cartelle. | Cartelle | Aggiungere cartelle sopra le etichette |
+| DEC-015 | 2026-11-15 | Il «chi» degli eventi di revisione è il nome dell'utente Windows; utente singolo. | Account interni | Nuovo requisito |
+| DEC-016 | 2026-11-15 | Aggiornamento: nuovo installer sopra il vecchio, offline, con ritorno alla versione precedente; i dati restano. | Aggiornamento da internet (escluso da A5) | — |
+| DEC-017 | 2026-11-15 | Interfaccia in italiano; inglese più avanti (SHOULD). | Bilingue subito | Aggiungere il catalogo inglese |
+| DEC-018 | 2026-11-15 | Milestone rinumerate M1–M8 in `docs/plan.md`; le vecchie M1/M2 sono la base di partenza. | Tenere M0–M6 | Rinumerare |
+| DEC-019 | 2026-11-15 | Le PR aperte si passano in rassegna; nessuna si chiude o si unisce senza il sì del proprietario. | Lasciarle aperte | — |
+| DEC-020 | 2026-11-15 | Fixture del benchmark generate con Pillow (già approvato) usando il suo carattere predefinito; l'impronta attesa vale per la versione di Pillow del lock. | Fixture esterne | Rigenerare con un altro carattere |
