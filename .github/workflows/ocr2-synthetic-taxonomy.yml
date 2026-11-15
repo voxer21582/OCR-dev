@@ -85,6 +85,8 @@ jobs:
           test_catalog_pipeline.RequiredCustomFieldValidationTests
           test_catalog_pipeline.CatalogDocumentProcessingTests
           test_region_review_keyboard
+          test_expense_line_extraction
+          test_expense_reconciliation
 
       - name: Install the locked decoder runtime for the pytest modules
         run: >-
