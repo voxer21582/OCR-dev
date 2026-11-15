@@ -39,9 +39,26 @@ class _FakeManager:
         self.closed = True
 
 
+class _FakeCaseProcessingManager:
+    instances = []
+
+    def __init__(self, store, worker, limits, decode_limits, **kwargs):
+        self.store = store
+        self.worker = worker
+        self.limits = limits
+        self.decode_limits = decode_limits
+        self.kwargs = kwargs
+        self.closed = False
+        self.__class__.instances.append(self)
+
+    def close(self):
+        self.closed = True
+
+
 class OCRLauncherContractTests(unittest.TestCase):
     def setUp(self):
         _FakeManager.instances.clear()
+        _FakeCaseProcessingManager.instances.clear()
         self.server = _FakeServer()
         self.calls = []
 
@@ -49,7 +66,11 @@ class OCRLauncherContractTests(unittest.TestCase):
         def create_server(**kwargs):
             self.calls.append(kwargs)
             manager = kwargs.get("ocr_processing_manager")
-            self.server.ocr2_close = manager.close if manager is not None else lambda: None
+            case_manager = kwargs.get("expense_case_processing_manager")
+            self.server.ocr2_close = lambda: (
+                case_manager.close() if case_manager is not None else None,
+                manager.close() if manager is not None else None,
+            )
             return self.server
 
         with tempfile.TemporaryDirectory() as local_app_data:
@@ -59,7 +80,8 @@ class OCRLauncherContractTests(unittest.TestCase):
                         with patch.object(launcher, "check_rapidocr_runtime",
                                           return_value=report or _Report()) as check:
                             self.check = check
-                            launcher.main(args)
+                            with patch.object(launcher, "ExpenseCaseProcessingManager", _FakeCaseProcessingManager):
+                                launcher.main(args)
 
     def test_launcher_default_keeps_ocr_disabled(self):
         with patch("builtins.print") as output:
@@ -67,6 +89,7 @@ class OCRLauncherContractTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.assertIsNone(self.calls[0]["ocr_processing_manager"])
         self.assertEqual(_FakeManager.instances, [])
+        self.assertEqual(_FakeCaseProcessingManager.instances, [])
         output_text = " ".join(str(args) for args, _ in output.call_args_list)
         self.assertIn("OCR resta disattivato", output_text)
 
@@ -82,6 +105,12 @@ class OCRLauncherContractTests(unittest.TestCase):
         self.assertEqual(manager.limits.max_result_frame_bytes, 16 * 1024 * 1024)
         self.assertEqual(manager.limits.max_aggregate_result_bytes, 64 * 1024 * 1024)
         self.assertIs(self.calls[0]["ocr_processing_manager"], manager)
+        case_manager = _FakeCaseProcessingManager.instances[0]
+        self.assertIs(self.calls[0]["expense_case_processing_manager"], case_manager)
+        self.assertIs(case_manager.store, self.calls[0]["archive_store"])
+        self.assertIs(case_manager.worker, manager)
+        self.assertFalse(case_manager.kwargs["close_worker_on_close"])
+        self.assertTrue(case_manager.closed)
         self.assertTrue(manager.closed)
 
     def test_default_launch_does_not_check_the_ocr_runtime(self):
