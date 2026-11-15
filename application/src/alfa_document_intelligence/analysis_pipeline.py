@@ -13,6 +13,7 @@ from typing import Any, Iterable
 from .document_family_catalog import DocumentFamilyCatalog, catalog_from_snapshots
 from .contracts import validate_document_record
 from .document_validation import DocumentValidationError, validate_document_consistency
+from .expense_line_extraction import ExpenseLineProposalLimitError, extract_expense_lines
 from .ocr_adapter import OCRPageResult
 from .semantic_proposals import SemanticProposalError, SemanticProposalLimitError, propose_common_fields
 
@@ -63,6 +64,8 @@ def analyze_ocr_results(
         raise AnalysisPipelineError("at least one OCR page is required")
     if any(not isinstance(page, OCRPageResult) for page in materialized_pages):
         raise AnalysisPipelineError("pages must contain OCRPageResult values")
+    if any(page.status != "complete" for page in materialized_pages):
+        raise AnalysisPipelineError("every OCR page must be complete before semantic analysis")
     source_hash = document["source"]["sha256"]
     if any(page.source_sha256 != source_hash for page in materialized_pages):
         raise AnalysisPipelineError("OCR page source hash must match the document")
@@ -93,17 +96,39 @@ def analyze_ocr_results(
                     raise AnalysisPipelineError(
                         "custom document-family identifier was reused for a changed definition"
                     )
-        proposals = propose_common_fields(
-            materialized_pages,
-            document_family=document["document_family"],
-            custom_family_catalog=active_catalog,
+        omitted_field_limit_code = None
+        try:
+            proposals = propose_common_fields(
+                materialized_pages,
+                document_family=document["document_family"],
+                custom_family_catalog=active_catalog,
+            )
+        except SemanticProposalLimitError as exc:
+            # A long expense statement carries its evidence in per-line proposals.
+            # Overflowing a common-field review list must not discard them, and no
+            # partial common fields are kept; the omission is recorded below.
+            if (
+                document.get("document_family") != "expense_report"
+                or exc.code != "semantic_proposal_field_limit"
+            ):
+                raise
+            proposals = {}
+            omitted_field_limit_code = exc.code
+        expense_lines = (
+            extract_expense_lines(materialized_pages)
+            if document.get("document_family") == "expense_report" else None
         )
     except SemanticProposalLimitError as exc:
+        raise AnalysisProposalLimitError(exc.code) from exc
+    except ExpenseLineProposalLimitError as exc:
         raise AnalysisProposalLimitError(exc.code) from exc
     except SemanticProposalError as exc:
         raise AnalysisPipelineError(f"OCR proposal validation failed: {exc}") from exc
 
     result_document = deepcopy(document)
+    result_document["schema_version"] = "0.3.0"
+    if expense_lines is not None:
+        result_document["expense_lines"] = expense_lines
     if active_catalog is not None:
         custom_ids = {
             item.get("value")
@@ -116,7 +141,6 @@ def analyze_ocr_results(
             if any(f"{family.id}_{field['id']}" in proposals for field in family.fields)
         )
         if custom_ids:
-            result_document["schema_version"] = "0.2.0"
             snapshots = {
                 item["family"]["id"]: item
                 for item in result_document.get("document_family_definitions", [])
@@ -138,9 +162,17 @@ def analyze_ocr_results(
         raise AnalysisPipelineError(f"document validation failed: {exc}") from exc
 
     result_document["validation_findings"] = findings
-    result_document["processing"]["semantic_extraction"]["status"] = "completed"
+    if omitted_field_limit_code is None:
+        result_document["processing"]["semantic_extraction"]["status"] = "completed"
+    else:
+        # Common fields were omitted, so the stage stays failed (and reviewers see the
+        # manual-verification warning) while the per-line proposals are retained.
+        result_document["processing"]["semantic_extraction"] = {
+            "status": "failed", "error_code": omitted_field_limit_code,
+        }
     result_document["processing"]["document_validation"]["status"] = "completed"
     final_issues = validate_document_record(result_document)
     if final_issues:
         raise AnalysisPipelineError("analysis output contract failed: " + "; ".join(final_issues))
     return AnalysisResult(result_document, unapplied)
+
