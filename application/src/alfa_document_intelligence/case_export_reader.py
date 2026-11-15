@@ -1,9 +1,15 @@
-"""Read back an exported expense case and refuse altered files (REQ-089).
+"""Read back an exported expense case and refuse inconsistent files (REQ-089).
 
-The export carries enough bindings to detect edits without the archive: each
-line's evidence digest is recomputed from its fields, every review event's own
-digest is checked, and every suggestion, decision, duplicate group and unused
-attachment must refer to an attachment bound in the export.
+Without the archive, the export can be checked for accidental or careless
+edits: each line's evidence digest is recomputed from its fields, every review
+event's own digest is checked, line statuses must match the recorded decisions,
+and every suggestion, decision, duplicate group and unused attachment must
+refer to an attachment bound in the export.
+
+Limit: the digests are not keyed. Someone who edits the file on purpose and
+recomputes them, or edits fields no digest covers (findings, suggestion
+reasons, source hashes), is not detected. Proving the export against the
+originals needs the archive (``validate_reconciliation``).
 """
 from __future__ import annotations
 

@@ -650,14 +650,22 @@ class LocalDocumentStore:
         return manifest
 
     def restore_from(self, backup_dir: str | Path) -> dict:
-        """Replace this archive with a verified backup; the current one is kept as ``.before-restore``.
+        """Replace this archive with a verified backup; the current one is kept beside it.
 
-        Nothing changes unless the backup's hash matches its manifest and the copy
-        opens and passes every integrity check with this user's protection.
+        The previous archive is kept as ``<name>.before-restore-<UTC time>`` (never
+        overwritten). Nothing changes unless the backup's hash matches its manifest
+        and the copy opens and passes every integrity check with this user's
+        protection; if the swap or the checks after it fail, the previous archive
+        is put back. Returns the manifest with ``previous_copy`` added.
         """
         folder = Path(backup_dir)
+        if self.path.with_name(self.path.name + "-journal").exists():
+            raise StoreError("the archive has an unfinished transaction journal; reopen the app before restoring")
         try:
-            manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+            manifest_path = folder / "manifest.json"
+            if manifest_path.stat().st_size > 64 * 1024:
+                raise ValueError("manifest too large")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             data = (folder / "archive.sqlite3").read_bytes()
         except (OSError, ValueError) as exc:
             raise StoreRejected("the backup folder is incomplete or unreadable") from exc
@@ -674,18 +682,27 @@ class LocalDocumentStore:
                 candidate.list_cases(limit=100)
             except StoreError as exc:
                 raise StoreRejected("the backup cannot be opened by this user or failed its integrity checks") from exc
-            previous = self.path.with_name(self.path.name + ".before-restore")
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            previous = self.path.with_name(f"{self.path.name}.before-restore-{stamp}-{secrets.token_hex(2)}")
             os.replace(self.path, previous)
-            os.replace(staging, self.path)
+            try:
+                os.replace(staging, self.path)
+                self._known_index_entries = {}
+                self._known_case_entries = {}
+                self._initialize()
+                self._verify_index_integrity()
+                self._verify_case_index_integrity()
+            except BaseException as exc:
+                os.replace(previous, self.path)
+                self._known_index_entries = {}
+                self._known_case_entries = {}
+                if isinstance(exc, (StoreError, OSError)):
+                    raise StoreError("restore failed; the previous archive was put back") from exc
+                raise
         finally:
             if staging.exists():
                 staging.unlink()
-        self._known_index_entries = {}
-        self._known_case_entries = {}
-        self._initialize()
-        self._verify_index_integrity()
-        self._verify_case_index_integrity()
-        return manifest
+        return {**manifest, "previous_copy": previous.name}
 
     def _protect_index_key(self, key: bytes) -> bytes:
         try:
@@ -1346,6 +1363,7 @@ class LocalDocumentStore:
                         self._decode_source(source_payload, expected_hash=source_hash, expected_length=record["source"]["byte_length"])
                         connection.execute("DELETE FROM documents WHERE entry_id = ?", (entry_id,))
                         connection.execute("DELETE FROM document_retention WHERE document_id_index = ?", (document_index,))
+                        connection.execute("DELETE FROM document_library WHERE library_key = ?", (document_index,))
                         self._known_index_entries.pop(document_index, None)
                 connection.commit()
                 self._known_case_entries.pop(case_index, None)

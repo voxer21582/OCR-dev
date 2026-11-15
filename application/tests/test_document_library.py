@@ -190,8 +190,16 @@ class CaseLabelTests(LibraryTestCase):
             self.store.set_case_label(case["case_id"], " ", actor="u")
         self.assertIsNone(self.store.case_label(case["case_id"]))
 
-    def test_deleting_a_case_removes_its_label(self):
+    def test_deleting_a_case_removes_its_label_and_its_documents_metadata(self):
+        from test_expense_case_store import _source_record
+
         case = self._create_case()
+        source = b"%PDF synthetic case-owned receipt"
+        chunk = [{"record": _source_record("receipt-label", source, family="fiscal_receipt"), "source_bytes": source}]
+        case = self.store.append_case_chunk(case["case_id"], case["case_revision"], "chunk-1",
+                                            self.store.case_chunk_digest(chunk), chunk)
+        self.store.set_display_name("receipt-label", "Ricevuta del fascicolo", actor="u")
+        self.store.set_tags("statement-label", ["privato"], actor="u")
         self.store.set_case_label(case["case_id"], "Trasferta", actor="u")
         self.assertTrue(self.store.delete_case(case["case_id"]))
         with closing(sqlite3.connect(self.database)) as connection:

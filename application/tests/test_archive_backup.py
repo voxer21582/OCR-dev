@@ -7,7 +7,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from alfa_document_intelligence.local_document_store import LocalDocumentStore, StoreRejected
+import os
+from unittest.mock import patch
+
+from alfa_document_intelligence.local_document_store import LocalDocumentStore, StoreError, StoreRejected
 
 from test_document_library import _record
 from test_local_document_store import SyntheticProtector
@@ -42,9 +45,42 @@ class ArchiveBackupTests(unittest.TestCase):
         self.assertEqual((manifest["documents"], manifest["schema_version"]), (2, 4))
         self.store.delete("doc-002")
         self.store.set_tags("doc-001", [], actor="u")
-        self.store.restore_from(self.root / "backup")
+        result = self.store.restore_from(self.root / "backup")
         self.assertEqual(self._snapshot(self.store), expected)
-        self.assertTrue((self.root / "archive.sqlite3.before-restore").exists())
+        self.assertTrue((self.root / result["previous_copy"]).exists())
+
+    def test_a_second_restore_keeps_the_first_previous_copy(self):
+        self.store.backup_to(self.root / "backup")
+        first = self.store.restore_from(self.root / "backup")["previous_copy"]
+        second = self.store.restore_from(self.root / "backup")["previous_copy"]
+        self.assertNotEqual(first, second)
+        self.assertTrue((self.root / first).exists() and (self.root / second).exists())
+
+    def test_a_failed_swap_puts_the_previous_archive_back(self):
+        self.store.backup_to(self.root / "backup")
+        self.store.delete("doc-002")
+        before = self._snapshot(self.store)
+        real_replace = os.replace
+        calls = []
+
+        def failing_replace(source, target):
+            calls.append(source)
+            if len(calls) == 2:
+                raise PermissionError("synthetic lock on the archive file")
+            return real_replace(source, target)
+
+        with patch("alfa_document_intelligence.local_document_store.os.replace", side_effect=failing_replace):
+            with self.assertRaises(StoreError):
+                self.store.restore_from(self.root / "backup")
+        self.assertEqual(self._snapshot(self.store), before)
+        self.assertFalse(list(self.root.glob("*.before-restore-*")), "the previous copy was moved back")
+        self.assertFalse(list(self.root.glob(".restore-*")))
+
+    def test_restore_refuses_while_a_transaction_journal_exists(self):
+        self.store.backup_to(self.root / "backup")
+        (self.root / "archive.sqlite3-journal").write_bytes(b"synthetic")
+        with self.assertRaises(StoreError):
+            self.store.restore_from(self.root / "backup")
 
     def test_backup_files_are_encrypted_and_described(self):
         self.store.set_display_name("doc-001", "Nome riconoscibile", actor="u")

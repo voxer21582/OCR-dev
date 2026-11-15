@@ -29,7 +29,8 @@ dall'archivio locale di OCR2, e che cosa resta fuori dal controllo del programma
   se serve, elimina anche quei file.
 - **La copia lasciata dal ripristino.** Quando ripristini un backup, l'archivio
   precedente viene conservato accanto a quello nuovo con il nome
-  `document-archive.sqlite3.before-restore`, per poter tornare indietro. Resta cifrato,
+  `document-archive.sqlite3.before-restore-<data e ora>`, per poter tornare indietro
+  (ogni ripristino crea una copia nuova, senza sovrascrivere le precedenti). Resta cifrato,
   ma contiene i documenti di prima: eliminalo a mano quando non ti serve più.
 - **File esportati.** I file JSON o CSV esportati sono in chiaro e stanno dove li hai
   salvati: OCR2 non li controlla.

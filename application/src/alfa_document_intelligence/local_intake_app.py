@@ -673,7 +673,8 @@ _REVIEW_LABELS_IT = {
 _ARCHIVE_PAGE_SIZE = 25
 _CUSTOM_FAMILY = re.compile(r"^custom_[a-z][a-z0-9_]{1,24}$")
 _ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_MAX_BACKUP_MEMBER_BYTES = 2 * 1024 * 1024 * 1024
+_MAX_BACKUP_MEMBER_BYTES = 512 * 1024 * 1024
+_MAX_BACKUP_MANIFEST_BYTES = 64 * 1024
 
 
 def _archive_filters(raw_query: str) -> dict[str, Any]:
@@ -721,6 +722,12 @@ def _select(name: str, label: str, options: dict[str, str], current: str) -> str
 def _archive_list_page(store: LocalDocumentStore, filters: dict[str, Any] | None = None, notice: str = "") -> str:
     filters = filters or _archive_filters("")
     page = filters["page"]
+    _, total = store.search_library(
+        filters["q"], family=filters["family"] or None, review_status=filters["status"] or None,
+        tag=filters["tag"] or None, saved_from=filters["from"] or None, saved_to=filters["to"] or None, limit=1,
+    )
+    page = min(page, max(0, -(-total // _ARCHIVE_PAGE_SIZE) - 1))
+    filters = {**filters, "page": page}
     summaries, total = store.search_library(
         filters["q"], family=filters["family"] or None, review_status=filters["status"] or None,
         tag=filters["tag"] or None, saved_from=filters["from"] or None, saved_to=filters["to"] or None,
@@ -786,7 +793,8 @@ def _archive_list_page(store: LocalDocumentStore, filters: dict[str, Any] | None
         '<p><a href="/archive/backup">Scarica backup (ZIP)</a></p>'
         '<form method="post" action="/archive/restore" enctype="multipart/form-data"><fieldset>'
         '<legend>Ripristina da backup</legend>'
-        '<p>Il ripristino sostituisce tutto l’archivio attuale; la copia attuale viene conservata accanto all’archivio.</p>'
+        '<p>Il ripristino sostituisce tutto l’archivio attuale; la copia attuale viene conservata accanto all’archivio. '
+        'Si possono caricare backup fino a 100 MB.</p>'
         '<label>File di backup <input type="file" name="files" accept=".zip" required></label> '
         '<label><input type="checkbox" name="confirm" value="yes" required> Ho capito che l’archivio attuale verrà sostituito</label> '
         '<button type="submit">Ripristina</button></fieldset></form>'
@@ -815,12 +823,12 @@ def _archive_restore_zip(store: LocalDocumentStore, data: bytes) -> dict:
         raise StoreRejected("the file is not an OCR2 backup ZIP") from exc
     if set(members) != {"manifest.json", "archive.sqlite3"} or any(
         info.file_size > _MAX_BACKUP_MEMBER_BYTES or info.flag_bits & 0x1 for info in members.values()
-    ):
+    ) or members["manifest.json"].file_size > _MAX_BACKUP_MANIFEST_BYTES:
         raise StoreRejected("the ZIP does not contain exactly an OCR2 backup")
     with tempfile.TemporaryDirectory(prefix="ocr2-restore-") as folder:
         for name in ("manifest.json", "archive.sqlite3"):
             with archive.open(members[name]) as source, open(Path(folder) / name, "wb") as target:
-                remaining = _MAX_BACKUP_MEMBER_BYTES
+                remaining = members[name].file_size
                 while chunk := source.read(1024 * 1024):
                     remaining -= len(chunk)
                     if remaining < 0:
@@ -2563,7 +2571,9 @@ def create_expense_report_app(
             if not _same_origin_loopback_post(environ) and environ.get("_opaque_origin_csrf_validated") is not True:
                 return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
             with state_lock:
-                busy = state is not None and (state.intake is not None or state.ocr_job_id is not None)
+                busy = (state is not None and (state.intake is not None or state.ocr_job_id is not None)) or (
+                    expense_case_processing_manager is not None and expense_case_processing_manager.has_active_job()
+                )
             if busy:
                 return _page(environ, start_response, "409 Conflict",
                              "<p>Chiudi la sessione corrente (Cancella sessione) prima di ripristinare un backup.</p>"

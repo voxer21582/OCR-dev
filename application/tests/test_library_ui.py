@@ -60,6 +60,8 @@ class LibraryPageTests(unittest.TestCase):
         self.assertIn("Documenti 1–25 di 30", first)
         self.assertIn('href="/archive?page=1">Pagina successiva', first)
         self.assertNotIn("Pagina precedente", first)
+        _, beyond = self.page("page=999999")
+        self.assertIn("Documenti 26–30 di 30 · pagina 2 di 2", beyond, "a page past the end shows the last one")
         _, second = self.page("page=1")
         self.assertIn("Documenti 26–30 di 30", second)
         self.assertIn("Pagina precedente", second)
@@ -156,6 +158,23 @@ class LibraryPageTests(unittest.TestCase):
                                   origin="http://evil.example")[0], "403 Forbidden")
         self.assertIsNone(self.store.get("doc-002"))
         self.assertFalse(list(self.root.glob(".restore-*")), "no staging copy is left behind")
+
+    def test_restore_waits_for_a_running_case_job(self):
+        class _BusyCaseManager:
+            def has_active_job(self):
+                return True
+
+            def set_custom_family_catalog(self, catalog):
+                pass
+
+            def close(self):
+                pass
+
+        _, _, good = _request(self.app, path="/archive/backup")
+        busy_app = create_expense_report_app(archive_store=self.store, expense_case_processing_manager=_BusyCaseManager())
+        self.addCleanup(busy_app.close)
+        body, content_type = _multipart(good)
+        self.assertEqual(_request(busy_app, "POST", "/archive/restore", body, content_type)[0], "409 Conflict")
 
     def test_cases_can_be_renamed_from_the_cases_page(self):
         from test_expense_case_store import _case, _source_record

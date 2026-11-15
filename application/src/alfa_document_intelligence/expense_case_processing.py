@@ -242,6 +242,12 @@ class ExpenseCaseProcessingManager:
                 raise RuntimeError("case OCR could not be started") from None
         return job_id
 
+    def has_active_job(self) -> bool:
+        """True while a case OCR job is queued or running (the archive must not be replaced)."""
+        with self._lock:
+            active = self._jobs.get(self._active_job_id) if self._active_job_id is not None else None
+            return active is not None and active.status.phase not in {"succeeded", "failed", "cancelled"}
+
     def snapshot(self, job_id: str) -> ExpenseCaseJobStatus | None:
         with self._lock:
             job = self._jobs.get(job_id)
