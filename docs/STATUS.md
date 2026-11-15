@@ -1,8 +1,8 @@
-STATO: MILESTONE COMPLETATA — M4
+STATO: MILESTONE COMPLETATA — M4 (M5 Libreria in corso)
 
 # Stato del lavoro
 
-M4 verificata sulla proposta della PR #149: REQ-070 ([percorso browser](evidence/M4/browser-walkthrough.md)), REQ-072 ([test export](evidence/M4/ci-security-suite.txt)), REQ-073 ([regione manuale](evidence/M4/missing-fields-review.md)) e REQ-075 ([checklist e riscontro vocale](evidence/M4/accessibility-checklist.md)). CI [Ubuntu](https://github.com/voxer21582/OCR-dev/actions/runs/43750928840/job/132924474854) e [Windows](https://github.com/voxer21582/OCR-dev/actions/runs/43750928840/job/132924474509) passata su `b6dc0f5`; revisione indipendente e approvazione esplicita R8 del proprietario in [audit](evidence/M4/review.md). La PR è in bozza e non è stata unita. CodeQL mantiene due avvisi medi, valutati senza divulgazioni concrete nei percorsi attuali ([limiti](evidence/M4/ci-security-review.md)).
+M4 verificata sulla proposta della PR #149: REQ-070 ([percorso browser](evidence/M4/browser-walkthrough.md)), REQ-072 ([test export](evidence/M4/ci-security-suite.txt)), REQ-073 ([regione manuale](evidence/M4/missing-fields-review.md)) e REQ-075 ([checklist e riscontro vocale](evidence/M4/accessibility-checklist.md)). CI [Ubuntu](https://github.com/voxer21582/OCR-dev/actions/runs/43750928840/job/132924474854) e [Windows](https://github.com/voxer21582/OCR-dev/actions/runs/43750928840/job/132924474509) passata su `b6dc0f5`; revisione indipendente e approvazione esplicita R8 del proprietario in [audit](evidence/M4/review.md). La PR è stata unita in `main` dal proprietario il 2026-11-15. CodeQL mantiene due avvisi medi, valutati senza divulgazioni concrete nei percorsi attuali ([limiti](evidence/M4/ci-security-review.md)).
 
 ## Cronologia della chiusura
 
