@@ -1204,7 +1204,12 @@ def _candidate_display(candidate: dict[str, Any]) -> str:
     alternatives = candidate.get("alternatives", [])
     values = [str(item.get("value", "")) for item in alternatives if isinstance(item, dict)]
     if values:
-        return "Da verificare: " + " · ".join(values[:8])
+        hint_labels = {"date-dmy-hint": "giorno/mese", "date-mdy-hint": "mese/giorno"}
+        first = alternatives[0] if isinstance(alternatives[0], dict) else {}
+        normalization = first.get("normalization") if isinstance(first.get("normalization"), dict) else {}
+        hint = hint_labels.get(normalization.get("rule_id"))
+        prefix = f"Da verificare (suggerito {hint}): " if hint else "Da verificare: "
+        return prefix + " · ".join(values[:8])
     return "Non rilevato" if candidate.get("status") in {"absent", "not_applicable"} else "Incerto o non leggibile"
 
 
@@ -1223,6 +1228,7 @@ def _expense_case_reconciliation_page(
         "missing_support": "Supporto non trovato",
         "uncertain_statement_fields": "Valori della nota incerti",
         "amount_conflict": "Importo discordante",
+        "possible_amount_conflict": "Possibile importo discordante",
         "currency_conflict": "Valuta discordante",
         "date_conflict": "Data discordante",
         "ambiguous_candidates": "Più candidati equivalenti",
@@ -1306,7 +1312,7 @@ def _expense_case_reconciliation_page(
             + f'<input type="hidden" name="_line_evidence_sha256" value="{escape(line["evidence_sha256"], quote=True)}">'
             + f'<input type="hidden" name="_event_id" value="{secrets.token_hex(16)}">'
             + candidate_html
-            + '<label>Nota di revisione (obbligatoria per l’esclusione) <input name="_reviewer_note" maxlength="2000"></label>'
+            + '<label>Nota di revisione (obbligatoria per l’esclusione) <input name="_reviewer_note" maxlength="2000" aria-label="Nota di revisione (obbligatoria per l’esclusione)"></label>'
             + '<button name="_action" value="confirmed">Conferma abbinamento selezionato</button>'
             + '<button name="_action" value="rejected">Rifiuta i candidati</button>'
             + '<button name="_action" value="ambiguous">Segna come ambiguo</button>'
@@ -1697,12 +1703,20 @@ def create_expense_report_app(
                                 for document_id in selected_ids
                             ]
                             note = fields["_reviewer_note"][0] or None
+                            action = fields["_action"][0]
+                            # Input mistakes get their own message; 409 stays for changed evidence.
+                            if action == "excluded_with_reason" and not (note and note.strip()):
+                                return _page(environ, start_response, "400 Bad Request",
+                                             "Revisione non salvata: per escludere una riga serve una nota di revisione.")
+                            if action == "confirmed" and not selected_ids:
+                                return _page(environ, start_response, "400 Bad Request",
+                                             "Revisione non salvata. Seleziona almeno un giustificativo prima di confermare.")
                             updated = append_line_review(
                                 reconciliation,
                                 expected_case_revision=expected_revision,
                                 line_id=line_id,
                                 expected_line_evidence_sha256=fields["_line_evidence_sha256"][0],
-                                action=fields["_action"][0],
+                                action=action,
                                 candidate_sources=sources,
                                 event_id=fields["_event_id"][0],
                                 reviewer_note=note,

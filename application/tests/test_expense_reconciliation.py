@@ -458,5 +458,221 @@ class ExpenseReconciliationTests(unittest.TestCase):
         json.dumps(result, ensure_ascii=False, sort_keys=True)
 
 
+class KnownAnswerReconciliationTests(unittest.TestCase):
+    """End-to-end known answers: synthetic OCR rows -> statement lines -> reconciliation.
+
+    Each expected outcome below follows from the documented ranking rules, not
+    from a captured run: equal amount and currency is the primary signal, an
+    uncertain statement date never counts as a ``date_match`` (D3 hint included)
+    but may add ``possible_date_match`` next to another signal, and nothing is
+    confirmed without a review event.
+    """
+
+    STATEMENT_HASH = "a" * 64
+    RECEIPTS = {
+        "r-taxi": ("1" * 64, "11.37", "EUR", "2026-11-02"),
+        "r-hotel": ("2" * 64, "80.00", "EUR", "2026-11-25"),
+        "r-hotel-copy": ("2" * 64, "80.00", "EUR", "2026-11-25"),
+        "r-train": ("3" * 64, "40.00", "EUR", "2026-11-26"),
+        "r-park": ("4" * 64, "4.50", "EUR", "2026-11-28"),
+        "r-unused": ("5" * 64, "99.00", "EUR", "2026-11-30"),
+    }
+    PAGES = (
+        ("Nota spese - pag. 1", "Data Descrizione Importo",
+         "02/11/2026 Taxi EUR11,37", "25/11/2026 Hotel EUR 80,00", "26/11/2026 Treno EUR 45,00"),
+        ("Nota spese - pag. 2", "Data Descrizione Importo",
+         "27/11/2026 Pranzo EUR 42,50", "27/11/2026 Pranzo EUR 42,50", "28/11/2026 Parcheggio USD 4,50"),
+    )
+    EXPECTED = {
+        # line_id: (description, [(document_id, reasons)], findings)
+        "line-p0001-00003": ("02/11/2026 Taxi EUR11,37",
+                             [("r-taxi", ["amount_and_currency_match", "possible_date_match"])],
+                             ["uncertain_statement_fields"]),
+        "line-p0001-00004": ("25/11/2026 Hotel EUR 80,00",
+                             [("r-hotel", ["amount_and_currency_match", "date_match"]),
+                              ("r-hotel-copy", ["amount_and_currency_match", "date_match"])],
+                             ["ambiguous_candidates"]),
+        "line-p0001-00005": ("26/11/2026 Treno EUR 45,00",
+                             [("r-train", ["date_match", "amount_conflict"])],
+                             ["amount_conflict"]),
+        "line-p0002-00003": ("27/11/2026 Pranzo EUR 42,50", [],
+                             ["missing_support", "possible_duplicate_claim"]),
+        "line-p0002-00004": ("27/11/2026 Pranzo EUR 42,50", [],
+                             ["missing_support", "possible_duplicate_claim"]),
+        "line-p0002-00005": ("28/11/2026 Parcheggio USD 4,50",
+                             [("r-park", ["date_match", "currency_conflict"])],
+                             ["currency_conflict"]),
+    }
+
+    def setUp(self):
+        pages = []
+        for number, rows in enumerate(self.PAGES, start=1):
+            tokens = tuple(
+                OCRToken(f"p{number}-r{index}", text,
+                         ((.05, .05 + index * .06), (.95, .05 + index * .06),
+                          (.95, .09 + index * .06), (.05, .09 + index * .06)), .99)
+                for index, text in enumerate(rows)
+            )
+            pages.append(OCRPageResult(self.STATEMENT_HASH, number, "SyntheticOCR", "1", "it+en", tokens))
+        self.lines = extract_expense_lines(pages)
+        statement = _document("statement", self.STATEMENT_HASH, family="expense_report")
+        second_page = copy.deepcopy(statement["pages"][0])
+        second_page["page_number"] = 2
+        statement["pages"].append(second_page)
+        self.documents = {"statement": statement}
+        for document_id, (digest, amount, currency, when) in self.RECEIPTS.items():
+            self.documents[document_id] = _document(
+                document_id, digest, amount=amount, currency=currency, date=when,
+                merchant="Esercente " + document_id,
+            )
+        self.result = build_reconciliation(
+            "case-known-answers", "statement", self.STATEMENT_HASH, self.lines,
+            [{"document_id": document_id, "included": True} for document_id in self.RECEIPTS],
+            self.documents, source_set_revision="c" * 64,
+        )
+
+    def test_headers_are_not_lines_and_every_expense_row_is(self):
+        self.assertEqual([line["line_id"] for line in self.lines], list(self.EXPECTED))
+
+    def test_each_line_has_the_known_suggestions_and_findings(self):
+        for line in self.result["lines"]:
+            with self.subTest(line=line["line_id"]):
+                description, suggestions, findings = self.EXPECTED[line["line_id"]]
+                self.assertEqual(line["fields"]["description"]["value"], description)
+                self.assertEqual(
+                    [(item["document_id"], item["reasons"]) for item in line["suggestions"]], suggestions,
+                )
+                self.assertEqual(line["findings"], findings)
+                self.assertEqual(line["status"], "unreviewed")
+
+    def test_case_level_known_answers(self):
+        self.assertEqual(self.result["unused_document_ids"], ["r-unused"])
+        self.assertEqual(self.result["duplicate_source_groups"], [
+            {"source_sha256": "2" * 64, "document_ids": ["r-hotel", "r-hotel-copy"]},
+        ])
+        self.assertEqual(self.result["possible_duplicate_claim_groups"], [{
+            "line_ids": ["line-p0002-00003", "line-p0002-00004"],
+            "amount": "42.50", "currency": "EUR", "date": "2026-11-27", "merchant": None,
+        }])
+
+    def test_day_month_hint_does_not_turn_into_a_date_match(self):
+        taxi = self.result["lines"][0]
+        self.assertEqual(taxi["fields"]["date"]["status"], "uncertain")
+        self.assertEqual(taxi["fields"]["date"]["alternatives"][0]["normalization"]["rule_id"], "date-dmy-hint")
+        self.assertNotIn("date_match", taxi["suggestions"][0]["reasons"])
+
+    def test_known_answer_reconciliation_validates(self):
+        validate_reconciliation(self.result, self.documents)
+
+
+def _ocr_style_receipt(document_id, digest, *, amount, date, currency="EUR"):
+    """A receipt as OCR proposals leave it: date, total and currency only uncertain."""
+    record = _document(document_id, digest, amount=amount, currency=currency, date=date)
+
+    def uncertain(candidate, value):
+        alternative = {"value": value, "status": "observed", "evidence": copy.deepcopy(candidate["evidence"])}
+        if candidate.get("normalization"):
+            alternative["normalization"] = dict(candidate["normalization"], normalized_value=value)
+        return {"value": None, "status": "uncertain", "alternatives": [alternative],
+                "evidence": copy.deepcopy(candidate["evidence"])}
+
+    fields = record["fields"]
+    fields["date_candidates"] = uncertain(fields.pop("issue_date"), date)
+    fields["total_amount"] = uncertain(fields["total_amount"], amount)
+    fields["currency"] = uncertain(fields["currency"], currency)
+    return record
+
+
+class PossibleSignalReconciliationTests(unittest.TestCase):
+    """Owner decision 2026-11-15: show amount conflicts as possible when receipt dates are uncertain."""
+
+    STATEMENT_HASH = "a" * 64
+
+    def build(self, rows, receipts):
+        pages = [OCRPageResult(self.STATEMENT_HASH, 1, "SyntheticOCR", "1", "it+en", tuple(
+            OCRToken(f"r{index}", text, ((.05, .05 + index * .06), (.95, .05 + index * .06),
+                                         (.95, .09 + index * .06), (.05, .09 + index * .06)), .99)
+            for index, text in enumerate(rows)
+        ))]
+        lines = extract_expense_lines(pages)
+        documents = {"statement": _document("statement", self.STATEMENT_HASH, family="expense_report")}
+        for document_id, (digest, amount, when) in receipts.items():
+            documents[document_id] = _ocr_style_receipt(document_id, digest, amount=amount, date=when)
+        result = build_reconciliation(
+            "case-possible", "statement", self.STATEMENT_HASH, lines,
+            [{"document_id": document_id, "included": True} for document_id in receipts],
+            documents, source_set_revision="c" * 64,
+        )
+        validate_reconciliation(result, documents)
+        return {line["fields"]["description"]["value"]: line for line in result["lines"]}, result
+
+    def test_uncertain_receipt_date_supports_a_possible_amount_conflict(self):
+        lines, result = self.build(
+            ["21/11/2026 Treno EUR 42,40"],
+            {"r-train": ("3" * 64, "37.40", "2026-11-21")},
+        )
+        line = lines["21/11/2026 Treno EUR 42,40"]
+        self.assertEqual(
+            [(item["document_id"], item["reasons"]) for item in line["suggestions"]],
+            [("r-train", ["possible_date_match", "possible_amount_conflict"])],
+        )
+        self.assertEqual(line["findings"], ["possible_amount_conflict"])
+        self.assertNotIn("amount_conflict", line["findings"])
+        self.assertEqual(result["unused_document_ids"], [])
+        self.assertEqual(line["status"], "unreviewed")
+
+    def test_ambiguous_dates_on_both_sides_still_allow_a_possible_conflict(self):
+        lines, _ = self.build(
+            ["03/11/2026 Taxi EUR 56,10"],
+            {"r-taxi": ("4" * 64, "51.10", "2026-11-03")},
+        )
+        line = lines["03/11/2026 Taxi EUR 56,10"]
+        self.assertIn("possible_amount_conflict", line["findings"])
+        self.assertIn("uncertain_statement_fields", line["findings"])
+
+    def test_receipt_that_supports_another_line_is_not_a_possible_conflict(self):
+        lines, result = self.build(
+            ["21/11/2026 Treno EUR 42,40", "21/11/2026 Hotel EUR 80,00"],
+            {"r-hotel": ("5" * 64, "80.00", "2026-11-21")},
+        )
+        self.assertEqual(lines["21/11/2026 Treno EUR 42,40"]["findings"], ["missing_support"])
+        hotel = lines["21/11/2026 Hotel EUR 80,00"]
+        self.assertEqual(
+            [(item["document_id"], item["reasons"]) for item in hotel["suggestions"]],
+            [("r-hotel", ["possible_amount_and_currency_match", "possible_date_match"])],
+        )
+        self.assertEqual(result["unused_document_ids"], [])
+
+    def test_different_date_gives_no_possible_conflict(self):
+        lines, result = self.build(
+            ["21/11/2026 Treno EUR 42,40"],
+            {"r-train": ("3" * 64, "37.40", "2026-11-25")},
+        )
+        self.assertEqual(lines["21/11/2026 Treno EUR 42,40"]["findings"], ["missing_support"])
+        self.assertEqual(result["unused_document_ids"], ["r-train"])
+
+    def test_date_alone_never_creates_a_suggestion(self):
+        lines, _ = self.build(
+            ["21/11/2026 Treno EUR 42,40", "21/11/2026 Bus EUR 3,00"],
+            {"r-bus": ("6" * 64, "3.00", "2026-11-21")},
+        )
+        self.assertEqual(lines["21/11/2026 Treno EUR 42,40"]["suggestions"], [])
+
+    def test_line_with_an_amount_match_gets_no_possible_conflict(self):
+        # Found in the M2 benchmark: an unused receipt of the same day tied with
+        # the right receipt and could be ranked first.
+        lines, result = self.build(
+            ["15/11/2026 Hotel EUR 29,18"],
+            {"r-hotel": ("7" * 64, "29.18", "2026-11-15"), "r-other": ("8" * 64, "144.26", "2026-11-15")},
+        )
+        hotel = lines["15/11/2026 Hotel EUR 29,18"]
+        self.assertEqual(
+            [(item["document_id"], item["reasons"]) for item in hotel["suggestions"]],
+            [("r-hotel", ["possible_amount_and_currency_match", "possible_date_match"])],
+        )
+        self.assertEqual(hotel["findings"], [])
+        self.assertEqual(result["unused_document_ids"], ["r-other"])
+
+
 if __name__ == "__main__":
     unittest.main()

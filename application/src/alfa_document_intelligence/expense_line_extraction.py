@@ -86,7 +86,8 @@ def _decimal_amount(literal: str) -> str | None:
     return format(amount, ".2f") if amount.is_finite() else None
 
 
-def _date_values(literal: str) -> list[tuple[str, str]]:
+def _date_readings(literal: str) -> list[tuple[str, str, str]]:
+    """Return (literal, ISO date, reading) triples; reading is "iso", "dmy" or "mdy"."""
     values = []
     for match in _DATE.finditer(literal):
         value = match.group(0)
@@ -95,17 +96,23 @@ def _date_values(literal: str) -> list[tuple[str, str]]:
                 normalized = date.fromisoformat(value).isoformat()
             except ValueError:
                 continue
-            values.append((value, normalized))
+            values.append((value, normalized, "iso"))
             continue
-        for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%m/%d/%Y", "%m-%d-%Y", "%m.%d.%Y"):
+        for fmt, reading in (
+            ("%d/%m/%Y", "dmy"), ("%d-%m-%Y", "dmy"), ("%d.%m.%Y", "dmy"),
+            ("%m/%d/%Y", "mdy"), ("%m-%d-%Y", "mdy"), ("%m.%d.%Y", "mdy"),
+        ):
             try:
                 parsed = datetime.strptime(value, fmt).date()
             except ValueError:
                 continue
-            pair = (value, parsed.isoformat())
-            if pair not in values:
-                values.append(pair)
+            if all((value, parsed.isoformat()) != item[:2] for item in values):
+                values.append((value, parsed.isoformat(), reading))
     return values
+
+
+def _date_values(literal: str) -> list[tuple[str, str]]:
+    return [(value, normalized) for value, normalized, _ in _date_readings(literal)]
 
 
 def _candidate(values, evidence, *, normalization_rule=None):
@@ -167,6 +174,43 @@ def _currency_candidate(text, evidence):
     return _candidate(symbols, evidence, normalization_rule="currency-code")
 
 
+DATE_ORDER_HINTS = ("dmy", "mdy", "none")
+DEFAULT_DATE_ORDER_HINT = "dmy"
+# A8/D3: the hint applies to Italian, mixed and not-yet-recognised documents
+# (the OCR profile is it+en); English documents keep both readings unordered.
+_HINTED_LANGUAGES = {"it", "mixed", "unknown", None}
+
+
+def _date_candidate(text, evidence, hint):
+    """Keep every reading; for one ambiguous day/month literal, show the preferred one first.
+
+    The candidate stays uncertain with a null value: the hint only orders the
+    alternatives and names its rule (``date-dmy-hint``/``date-mdy-hint``).
+    """
+    readings = _date_readings(text)
+    candidate = _candidate([item[:2] for item in readings], evidence, normalization_rule="iso-date")
+    if hint == "none" or candidate["status"] != "uncertain":
+        return candidate
+    literals = {literal for literal, _, _ in readings}
+    if len(literals) != 1:
+        return candidate
+    kinds = {reading: value for _, value, reading in readings}
+    if set(kinds) != {"dmy", "mdy"}:
+        return candidate
+    preferred = kinds[hint]
+    alternatives = sorted(candidate["alternatives"], key=lambda item: item["value"] != preferred)
+    alternatives[0]["normalization"]["rule_id"] = f"date-{hint}-hint"
+    candidate["alternatives"] = alternatives
+    return candidate
+
+
+_PAGINATION = re.compile(r"(?i)(?<![a-z])pag(?:e|ina)?\.?\s*\d+(?:\s*(?:/|di|of)\s*\d+)?(?!\w)")
+
+
+def _header_key(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"\d+", "#", text.casefold())).strip()
+
+
 def _valid_evidence_producer(producer):
     return (
         isinstance(producer, dict)
@@ -193,8 +237,20 @@ def _evidence_region_error(region):
     return None
 
 
-def extract_expense_lines(pages: Iterable[OCRPageResult]) -> list[dict[str, Any]]:
-    """Group OCR tokens by visual row and propose values without confirming them."""
+def extract_expense_lines(
+    pages: Iterable[OCRPageResult],
+    *,
+    document_language: str | None = None,
+    date_order_hint: str = DEFAULT_DATE_ORDER_HINT,
+) -> list[dict[str, Any]]:
+    """Group OCR tokens by visual row and propose values without confirming them.
+
+    Rows without an amount or a date that are pagination text, or that repeat
+    on more than one page (running headers), are not proposed as lines.
+    """
+    if date_order_hint not in DATE_ORDER_HINTS:
+        raise ValueError("unsupported date order hint")
+    hint = date_order_hint if document_language in _HINTED_LANGUAGES else "none"
     result = []
     seen_page_numbers = set()
     page_results = list(pages)
@@ -204,6 +260,7 @@ def extract_expense_lines(pages: Iterable[OCRPageResult]) -> list[dict[str, Any]
         page.source_sha256 != page_results[0].source_sha256 for page in page_results[1:]
     ):
         raise ValueError("OCR pages must belong to one source document")
+    prepared = []
     for page in sorted(page_results, key=lambda item: item.page_number):
         if page.page_number in seen_page_numbers:
             raise ValueError("OCR page results must be unique and typed")
@@ -214,29 +271,38 @@ def extract_expense_lines(pages: Iterable[OCRPageResult]) -> list[dict[str, Any]
                 continue
             if len(text) > _MAX_LINE_TEXT_CHARS:
                 raise ExpenseLineProposalLimitError("expense_line_text_limit")
-            token_ids = [token.token_id for token, _ in row]
-            evidence = {
-                "source_sha256": page.source_sha256,
-                "page_number": page.page_number,
-                "region": _region(row),
-                "token_ids": token_ids,
-                "literal": text,
-                "producer": {"stage": "ocr", "name": page.engine_name, "version": page.engine_version},
-            }
             amounts = [(match.group(0), _decimal_amount(match.group(0))) for match in _AMOUNT.finditer(text)]
             amounts = [(literal, value) for literal, value in amounts if value is not None]
-            currency = _currency_candidate(text, evidence)
-            dates = _date_values(text)
-            result.append({
-                "line_id": f"line-p{page.page_number:04d}-{row_number:05d}",
-                "description": {"value": text, "status": "observed", "alternatives": [], "evidence": [evidence]},
-                "amount": _candidate(amounts, evidence, normalization_rule="decimal-amount"),
-                "currency": currency,
-                "date": _candidate(dates, evidence, normalization_rule="iso-date"),
-                "merchant": {"value": None, "status": "absent", "alternatives": [], "evidence": []},
-            })
-            if len(result) > _MAX_LINES:
-                raise ExpenseLineProposalLimitError("expense_line_limit")
+            prepared.append((page, row_number, row, text, amounts, bool(_date_readings(text))))
+    header_pages: dict[str, set[int]] = {}
+    for page, _, _, text, amounts, has_date in prepared:
+        if not amounts and not has_date:
+            header_pages.setdefault(_header_key(text), set()).add(page.page_number)
+    for page, row_number, row, text, amounts, has_date in prepared:
+        if not amounts and not has_date and (
+            _PAGINATION.search(text) or len(header_pages.get(_header_key(text), ())) > 1
+        ):
+            continue
+        token_ids = [token.token_id for token, _ in row]
+        evidence = {
+            "source_sha256": page.source_sha256,
+            "page_number": page.page_number,
+            "region": _region(row),
+            "token_ids": token_ids,
+            "literal": text,
+            "producer": {"stage": "ocr", "name": page.engine_name, "version": page.engine_version},
+        }
+        currency = _currency_candidate(text, evidence)
+        result.append({
+            "line_id": f"line-p{page.page_number:04d}-{row_number:05d}",
+            "description": {"value": text, "status": "observed", "alternatives": [], "evidence": [evidence]},
+            "amount": _candidate(amounts, evidence, normalization_rule="decimal-amount"),
+            "currency": currency,
+            "date": _date_candidate(text, evidence, hint),
+            "merchant": {"value": None, "status": "absent", "alternatives": [], "evidence": []},
+        })
+        if len(result) > _MAX_LINES:
+            raise ExpenseLineProposalLimitError("expense_line_limit")
     return result
 
 

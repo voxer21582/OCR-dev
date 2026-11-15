@@ -218,5 +218,115 @@ class AdjacentCurrencyAmountTests(unittest.TestCase):
                 self.assertEqual(amount["status"], "absent")
 
 
+class AmbiguousDateHintTests(unittest.TestCase):
+    """Owner decision D3 / assumption A8: a visible, reversible day/month hint."""
+
+    def setUp(self):
+        self.digest = hashlib.sha256(b"synthetic statement dates").hexdigest()
+
+    def _date_of(self, text, **kwargs):
+        page = OCRPageResult(self.digest, 1, "FakeOCR", "1", "it+en",
+                             (_token("p1-t1", text, .05, .10, .90, .14),))
+        return extract_expense_lines([page], **kwargs)[0]["date"]
+
+    def _rules(self, candidate):
+        return [(item["value"], item["normalization"]["rule_id"]) for item in candidate["alternatives"]]
+
+    def test_default_preselects_day_month_and_keeps_the_date_uncertain(self):
+        candidate = self._date_of("02/11/2026 Taxi 11,37")
+        self.assertEqual(candidate["status"], "uncertain")
+        self.assertIsNone(candidate["value"])
+        self.assertEqual(self._rules(candidate), [
+            ("2026-11-02", "date-dmy-hint"),
+            ("2026-02-11", "iso-date"),
+        ])
+
+    def test_italian_mixed_and_unknown_documents_get_the_day_month_hint(self):
+        for language in ("it", "mixed", "unknown"):
+            with self.subTest(language=language):
+                candidate = self._date_of("02/11/2026 Taxi 11,37", document_language=language)
+                self.assertEqual(self._rules(candidate)[0], ("2026-11-02", "date-dmy-hint"))
+
+    def test_english_documents_get_no_hint(self):
+        candidate = self._date_of("02/11/2026 Taxi 11,37", document_language="en")
+        self.assertEqual(candidate["status"], "uncertain")
+        self.assertEqual({rule for _, rule in self._rules(candidate)}, {"iso-date"})
+
+    def test_month_day_setting_puts_the_month_day_reading_first(self):
+        candidate = self._date_of("02/11/2026 Taxi 11,37", date_order_hint="mdy")
+        self.assertEqual(candidate["status"], "uncertain")
+        self.assertEqual(self._rules(candidate), [
+            ("2026-02-11", "date-mdy-hint"),
+            ("2026-11-02", "iso-date"),
+        ])
+
+    def test_none_setting_keeps_both_readings_without_a_hint(self):
+        candidate = self._date_of("02/11/2026 Taxi 11,37", date_order_hint="none")
+        self.assertEqual(candidate["status"], "uncertain")
+        self.assertEqual({rule for _, rule in self._rules(candidate)}, {"iso-date"})
+        self.assertEqual({value for value, _ in self._rules(candidate)}, {"2026-11-02", "2026-02-11"})
+
+    def test_unambiguous_dates_are_not_hinted(self):
+        candidate = self._date_of("25/11/2026 Taxi 11,37")
+        self.assertEqual(candidate["status"], "observed")
+        self.assertEqual(candidate["value"], "2026-11-25")
+        self.assertEqual(candidate["normalization"]["rule_id"], "iso-date")
+
+    def test_hinted_lines_pass_validation(self):
+        page = OCRPageResult(self.digest, 1, "FakeOCR", "1", "it+en",
+                             (_token("p1-t1", "02/11/2026 Taxi 11,37", .05, .10, .90, .14),))
+        lines = extract_expense_lines([page])
+        self.assertEqual(validate_expense_lines(lines, self.digest, {1}), [])
+
+    def test_unknown_setting_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "date order hint"):
+            self._date_of("02/11/2026 Taxi 11,37", date_order_hint="ymd")
+
+
+class PageHeaderRowTests(unittest.TestCase):
+    """Issue #135: page headers must not become expense lines."""
+
+    def setUp(self):
+        self.digest = hashlib.sha256(b"synthetic statement headers").hexdigest()
+
+    def page(self, number, rows):
+        tokens = [
+            _token(f"p{number}-t{index}", text, .05, .05 + index * .05, .90, .08 + index * .05)
+            for index, text in enumerate(rows)
+        ]
+        return OCRPageResult(self.digest, number, "FakeOCR", "1", "it+en", tuple(tokens))
+
+    def descriptions(self, pages):
+        return [line["description"]["value"] for line in extract_expense_lines(pages)]
+
+    def test_pagination_headers_are_not_lines(self):
+        for header in ("Nota spese - pag. 1", "Pagina 1 di 3", "Page 1 of 3", "pag. 1/3"):
+            with self.subTest(header=header):
+                self.assertEqual(
+                    self.descriptions([self.page(1, [header, "02/11/2026 Taxi EUR 11,37"])]),
+                    ["02/11/2026 Taxi EUR 11,37"],
+                )
+
+    def test_header_repeated_on_every_page_is_not_a_line(self):
+        pages = [
+            self.page(1, ["Data Descrizione Importo", "02/11/2026 Taxi EUR 11,37"]),
+            self.page(2, ["Data Descrizione Importo", "03/11/2026 Hotel EUR 80,00"]),
+        ]
+        self.assertEqual(self.descriptions(pages), ["02/11/2026 Taxi EUR 11,37", "03/11/2026 Hotel EUR 80,00"])
+
+    def test_single_row_without_values_stays_an_explicit_line(self):
+        lines = extract_expense_lines([self.page(1, ["Spese viaggio", "02/11/2026 Taxi EUR 11,37"])])
+        self.assertEqual(lines[0]["description"]["value"], "Spese viaggio")
+        self.assertEqual(lines[0]["amount"]["status"], "absent")
+
+    def test_pagination_text_with_an_amount_stays_a_line(self):
+        lines = extract_expense_lines([self.page(1, ["pag. 2 Parcheggio EUR 4,50"])])
+        self.assertEqual(lines[0]["amount"]["value"], "4.50")
+
+    def test_line_ids_follow_visual_rows_after_a_skipped_header(self):
+        lines = extract_expense_lines([self.page(1, ["Nota spese - pag. 1", "02/11/2026 Taxi EUR 11,37"])])
+        self.assertEqual([line["line_id"] for line in lines], ["line-p0001-00002"])
+
+
 if __name__ == "__main__":
     unittest.main()

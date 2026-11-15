@@ -237,6 +237,49 @@ class ExpenseReconciliationUITests(unittest.TestCase):
             ["confirmed", "rejected", "ambiguous", "missing_support", "possible_duplicate", "excluded_with_reason"],
         )
 
+    def _review_fields(self, action, note="", candidate=True):
+        from alfa_document_intelligence.expense_reconciliation import build_reconciliation
+
+        line = self.archive.documents["statement"].record["expense_lines"][0]
+        current = build_reconciliation(
+            "case-1", "statement", self.archive.case["statement_sha256"], [line],
+            self.archive.case["attachments"],
+            {key: value.record for key, value in self.archive.documents.items()},
+            source_set_revision=self.archive.source_set_revision(),
+        )
+        fields = {
+            "_reconciliation_revision": current["case_revision"],
+            "_line_id": current["lines"][0]["line_id"],
+            "_line_evidence_sha256": current["lines"][0]["evidence_sha256"],
+            "_event_id": "event-input-check", "_action": action, "_reviewer_note": note,
+        }
+        if candidate:
+            fields["_candidate_document_id"] = "receipt-1"
+        return urlencode(fields).encode("utf-8")
+
+    def test_exclusion_without_note_explains_the_missing_note(self):
+        status, _, response = _request(
+            self.app, "POST", "/cases/case-1/reconciliation/review",
+            self._review_fields("excluded_with_reason", note="   "), "application/x-www-form-urlencoded",
+        )
+        self.assertEqual(status, "400 Bad Request")
+        self.assertIn("serve una nota di revisione".encode("utf-8"), response)
+        self.assertNotIn("sono cambiati".encode("utf-8"), response)
+        self.assertEqual(self.archive.saved, [])
+
+    def test_confirmation_without_selection_explains_the_missing_selection(self):
+        status, _, response = _request(
+            self.app, "POST", "/cases/case-1/reconciliation/review",
+            self._review_fields("confirmed", candidate=False), "application/x-www-form-urlencoded",
+        )
+        self.assertEqual(status, "400 Bad Request")
+        self.assertIn("Seleziona almeno un giustificativo".encode("utf-8"), response)
+        self.assertEqual(self.archive.saved, [])
+
+    def test_review_note_field_has_an_accessible_name(self):
+        _, _, page = _request(self.app, path="/cases/case-1/reconciliation")
+        self.assertRegex(page.decode("utf-8"), r'<input name="_reviewer_note"[^>]*aria-label="Nota di revisione')
+
     def test_review_event_replay_is_idempotent(self):
         from alfa_document_intelligence.expense_reconciliation import build_reconciliation
 
@@ -383,6 +426,22 @@ class ExpenseReconciliationUITests(unittest.TestCase):
         self.assertIn(b"Giustificativi non abbinati", page)
         self.assertIn(b"synthetic-fiscal-receipt-001.pdf", page)
 
+    def test_possible_amount_conflict_has_an_italian_label(self):
+        from alfa_document_intelligence import local_intake_app
+
+        original = local_intake_app._build_case_reconciliation
+
+        def with_possible_conflict(*args, **kwargs):
+            reconciliation, documents, labels = original(*args, **kwargs)
+            reconciliation["lines"][0]["findings"].append("possible_amount_conflict")
+            return reconciliation, documents, labels
+
+        with patch.object(local_intake_app, "_build_case_reconciliation", with_possible_conflict):
+            status, _, page = _request(self.app, path="/cases/case-1/reconciliation")
+        self.assertEqual(status, "200 OK")
+        self.assertIn("Possibile importo discordante".encode("utf-8"), page)
+        self.assertNotIn(b"possible amount conflict", page)
+
     def test_stale_processing_results_cannot_be_reconciled_until_reprocessed(self):
         self.archive.case["processing"]["state"] = "stale"
         status, _, page = _request(self.app, path="/cases/case-1/reconciliation")
@@ -402,6 +461,27 @@ class ExpenseReconciliationUITests(unittest.TestCase):
         self.assertNotIn(b"/chatgpt", page)
         self.assertNotIn("approvazione".encode("utf-8"), page.lower())
         self.assertNotIn(b"pagamento", page.lower())
+
+
+class DateHintDisplayTests(unittest.TestCase):
+    """A8/D3: the preferred reading is shown first and named, the date stays to verify."""
+
+    def _display(self, text):
+        from alfa_document_intelligence.local_intake_app import _candidate_display
+        digest = hashlib.sha256(b"synthetic hint display").hexdigest()
+        line = extract_expense_lines([OCRPageResult(digest, 1, "SyntheticOCR", "1", "it+en", (
+            OCRToken("p1-t1", text, ((.05, .1), (.9, .1), (.9, .15), (.05, .15)), .99),
+        ))])[0]
+        return _candidate_display(line["date"])
+
+    def test_day_month_hint_is_named_and_listed_first(self):
+        self.assertEqual(
+            self._display("02/11/2026 Taxi EUR 11,37"),
+            "Da verificare (suggerito giorno/mese): 2026-11-02 · 2026-02-11",
+        )
+
+    def test_unambiguous_date_is_shown_plainly(self):
+        self.assertEqual(self._display("25/11/2026 Taxi EUR 11,37"), "2026-11-25")
 
 
 if __name__ == "__main__":
