@@ -33,8 +33,8 @@ class _StopRecorder:
 
 
 def _invoke(app, method, path, *, query="", body=b"", origin=ORIGIN,
-            content_type="application/x-www-form-urlencoded"):
-    environ = {"REQUEST_METHOD": method, "PATH_INFO": path, "QUERY_STRING": query, "HTTP_HOST": HOST}
+            content_type="application/x-www-form-urlencoded", host=HOST):
+    environ = {"REQUEST_METHOD": method, "PATH_INFO": path, "QUERY_STRING": query, "HTTP_HOST": host}
     if method == "POST":
         if origin is not None:
             environ["HTTP_ORIGIN"] = origin
@@ -88,9 +88,55 @@ def test_every_html_page_has_exit_button_and_heartbeat_in_app_mode(app_mode):
         controls = page.index('action="/app/exit"')
         if "</main>" in page:
             assert controls < page.rindex("</main>"), path
-    status, headers, page = _invoke(app, "POST", "/clear", body=b"clear=1", origin="https://untrusted.example")
+    # A 403 for a request that passed the Host and Origin checks (missing token on /app/exit).
+    status, headers, page = _invoke(app, "POST", "/app/exit", body=b"x=1")
     assert status.startswith("403")
     _assert_app_controls(page)
+
+
+def test_untrusted_request_pages_never_carry_the_token(app_mode):
+    app, app_lifetime, stop = app_mode
+    status, _, page = _invoke(app, "GET", "/", host="evil.example:8080")
+    assert status.startswith("403")
+    assert "_ocr2_csrf" not in page and "/app/exit" not in page and "<script" not in page
+    status, _, page = _invoke(app, "POST", "/clear", body=b"clear=1", origin="https://untrusted.example")
+    assert status.startswith("403")
+    assert "_ocr2_csrf" not in page and "/app/exit" not in page and "<script" not in page
+    app.close()
+    status, _, page = _invoke(app, "GET", "/")
+    assert status.startswith("503")
+    assert "_ocr2_csrf" not in page and "/app/exit" not in page
+    assert stop.calls == 0
+
+
+def test_opaque_origin_exit_and_closing_need_the_token(app_mode):
+    app, app_lifetime, stop = app_mode
+    presence = app_lifetime.presence
+    _, _, page = _invoke(app, "GET", "/")
+    token = _token(page)
+    presence._clock.now += 3  # past the navigation window after GET /
+    _invoke(app, "GET", "/app/heartbeat", query="w=finestra")
+    presence._clock.now += 3
+    status, _, _ = _invoke(app, "POST", "/app/closing", body=b"w=finestra", origin="null")
+    assert status.startswith("403")
+    assert "finestra" in presence._last_beat
+    status, _, _ = _invoke(app, "POST", "/app/closing", origin="null",
+                           body=urlencode({"w": "finestra", "_ocr2_csrf": token}).encode())
+    assert status.startswith("204")
+    assert "finestra" not in presence._last_beat
+    oversized = urlencode({"_ocr2_csrf": token, "pad": "x" * 5000}).encode()
+    status, _, _ = _invoke(app, "POST", "/app/exit", body=oversized, origin="null")
+    assert status.startswith("403")
+    status, _, _ = _invoke(app, "POST", "/app/exit", body=b"x=1", origin="null")
+    assert status.startswith("403")
+    app_lifetime.start()
+    time.sleep(0.1)
+    assert stop.calls == 0
+    status, _, page = _invoke(app, "POST", "/app/exit", body=urlencode({"_ocr2_csrf": token}).encode(), origin="null")
+    assert status.startswith("200")
+    assert "OCR2 si è chiuso." in page
+    assert app_lifetime.stopped.wait(5)
+    assert stop.calls == 1
 
 
 def test_no_exit_button_without_app_mode(tmp_path):

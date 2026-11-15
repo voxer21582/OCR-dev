@@ -28,8 +28,13 @@ from typing import Callable
 _WINDOW_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
+def is_valid_window_id(window_id: object) -> bool:
+    """Window ids are 1-64 characters from [A-Za-z0-9_-]."""
+    return isinstance(window_id, str) and _WINDOW_ID.fullmatch(window_id) is not None
+
+
 def _check_window_id(window_id: str) -> str:
-    if not isinstance(window_id, str) or _WINDOW_ID.fullmatch(window_id) is None:
+    if not is_valid_window_id(window_id):
         raise ValueError("invalid window id")
     return window_id
 

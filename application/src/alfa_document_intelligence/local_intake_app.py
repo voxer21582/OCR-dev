@@ -25,7 +25,7 @@ from pathlib import Path
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 
 from . import __version__ as _PACKAGE_VERSION
-from .app_lifetime import AppInfo, AppLifetime
+from .app_lifetime import AppInfo, AppLifetime, is_valid_window_id
 from .chatgpt_handoff import ChatGPTHandoffError, build_chatgpt_handoff_prompt
 from .contracts import _validate_custom_value, validate_document_record
 from .expense_reports import (
@@ -349,7 +349,6 @@ _APP_CONTROLS = (
     ' <a href="/app/info">Informazioni</a></nav>'
     '<script nonce="__CSP_NONCE__">' + _APP_WINDOW_SCRIPT + "</script>"
 )
-_APP_WINDOW_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def _app_info_page(info: AppInfo | None) -> str:
@@ -376,18 +375,19 @@ def _app_info_page(info: AppInfo | None) -> str:
 
 def _app_window_form(environ: dict[str, Any], csrf_token: str) -> dict[str, list[str]] | None:
     """Parse a small urlencoded app form; None unless it carries exactly the session token."""
-    if environ.get("_opaque_origin_csrf_validated") is True:
-        cached = environ.get("_parsed_form_values")
-        return cached if isinstance(cached, dict) else None
-    header = Message()
-    header["content-type"] = environ.get("CONTENT_TYPE", "")
-    if header.get_content_type() != "application/x-www-form-urlencoded":
-        return None
     try:
         length = int(environ.get("CONTENT_LENGTH", ""))
     except (TypeError, ValueError):
         return None
     if length <= 0 or length > 4096:
+        return None
+    if environ.get("_opaque_origin_csrf_validated") is True:
+        # The opaque-origin gate already checked exactly one matching token.
+        cached = environ.get("_parsed_form_values")
+        return cached if isinstance(cached, dict) else None
+    header = Message()
+    header["content-type"] = environ.get("CONTENT_TYPE", "")
+    if header.get_content_type() != "application/x-www-form-urlencoded":
         return None
     body = environ["wsgi.input"].read(length)
     if not isinstance(body, bytes) or len(body) != length:
@@ -2042,8 +2042,6 @@ def create_expense_report_app(
             if app_closed:
                 return _page(environ, start_response, "503 Service Unavailable", "Servizio locale in arresto")
         environ["_ocr2_csrf_token"] = csrf_token
-        if app_lifetime is not None:
-            environ["_ocr2_app_lifetime"] = app_lifetime
         if _loopback_host_parts(environ.get("HTTP_HOST", "")) is None:
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
         if app_lifetime is not None and environ.get("PATH_INFO", "") not in {"/app/heartbeat", "/app/closing"}:
@@ -2052,6 +2050,10 @@ def create_expense_report_app(
             app_lifetime.presence.activity()
         if environ.get("REQUEST_METHOD", "") == "POST" and not environ.get("_review_post_validated") and not _validate_loopback_post(environ, csrf_token):
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+        if app_lifetime is not None:
+            # Only now: pages for a foreign Host or a rejected POST must not
+            # carry the Esci form, which holds the session token.
+            environ["_ocr2_app_lifetime"] = app_lifetime
         app_path = environ.get("PATH_INFO", "")
         if app_path.startswith("/app/"):
             app_method = environ.get("REQUEST_METHOD", "")
@@ -2068,7 +2070,7 @@ def create_expense_report_app(
                     window_ids = parse_qs(str(environ.get("QUERY_STRING", "")), strict_parsing=True, max_num_fields=4).get("w", [])
                 except ValueError:
                     window_ids = []
-                if len(window_ids) != 1 or _APP_WINDOW_ID.fullmatch(window_ids[0]) is None:
+                if len(window_ids) != 1 or not is_valid_window_id(window_ids[0]):
                     return _page(environ, start_response, "400 Bad Request", "Finestra non valida", "text/plain; charset=utf-8")
                 app_lifetime.presence.heartbeat(window_ids[0])
                 start_response("204 No Content", [("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")])
@@ -2080,7 +2082,7 @@ def create_expense_report_app(
                 return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
             if app_path == "/app/closing":
                 window_ids = form.get("w", [])
-                if len(window_ids) != 1 or _APP_WINDOW_ID.fullmatch(window_ids[0]) is None:
+                if len(window_ids) != 1 or not is_valid_window_id(window_ids[0]):
                     return _page(environ, start_response, "400 Bad Request", "Finestra non valida", "text/plain; charset=utf-8")
                 app_lifetime.presence.closing(window_ids[0])
                 start_response("204 No Content", [("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")])
