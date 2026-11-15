@@ -1,0 +1,18 @@
+test_accepts_synthetic_markdown_evidence (test_public_data_guard.EvidenceFolderGuardTests.test_accepts_synthetic_markdown_evidence) ... ok
+test_evidence_screenshot_requires_exact_allowlisted_hash (test_public_data_guard.EvidenceFolderGuardTests.test_evidence_screenshot_requires_exact_allowlisted_hash) ... ok
+test_rejects_email_in_nested_json_evidence (test_public_data_guard.EvidenceFolderGuardTests.test_rejects_email_in_nested_json_evidence) ... ok
+test_rejects_posix_style_user_paths (test_public_data_guard.EvidenceFolderGuardTests.test_rejects_posix_style_user_paths) ... ok
+test_rejects_user_profile_path_without_echoing_it (test_public_data_guard.EvidenceFolderGuardTests.test_rejects_user_profile_path_without_echoing_it) ... ok
+test_repository_evidence_folder_is_clean (test_public_data_guard.EvidenceFolderGuardTests.test_repository_evidence_folder_is_clean) ... ok
+test_accepts_allowlisted_synthetic_json_inputs (test_public_data_guard.PublicDataGuardTests.test_accepts_allowlisted_synthetic_json_inputs) ... ok
+test_rejects_direct_identifier_fields (test_public_data_guard.PublicDataGuardTests.test_rejects_direct_identifier_fields) ... ok
+test_rejects_email_like_value_without_echoing_it (test_public_data_guard.PublicDataGuardTests.test_rejects_email_like_value_without_echoing_it) ... ok
+test_rejects_email_tax_code_iban_and_credential_patterns (test_public_data_guard.PublicDataGuardTests.test_rejects_email_tax_code_iban_and_credential_patterns) ... ok
+test_rejects_identifier_keys_after_separator_normalization (test_public_data_guard.PublicDataGuardTests.test_rejects_identifier_keys_after_separator_normalization) ... ok
+test_rejects_italian_phone_like_values (test_public_data_guard.PublicDataGuardTests.test_rejects_italian_phone_like_values) ... ok
+test_requires_all_allowlisted_files_and_rejects_symlinks (test_public_data_guard.PublicDataGuardTests.test_requires_all_allowlisted_files_and_rejects_symlinks) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.363s
+
+OK

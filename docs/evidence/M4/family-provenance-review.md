@@ -1,0 +1,3 @@
+# Revisione indipendente — provenienza famiglia iniziale
+
+Il 2026-11-15 il revisore indipendente ha esaminato il commit `0d20b89` in sola lettura: nessun difetto concreto nel perimetro verificato. La famiglia iniziale proviene dal valore top-level senza attribuzione delle prove di una proposta; gli eventi successivi conservano le proprie evidenze. La pagina verifica il registro attraverso `reviewed_overlay`. Il revisore ha eseguito 33 test e 4 sottocasi, tutti passati; comando e output della verifica precedente sono in `family-provenance-green.txt`. Questa revisione non copre l’intera M4 né le funzioni aperte nell’audit PR.

@@ -87,7 +87,9 @@ def test_human_correction_is_appended_with_source_evidence_and_does_not_overwrit
     assert b"Registra correzione" in page
     assert b"Cafe ABC" in page
 
-    correction = urlencode({"value": "Caffè ABC"}).encode()
+    import re
+    head = re.search(rb'name="expected_review_head" value="([a-f0-9]{64})"', page).group(1).decode()
+    correction = urlencode({"value": "Caffè ABC", "expected_review_head": head}).encode()
     status, page = _request(
         app,
         "POST",
@@ -106,3 +108,28 @@ def test_human_correction_is_appended_with_source_evidence_and_does_not_overwrit
     ]
     assert updated["review"]["events"][-1]["candidate"]["evidence"][0]["source_sha256"] == hashlib.sha256(NOTE).hexdigest()
     assert verify_review_ledger(updated)
+
+
+def test_browser_selects_observed_alternative_and_rejects_stale_form(monkeypatch):
+    import re
+    real_create = local_intake_app.create_expense_report_intake_session
+    captured = {}
+    def with_alternative(*args, **kwargs):
+        session = real_create(*args, **kwargs)
+        record = session.documents["doc-001"]
+        record["pages"] = [{"page_number": 1}]
+        evidence = {"source_sha256": record["source"]["sha256"], "page_number": 1, "region": {"x": 10, "y": 10, "width": 100, "height": 20}, "literal": "123.45"}
+        record["fields"]["total_amount"] = {"value": None, "status": "uncertain", "evidence": [evidence],
+            "alternatives": [{"value": "123.45", "status": "observed", "evidence": [evidence]}]}
+        captured["session"] = session
+        return session
+    monkeypatch.setattr(local_intake_app, "create_expense_report_intake_session", with_alternative)
+    app = create_expense_report_app(); assert _upload(app)[0] == "200 OK"
+    assert _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")[0] == "200 OK"
+    page = _request(app, path="/reviews/doc-001")[1]
+    head = re.search(rb'name="expected_review_head" value="([a-f0-9]{64})"', page).group(1).decode()
+    form = urlencode({"expected_review_head": head, "alternative_index": "0", "review_seconds": "0"}).encode()
+    status, page = _request(app, "POST", "/reviews/doc-001/alternatives/total_amount", form, "application/x-www-form-urlencoded")
+    assert status == "200 OK" and b"123.45" in page
+    assert captured["session"].documents["doc-001"]["review"]["events"][-1]["action"] == "alternative_selected"
+    assert _request(app, "POST", "/reviews/doc-001/alternatives/total_amount", form, "application/x-www-form-urlencoded")[0] == "409 Conflict"

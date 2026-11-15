@@ -12,8 +12,9 @@ from typing import Any
 
 from .field_status import failed_rules_by_field, goal_status
 from .contracts import validate_document_record
+from .review_ledger import ReviewRejected, verify_review_ledger
 
-CSV_EXPORT_VERSION = "ocr2-document-csv-v2"
+CSV_EXPORT_VERSION = "ocr2-document-csv-v3"
 CSV_COLUMNS = (
     "export_format_version",
     "document_id",
@@ -25,6 +26,7 @@ CSV_COLUMNS = (
     "goal_status",
     "goal_status_reason",
     "candidate_json",
+    "review_events_json",
 )
 _REQUIRED_RECORD_PROPERTIES = (
     "schema_version",
@@ -56,6 +58,11 @@ def _validated_record(record: dict[str, Any]) -> dict[str, Any]:
         missing = [key for key in _REQUIRED_RECORD_PROPERTIES if key not in record]
         if missing:
             issues.append("record: missing required properties: " + ", ".join(missing))
+    if not issues:
+        try:
+            verify_review_ledger(record)
+        except ReviewRejected:
+            issues.append("review: invalid or tampered ledger")
     if issues:
         raise ExportValidationError(issues)
     return record
@@ -102,7 +109,7 @@ def export_document_csv(record: dict[str, Any]) -> str:
     output = io.StringIO(newline="")
     writer = csv.DictWriter(output, fieldnames=CSV_COLUMNS, lineterminator="\r\n")
     writer.writeheader()
-    for field_name in field_names:
+    for row_index, field_name in enumerate(field_names):
         writer.writerow(
             {
                 "export_format_version": CSV_EXPORT_VERSION,
@@ -118,6 +125,7 @@ def export_document_csv(record: dict[str, Any]) -> str:
                 # cell can begin with a spreadsheet formula character.
                 **_goal_columns(fields.get(field_name), failed_rules.get(field_name, frozenset())),
                 "candidate_json": _json_text(fields[field_name]) if field_name else "",
+                "review_events_json": _json_text(document["review"]["events"]) if row_index == 0 else "",
             }
         )
     return output.getvalue()

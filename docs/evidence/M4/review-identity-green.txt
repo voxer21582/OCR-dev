@@ -1,0 +1,26 @@
+test_local_account_can_be_resolved (test_review_identity.ReviewIdentityTests.test_local_account_can_be_resolved) ... ok
+test_new_events_use_server_identity (test_review_identity.ReviewIdentityTests.test_new_events_use_server_identity) ... ok
+test_unavailable_identity_cannot_create_events (test_review_identity.ReviewIdentityTests.test_unavailable_identity_cannot_create_events) ... ok
+test_broken_hash_link_is_detected (test_review_ledger.ReviewLedgerTests.test_broken_hash_link_is_detected) ... ok
+test_completed_review_is_terminal (test_review_ledger.ReviewLedgerTests.test_completed_review_is_terminal) ... ok
+test_corrected_candidate_must_bind_to_source_evidence (test_review_ledger.ReviewLedgerTests.test_corrected_candidate_must_bind_to_source_evidence) ... ok
+test_document_family_review_is_evidence_bound_and_separate_from_fiscal_state (test_review_ledger.ReviewLedgerTests.test_document_family_review_is_evidence_bound_and_separate_from_fiscal_state) ... ok
+test_document_family_review_must_select_an_evidence_bound_candidate (test_review_ledger.ReviewLedgerTests.test_document_family_review_must_select_an_evidence_bound_candidate) ... ok
+test_field_change_requires_active_review_and_reason (test_review_ledger.ReviewLedgerTests.test_field_change_requires_active_review_and_reason) ... ok
+test_fiscal_document_status_prevents_later_pos_family_selection (test_review_ledger.ReviewLedgerTests.test_fiscal_document_status_prevents_later_pos_family_selection) ... ok
+test_fiscal_state_correction_is_logged_without_overwriting_extraction (test_review_ledger.ReviewLedgerTests.test_fiscal_state_correction_is_logged_without_overwriting_extraction) ... ok
+test_fiscal_state_correction_requires_bound_evidence (test_review_ledger.ReviewLedgerTests.test_fiscal_state_correction_requires_bound_evidence) ... ok
+test_pos_family_and_fiscal_status_remain_separate_with_conflicts_rejected (test_review_ledger.ReviewLedgerTests.test_pos_family_and_fiscal_status_remain_separate_with_conflicts_rejected) ... ok
+test_review_workflow_is_append_only_and_separate_from_admin (test_review_ledger.ReviewLedgerTests.test_review_workflow_is_append_only_and_separate_from_admin) ... ok
+test_reviewed_overlay_derives_corrections_without_mutating_extraction (test_review_ledger.ReviewLedgerTests.test_reviewed_overlay_derives_corrections_without_mutating_extraction) ... ok
+test_reviewed_overlay_includes_unmodified_fields_and_extraction (test_review_ledger.ReviewLedgerTests.test_reviewed_overlay_includes_unmodified_fields_and_extraction) ... ok
+test_reviewed_overlay_rejects_tampered_ledger (test_review_ledger.ReviewLedgerTests.test_reviewed_overlay_rejects_tampered_ledger) ... ok
+test_tampered_event_is_detected (test_review_ledger.ReviewLedgerTests.test_tampered_event_is_detected) ... ok
+test_required_check_name_is_unchanged (test_ci_workflow.CiWorkflowTests.test_required_check_name_is_unchanged) ... ok
+test_ubuntu_job_runs_every_application_test_module (test_ci_workflow.CiWorkflowTests.test_ubuntu_job_runs_every_application_test_module) ... ok
+test_windows_job_runs_every_application_test_module (test_ci_workflow.CiWorkflowTests.test_windows_job_runs_every_application_test_module) ... ok
+
+----------------------------------------------------------------------
+Ran 21 tests in 0.054s
+
+OK

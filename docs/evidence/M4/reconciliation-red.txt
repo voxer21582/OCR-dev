@@ -1,0 +1,28 @@
+test_reconciliation_review_records_actor_utc_and_replays_safely (test_expense_reconciliation.ExpenseReconciliationTests.test_reconciliation_review_records_actor_utc_and_replays_safely) ... ERROR
+test_reconciliation_rejects_non_utc_timestamp (test_expense_reconciliation.ExpenseReconciliationTests.test_reconciliation_rejects_non_utc_timestamp) ... ERROR
+
+======================================================================
+ERROR: test_reconciliation_review_records_actor_utc_and_replays_safely (test_expense_reconciliation.ExpenseReconciliationTests.test_reconciliation_review_records_actor_utc_and_replays_safely)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    first = append_line_review(result, expected_case_revision=result["case_revision"], **review)
+TypeError: append_line_review() got an unexpected keyword argument 'actor_id'
+
+======================================================================
+ERROR: test_reconciliation_rejects_non_utc_timestamp (test_expense_reconciliation.ExpenseReconciliationTests.test_reconciliation_rejects_non_utc_timestamp)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    append_line_review(result, expected_case_revision=result["case_revision"], line_id=line["line_id"],
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        expected_line_evidence_sha256=line["evidence_sha256"], action="rejected", candidate_sources=[],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        event_id="event-bad-time", reviewer_note=None, actor_id="synthetic", timestamp="2026-11-15T12:00:00+01:00")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: append_line_review() got an unexpected keyword argument 'actor_id'
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.007s
+
+FAILED (errors=2)

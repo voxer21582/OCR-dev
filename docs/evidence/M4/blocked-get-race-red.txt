@@ -1,0 +1,47 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+____________________ test_old_page_cannot_erase_new_draft _____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002012244C770>
+
+    def test_old_page_cannot_erase_new_draft(monkeypatch):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        real = local_intake_app.create_expense_report_intake_session
+        captured = {}
+        def create(*args, **kwargs):
+            session = real(*args, **kwargs); captured["session"] = session; return session
+        monkeypatch.setattr(local_intake_app, "create_expense_report_intake_session", create)
+        monkeypatch.setattr(local_intake_app, "build_chatgpt_handoff_prompt", lambda bundle, docs: "synthetic " + docs["doc-001"]["document_family"])
+        app=create_expense_report_app(); _upload(app)
+        _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")
+        entered, release = threading.Event(), threading.Event()
+        original = local_intake_app._handoff_state
+        old_thread = [None]
+        def delayed(session):
+            result=original(session)
+            if threading.get_ident() == old_thread[0]:
+                entered.set()
+                if not release.wait(3): raise RuntimeError("test release timed out")
+            return result
+        def old_get():
+            old_thread[0] = threading.get_ident()
+            return _request(app, path="/chatgpt")
+        try:
+            monkeypatch.setattr(local_intake_app, "_handoff_state", delayed)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                old = pool.submit(old_get); assert entered.wait(2)
+                captured["session"].documents["doc-001"]["document_family"] = "other"
+                page = _request(app, path="/chatgpt")[1]
+                digest = re.search(rb'name="draft_prompt_sha256" value="([a-f0-9]{64})"', page).group(1).decode()
+                form = urlencode({"draft_prompt_sha256": digest, "draft": "synthetic draft"}).encode()
+                saved = _request(app, "POST", "/chatgpt/return", form, "application/x-www-form-urlencoded")
+                assert saved[0]["status"] == "200 OK"
+                release.set(); old.result(timeout=3)
+>               assert b"synthetic draft" in _request(app, path="/chatgpt")[1]
+E               assert b'synthetic draft' in b'<!doctype html><html lang="it"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale...button type="submit">Salva bozza nella sessione</button></form><p><a href="/">Torna al fascicolo</a></p></main></html>'
+
+tests\test_manual_chatgpt_handoff_ui.py:203: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_manual_chatgpt_handoff_ui.py::test_old_page_cannot_erase_new_draft
+1 failed in 0.58s

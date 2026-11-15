@@ -1,0 +1,24 @@
+FF                                                                       [100%]
+================================== FAILURES ===================================
+_ FieldStatusPresentationTests.test_observed_alternative_can_be_selected_with_its_evidence _
+
+self = <test_field_status_presentation.FieldStatusPresentationTests testMethod=test_observed_alternative_can_be_selected_with_its_evidence>
+
+    def test_observed_alternative_can_be_selected_with_its_evidence(self):
+>       from alfa_document_intelligence.local_intake_app import _apply_alternative_selection
+[percorso locale omesso]
+
+tests\test_field_status_presentation.py:118: ImportError
+_ FieldStatusPresentationTests.test_alternative_selection_rejects_uncertain_or_out_of_range _
+
+self = <test_field_status_presentation.FieldStatusPresentationTests testMethod=test_alternative_selection_rejects_uncertain_or_out_of_range>
+
+    def test_alternative_selection_rejects_uncertain_or_out_of_range(self):
+>       from alfa_document_intelligence.local_intake_app import _apply_alternative_selection, IntakeRequestError
+[percorso locale omesso]
+
+tests\test_field_status_presentation.py:132: ImportError
+=========================== short test summary info ===========================
+FAILED tests/test_field_status_presentation.py::FieldStatusPresentationTests::test_observed_alternative_can_be_selected_with_its_evidence
+FAILED tests/test_field_status_presentation.py::FieldStatusPresentationTests::test_alternative_selection_rejects_uncertain_or_out_of_range
+2 failed in 0.45s

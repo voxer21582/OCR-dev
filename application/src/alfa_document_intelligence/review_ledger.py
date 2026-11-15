@@ -10,6 +10,7 @@ import uuid
 from typing import Any
 
 from .contracts import validate_document_record
+from .document_family_catalog import validate_family_snapshot
 
 _REVIEW_STATUSES = {"not_started", "queued", "in_progress", "completed", "blocked"}
 _ACTIONS = {"queued", "opened", "field_corrected", "alternative_selected", "fiscal_state_corrected", "flagged", "completed", "returned"}
@@ -17,7 +18,7 @@ _EDIT_ACTIONS = {"field_corrected", "alternative_selected"}
 _DOCUMENT_FAMILY_VALUES = {"invoice", "fiscal_receipt", "parking_receipt", "hotel_document", "pos_slip", "other", "unknown"}
 _FIELD = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _COMMON_KEYS = {"event_id", "actor_id", "action", "timestamp", "previous_event_hash", "event_hash"}
-_ALLOWED_KEYS = _COMMON_KEYS | {"field_name", "reason_code", "candidate", "fiscal_state"}
+_ALLOWED_KEYS = _COMMON_KEYS | {"field_name", "reason_code", "candidate", "fiscal_state", "document_family_snapshot"}
 _STAGE_NAMES = ("ingestion", "ocr", "semantic_extraction", "document_validation", "administrative_verification")
 
 
@@ -86,13 +87,15 @@ def _validate_candidate(record: dict[str, Any], field_name: str, candidate: Any)
     source = record.get("source")
     pages = record.get("pages")
     probe = {
-        "schema_version": "0.1.0",
+        "schema_version": record.get("schema_version"),
         "source": source,
         "fiscal_document_state": record.get("fiscal_document_state"),
         "pages": pages,
         "processing": {name: {"status": "not_started"} for name in _STAGE_NAMES},
         "fields": {field_name: candidate},
     }
+    if "document_family_definitions" in record:
+        probe["document_family_definitions"] = record["document_family_definitions"]
     issues = validate_document_record(probe)
     if issues:
         raise ReviewRejected("review candidate violates source-evidence contract: " + "; ".join(issues))
@@ -135,14 +138,23 @@ def _effective_fiscal_state(record: dict[str, Any], prior_events: list[dict[str,
 
 def _validate_document_family_candidate(
     record: dict[str, Any], candidate: Any, prior_events: list[dict[str, Any]]
-) -> None:
+) -> dict[str, Any] | None:
     if record.get("document_family") == "expense_report":
         raise ReviewRejected("expense note family cannot be corrected as a supporting document family")
     if not isinstance(candidate, dict) or candidate.get("status") != "observed":
         raise ReviewRejected("document family selection must be an observed candidate")
     value = candidate.get("value")
-    if value not in _DOCUMENT_FAMILY_VALUES:
+    snapshot = None
+    if not isinstance(value, str):
         raise ReviewRejected("document family selection is unsupported")
+    if value not in _DOCUMENT_FAMILY_VALUES:
+        definitions = record.get("document_family_definitions")
+        if not isinstance(definitions, list) or any(validate_family_snapshot(item) for item in definitions):
+            raise ReviewRejected("custom document family requires valid embedded snapshots")
+        matches = [item for item in definitions if item["family"]["id"] == value]
+        if len(matches) != 1:
+            raise ReviewRejected("custom document family requires one matching snapshot")
+        snapshot = deepcopy(matches[0])
     proposal = record.get("fields", {}).get("document_family_candidates")
     alternatives = proposal.get("alternatives") if isinstance(proposal, dict) else None
     if not isinstance(alternatives, list):
@@ -161,6 +173,7 @@ def _validate_document_family_candidate(
         and _effective_fiscal_state(record, prior_events).get("status") == "fiscal_document"
     ):
         raise ReviewRejected("a document with fiscal-document status cannot be reclassified as a POS slip")
+    return snapshot
 
 
 def _validate_event_shape(
@@ -173,6 +186,8 @@ def _validate_event_shape(
             raise ReviewRejected(f"review {key} is required")
     if not isinstance(event["action"], str) or event["action"] not in _ACTIONS:
         raise ReviewRejected("review action is unsupported")
+    if "document_family_snapshot" in event and (event["action"] not in _EDIT_ACTIONS or event.get("field_name") != "document_family"):
+        raise ReviewRejected("document family snapshot is only allowed on a family selection")
     timestamp = _timestamp(event.get("timestamp"))
     if event.get("action") in _EDIT_ACTIONS:
         if not isinstance(event.get("reason_code"), str) or not event["reason_code"].strip():
@@ -180,8 +195,19 @@ def _validate_event_shape(
         _validate_candidate(record, event.get("field_name"), event.get("candidate"))
         if event["action"] == "alternative_selected" and event["candidate"].get("status") != "observed":
             raise ReviewRejected("selected alternative must become an observed candidate")
+        if event["action"] == "alternative_selected" and event.get("reason_code") == "human_selected_alternative":
+            original = record.get("fields", {}).get(event.get("field_name"))
+            options = original.get("alternatives", []) if isinstance(original, dict) else []
+            supported = any(isinstance(option, dict) and option.get("status") == "observed"
+                            and {**option, "alternatives": []} == event["candidate"] for option in options)
+            if not supported:
+                raise ReviewRejected("selected alternative must match an observed original")
         if event.get("field_name") == "document_family":
-            _validate_document_family_candidate(record, event.get("candidate"), prior_events)
+            snapshot = _validate_document_family_candidate(record, event.get("candidate"), prior_events)
+            if snapshot is not None and event.get("document_family_snapshot") != snapshot:
+                raise ReviewRejected("custom document family event must bind its snapshot")
+            if snapshot is None and "document_family_snapshot" in event:
+                raise ReviewRejected("built-in document family cannot contain a custom snapshot")
     elif event["action"] == "fiscal_state_corrected":
         if not isinstance(event.get("reason_code"), str) or not event["reason_code"].strip():
             raise ReviewRejected("fiscal-state review action requires reason_code")
@@ -309,6 +335,10 @@ def append_review_event(
             event["reason_code"] = reason_code
     if action in _EDIT_ACTIONS and candidate is not None:
         event["candidate"] = deepcopy(candidate)
+        if field_name == "document_family":
+            snapshot = _validate_document_family_candidate(record, candidate, review["events"])
+            if snapshot is not None:
+                event["document_family_snapshot"] = snapshot
     if action == "fiscal_state_corrected" and fiscal_state is not None:
         event["fiscal_state"] = deepcopy(fiscal_state)
     event["event_hash"] = _event_hash(event)

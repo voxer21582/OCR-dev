@@ -1,0 +1,22 @@
+test_evidence_screenshot_requires_exact_allowlisted_hash (test_public_data_guard.EvidenceFolderGuardTests.test_evidence_screenshot_requires_exact_allowlisted_hash) ... ERROR
+
+======================================================================
+ERROR: test_evidence_screenshot_requires_exact_allowlisted_hash (test_public_data_guard.EvidenceFolderGuardTests.test_evidence_screenshot_requires_exact_allowlisted_hash)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    with patch.object(public_data_guard, "_EVIDENCE_IMAGE_HASHES", {"M4/screen.jpg": hashlib.sha256(data).hexdigest()}):
+         ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[percorso locale omesso]
+    original, local = self.get_original()
+                      ~~~~~~~~~~~~~~~~~^^
+[percorso locale omesso]
+    raise AttributeError(
+        "%s does not have the attribute %r" % (target, name)
+    )
+[percorso locale omesso]
+
+----------------------------------------------------------------------
+Ran 1 test in 0.081s
+
+FAILED (errors=1)

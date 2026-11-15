@@ -1,0 +1,70 @@
+.............................................. [  5%]
+......................................................................................................................................................... [ 24%]
+................................................................................................................................................................................. [ 46%]
+............................................ [ 52%]
+.................................................................... [ 60%]
+.............................................F...................... [ 69%]
+............................................ [ 74%]
+.......................................................................................................... [ 88%]
+.......................................................... [ 95%]
+.................................. [ 99%]
+....                                                                     [100%]
+================================== FAILURES ===================================
+_ ManualRegionEvidenceTests.test_browser_can_append_source_bound_human_correction_with_opaque_origin_token _
+
+self = <test_manual_region_review.ManualRegionEvidenceTests testMethod=test_browser_can_append_source_bound_human_correction_with_opaque_origin_token>
+
+    def test_browser_can_append_source_bound_human_correction_with_opaque_origin_token(self):
+        def processor(record, _source):
+            record["pages"] = [{"page_number": 1}]
+            record["fields"]["merchant_name"] = {
+                "value": None, "status": "absent", "evidence": [], "alternatives": [],
+            }
+            return record
+
+        app = create_expense_report_app(document_processor=processor)
+
+        def invoke(method, path, body=b"", content_type="", origin="http://127.0.0.1:8080"):
+            response = {}
+            environ = {
+                "REQUEST_METHOD": method, "PATH_INFO": path, "HTTP_HOST": "127.0.0.1:8080",
+                "CONTENT_LENGTH": str(len(body)) if body else "", "CONTENT_TYPE": content_type,
+                "wsgi.input": io.BytesIO(body),
+            }
+            if origin is not None:
+                environ["HTTP_ORIGIN"] = origin
+            payload = b"".join(app(environ, lambda status, headers: response.update(status=status, headers=dict(headers))))
+            return response, payload
+
+        boundary = "synthetic-region-correction"
+        source = b"%PDF-1.7\nsynthetic source\n"
+        upload = (
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"receipt.pdf\"\r\n"
+            "Content-Type: application/pdf\r\n\r\n"
+        ).encode("ascii") + source + f"\r\n--{boundary}--\r\n".encode("ascii")
+        response, _ = invoke("POST", "/upload", upload, f"multipart/form-data; boundary={boundary}")
+        self.assertTrue(response["status"].startswith("200"))
+        assignment = b"note_document_id=doc-001"
+        response, _ = invoke("POST", "/assign-note", assignment, "application/x-www-form-urlencoded")
+        self.assertTrue(response["status"].startswith("200"))
+        response, page = invoke("GET", "/reviews/doc-001")
+        self.assertTrue(response["status"].startswith("200"))
+        self.assertIn(b"data-region-image", page)
+        token_match = re.search(rb'name="_ocr2_csrf" value="([A-Za-z0-9_-]+)"', page)
+        self.assertIsNotNone(token_match)
+        form = urlencode({
+            "_ocr2_csrf": token_match.group(1).decode("ascii"), "value": "Hotel Sintetico",
+            "region_page": "1", "region_x0": "0.1", "region_y0": "0.2",
+            "region_x1": "0.7", "region_y1": "0.4", "review_seconds": "0",
+        }).encode("ascii")
+        response, result = invoke(
+            "POST", "/reviews/doc-001/fields/merchant_name", form,
+            "application/x-www-form-urlencoded", origin="null",
+        )
+        self.assertTrue(response["status"].startswith("200"))
+        self.assertIn(b"Hotel Sintetico", result)
+>       self.assertIn(b"regione selezionata e verificata da una persona", result)
+E       AssertionError: b'regione selezionata e verificata da una persona' not found in b'<!doctype html><html lang="it"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Revisione documento</title><main><p><a href="/">Torna al fascicolo</a></p><h1>Revisione doc-001</h1><p>Stato revisione: in_progress. Le correzioni si aggiungono al registro; i dati OC [output troncato]
+
+tests\test_manual_region_review.py:80: AssertionError
+1 failed, 801 passed, 354 subtests passed in 27.28s

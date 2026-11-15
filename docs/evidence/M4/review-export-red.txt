@@ -1,0 +1,15 @@
+test_csv_carries_complete_review_history_as_safe_json (test_document_export.DocumentExportTests.test_csv_carries_complete_review_history_as_safe_json) ... ERROR
+
+======================================================================
+ERROR: test_csv_carries_complete_review_history_as_safe_json (test_document_export.DocumentExportTests.test_csv_carries_complete_review_history_as_safe_json)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<local-path>", line 33, in test_csv_carries_complete_review_history_as_safe_json
+    self.assertEqual(json.loads(rows[0]["review_events_json"]), record["review"]["events"])
+                                ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'review_events_json'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.025s
+
+FAILED (errors=1)

@@ -1,0 +1,890 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_______ test_clearing_session_during_draft_save_does_not_crash_or_save ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000208CEFBC770>
+
+    def test_clearing_session_during_draft_save_does_not_crash_or_save(monkeypatch):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        real = local_intake_app.create_expense_report_intake_session
+        def create(*args, **kwargs): return real(*args, **kwargs)
+        monkeypatch.setattr(local_intake_app, "create_expense_report_intake_session", create)
+        monkeypatch.setattr(local_intake_app, "build_chatgpt_handoff_prompt", lambda bundle, docs: "synthetic")
+        app = create_expense_report_app(); _upload(app)
+        _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")
+        page = _request(app, path="/chatgpt")[1]
+        digest = re.search(rb'name="draft_prompt_sha256" value="([a-f0-9]{64})"', page).group(1).decode()
+        entered, release = threading.Event(), threading.Event()
+        original = local_intake_app._handoff_state
+        def delayed(state):
+            result = original(state); entered.set()
+            if not release.wait(3): raise RuntimeError("test release timed out")
+            return result
+        form = urlencode({"draft_prompt_sha256": digest, "draft": "synthetic"}).encode()
+        try:
+            monkeypatch.setattr(local_intake_app, "_handoff_state", delayed)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                future = pool.submit(_request, app, "POST", "/chatgpt/return", form, "application/x-www-form-urlencoded")
+                assert entered.wait(2)
+                assert _request(app, "POST", "/clear", b"clear=1", "application/x-www-form-urlencoded")[0]["status"] == "200 OK"
+                release.set()
+>               assert future.result(timeout=3)[0]["status"] == "409 Conflict"
+                       ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_manual_chatgpt_handoff_ui.py:165:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+..\..\..\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py:460: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+..\..\..\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py:402: in __get_result
+    raise self._exception
+..\..\..\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py:59: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_manual_chatgpt_handoff_ui.py:29: in _request
+    return result, b"".join(app(environ, start_response))
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\alfa_document_intelligence\local_intake_app.py:2890: in serialized_app
+    return app(environ, start_response)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+environ = {'REQUEST_METHOD': 'POST', 'PATH_INFO': '/chatgpt/return', 'HTTP_HOST': '127.0.0.1:8080', 'HTTP_ORIGIN': 'http://127.0.0.1:8080', ...}
+start_response = <function _request.<locals>.start_response at 0x00000208CEFD63E0>
+
+    def app(environ: dict[str, Any], start_response: Callable) -> list[bytes]:
+        nonlocal state
+        with state_lock:
+            if app_closed:
+                return _page(environ, start_response, "503 Service Unavailable", "Servizio locale in arresto")
+        environ["_ocr2_csrf_token"] = csrf_token
+        if _loopback_host_parts(environ.get("HTTP_HOST", "")) is None:
+            return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+        if environ.get("REQUEST_METHOD", "") == "POST" and not environ.get("_review_post_validated") and not _validate_loopback_post(environ, csrf_token):
+            return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+        now = clock()
+        if state is not None and now - state.last_activity > idle_timeout_seconds:
+            expired = state
+            with state_lock:
+                if state is expired:
+                    state = None
+            cancel_session(expired)
+        method = environ.get("REQUEST_METHOD", "")
+        path = environ.get("PATH_INFO", "")
+        case_route = _CASE_PATH.fullmatch(path)
+        case_reconciliation_route = _CASE_RECONCILIATION_PATH.fullmatch(path)
+        if path == "/catalog" or path.startswith("/catalog/"):
+            if family_catalog_store is None:
+                return _page(environ, start_response, "503 Service Unavailable", "Catalogo dei tipi non configurato")
+            if method == "GET" and path == "/catalog":
+                return _page(environ, start_response, "200 OK", render_catalog_page(catalog_state["catalog"]))
+            if method == "GET" and path == "/catalog/export":
+                catalog = catalog_state["catalog"]
+                body = catalog.as_json() if catalog is not None else '{"catalog_version":"2","families":[]}\n'
+                return _page(environ, start_response, "200 OK", body, "application/json; charset=utf-8",
+                             download_filename="ocr2-catalogo-tipi.json")
+            if method == "POST" and path in {"/catalog/families", "/catalog/import"}:
+                if not _same_origin_loopback_post(environ):
+                    return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                current = catalog_state["catalog"]
+                try:
+                    if path == "/catalog/families":
+                        # Reuse the body the CSRF gate may already have parsed (Origin: null
+                        # from the sandboxed page); reading the stream again would block.
+                        form = {
+                            key: items[0] for key, items in
+                            _multipart_form_values(environ, max_form_bytes=CATALOG_FORM_MAX_BYTES).items()
+                            if len(items) == 1
+                        }
+                        family = family_from_form(
+                            label=form.get("label", ""), title_cues=form.get("title_cues", ""),
+                            fields=form.get("fields", ""),
+                        )
+                        base = current if current is not None else load_custom_family_catalog('{"catalog_version":"2","families":[]}')
+                        raw = catalog_with_family(base, family)
+                        done = f"Tipo �{family['label']}� aggiunto."
+                    else:
+                        files, _fields = _multipart_files_and_fields(environ)
+                        if len(files) != 1:
+                            raise CatalogFormError("Scegli un solo file di catalogo.")
+                        raw = files[0][1]
+                        done = "Catalogo importato."
+                    with state_lock:
+                        saved = save_with_history(family_catalog_store, raw, catalog_state["catalog"])
+                        catalog_state["catalog"] = saved
+                        setter = getattr(expense_case_processing_manager, "set_custom_family_catalog", None)
+                        if callable(setter):
+                            setter(saved)
+                except CatalogFormError as exc:
+                    return _page(environ, start_response, "400 Bad Request", render_catalog_page(current, error=str(exc)))
+                except DocumentFamilyCatalogError as exc:
+                    return _page(environ, start_response, "400 Bad Request", render_catalog_page(
+                        current, error=explain_catalog_error(exc) + " Il catalogo precedente resta in uso.",
+                    ))
+                except (IntakeRequestError, UploadRejected):
+                    return _page(environ, start_response, "400 Bad Request", render_catalog_page(
+                        current, error="Il file non � stato ricevuto correttamente. Il catalogo precedente resta in uso.",
+                    ))
+                return _page(environ, start_response, "200 OK", render_catalog_page(saved, message=done))
+            return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+        case_review_route = _CASE_REVIEW_PATH.fullmatch(path)
+        case_export_route = _CASE_EXPORT_PATH.fullmatch(path)
+        case_inclusion_route = _CASE_INCLUSION_PATH.fullmatch(path)
+        case_page_route = _CASE_PAGE_PATH.fullmatch(path)
+        case_intake_route = re.fullmatch(r"/cases/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/intake", path)
+        case_work_route = _CASE_WORK_ROUTE.fullmatch(path)
+        is_case_route = (
+            path == "/cases" or case_route is not None
+            or case_intake_route is not None or case_work_route is not None
+            or case_reconciliation_route is not None or case_review_route is not None
+            or case_export_route is not None or case_inclusion_route is not None
+            or case_page_route is not None
+        )
+        if is_case_route:
+            if archive_store is None:
+                return _page(environ, start_response, "503 Service Unavailable", "Archivio locale non configurato")
+            if path == "/cases":
+                if method == "GET":
+                    try:
+                        cases = archive_store.list_cases(limit=100)
+                        return _page(environ, start_response, "200 OK", _expense_case_index_page(cases))
+                    except StoreError:
+                        return _page(environ, start_response, "500 Internal Server Error", "Fascicoli non disponibili")
+                if method == "POST":
+                    if not _same_origin_loopback_post(environ):
+                        return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                    try:
+                        files, fields = _multipart_files_and_fields(
+                            environ, allowed_scalar_fields=frozenset({"_case_id"}),
+                        )
+                        if len(files) != 1:
+                            raise IntakeRequestError("Seleziona una sola nota spese definitiva")
+                        case_id = fields.get("_case_id", "")
+                        if not _CASE_CREATE_ID.fullmatch(case_id):
+                            raise IntakeRequestError("Identificatore del fascicolo non valido")
+                        batch = materialize_stream_batch(
+                            [(name, io.BytesIO(data)) for name, data in files],
+                            limits,
+                            max_batch_document_bytes=min(max_batch_document_bytes, _MAX_UPLOAD_REQUEST_BYTES),
+                        )
+                        payloads = tuple(document for upload in batch.uploads for document in upload.documents)
+                        if len(payloads) != 1:
+                            raise IntakeRequestError("La nota spese deve contenere un solo documento")
+                        document_id = "doc-" + hashlib.sha256(
+                            f"OCR2-case-statement-v1\0{case_id}".encode("utf-8")
+                        ).hexdigest()[:36]
+                        received_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                        statement = _document_record_from_materialized(
+                            payloads[0], document_id=document_id, session_id=case_id,
+                            document_family="expense_report", received_at=received_at,
+                        )
+                        manifest = {
+                            "schema_version": "0.1.0",
+                            "case_id": case_id,
+                            "statement_document_id": document_id,
+                            "statement_sha256": statement["source"]["sha256"],
+                            "attachments": [], "chunks": [], "review_events": [], "inclusion_events": [],
+                            "processing": {"state": "not_started", "cursor": None, "result_bytes": 0},
+                        }
+                        prior = archive_store.get_case(case_id)
+                        if prior is not None:
+                            prior_statement = archive_store.get(prior["statement_document_id"])
+                            if (
+                                prior["statement_document_id"] != document_id
+                                or prior["statement_sha256"] != statement["source"]["sha256"]
+                                or prior_statement is None
+                                or prior_statement.source_bytes != payloads[0].data
+                            ):
+                                return _page(environ, start_response, "409 Conflict", "Identificatore gi� associato a un altro fascicolo.")
+                            return _page(
+                                environ, start_response, "200 OK",
+                                f'<h1>Fascicolo gi� creato</h1><p>La richiesta ripetuta non ha duplicato i documenti.</p>'
+                                f'<a href="/cases/{quote(case_id, safe="")}/intake">Apri il fascicolo</a>',
+                            )
+                        saved = archive_store.create_case(manifest, statement, payloads[0].data)
+                        return _page(
+                            environ, start_response, "201 Created",
+                            f'<h1>Fascicolo creato</h1><p>Nota acquisita nel deposito cifrato locale.</p>'
+                            f'<a href="/cases/{quote(saved["case_id"], safe="")}/intake">Aggiungi giustificativi</a>',
+                        )
+                    except (IntakeRequestError, UploadRejected, ValueError):
+                        return _page(environ, start_response, "400 Bad Request", "Nota non acquisita: verifica file e formato.")
+                    except StoreRejected:
+                        return _page(environ, start_response, "400 Bad Request", "Nota non acquisita: spazio o limiti locali insufficienti.")
+                    except StoreSourceConflict:
+                        return _page(environ, start_response, "409 Conflict", "Fascicolo in conflitto; nessuna modifica applicata.")
+                    except StoreError:
+                        return _page(environ, start_response, "500 Internal Server Error", "Nota non acquisita; archivio invariato.")
+                return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+            if any((case_reconciliation_route, case_review_route, case_export_route, case_inclusion_route, case_page_route)):
+                route_match = (
+                    case_reconciliation_route or case_review_route or case_export_route
+                    or case_inclusion_route or case_page_route
+                )
+                case_id = route_match.group(1)
+                try:
+                    case = archive_store.get_case(case_id)
+                    if case is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    if case_inclusion_route is not None:
+                        if method != "POST":
+                            return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                        if not _same_origin_loopback_post(environ):
+                            return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                        try:
+                            fields = _multipart_form_values(environ, max_form_bytes=8192)
+                            if set(fields) != {"_case_revision", "_included", "_reason", "_event_id"} or any(
+                                len(fields.get(name, [])) != 1 for name in fields
+                            ):
+                                raise IntakeRequestError("Dati inclusione non validi")
+                            expected_revision, included_value, reason, event_id = (
+                                fields[name][0] for name in ("_case_revision", "_included", "_reason", "_event_id")
+                            )
+                            if expected_revision != case["case_revision"] or included_value not in {"true", "false"}:
+                                return _page(environ, start_response, "409 Conflict", "Fascicolo aggiornato; ricarica prima della modifica.")
+                            if not reason.strip() or len(reason) > 2000:
+                                raise IntakeRequestError("Il motivo � obbligatorio")
+                            document_id = case_inclusion_route.group(2)
+                            attachment = next((
+                                item for item in case.get("attachments", [])
+                                if item.get("document_id") == document_id
+                            ), None)
+                            if attachment is None:
+                                return _page(environ, start_response, "404 Not Found", "Giustificativo non trovato")
+                            saved_case = archive_store.append_attachment_inclusion_event(
+                                case_id, expected_revision, document_id, attachment["source_sha256"],
+                                included_value == "true", reason.strip(), event_id,
+                            )
+                            label = "Giustificativo incluso nel prossimo OCR" if included_value == "true" else "Giustificativo escluso dal prossimo OCR"
+                            return _page(
+                                environ, start_response, "200 OK",
+                                _expense_case_intake_page(
+                                    saved_case,
+                                    notice=f"{label}. Il documento resta conservato nel fascicolo cifrato.",
+                                    processing_enabled=expense_case_processing_manager is not None,
+                                ),
+                            )
+                        except IntakeRequestError:
+                            return _page(environ, start_response, "400 Bad Request", "Modifica non salvata; verifica i dati.")
+                        except (StoreConcurrentUpdate, StoreRejected):
+                            return _page(environ, start_response, "409 Conflict", "Modifica non salvata; il fascicolo � cambiato.")
+                        except StoreError:
+                            return _page(environ, start_response, "500 Internal Server Error", "Modifica non salvata; archivio invariato.")
+                    if case_page_route is not None:
+                        if method != "GET":
+                            return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                        document_id, raw_page = case_page_route.group(2), case_page_route.group(3)
+                        if document_id == case.get("statement_document_id"):
+                            expected_source_hash = case.get("statement_sha256")
+                        else:
+                            reference = next((
+                                item for item in case.get("attachments", [])
+                                if item.get("document_id") == document_id
+                            ), None)
+                            expected_source_hash = reference.get("source_sha256") if reference is not None else None
+                        is_member = expected_source_hash is not None
+                        stored = archive_store.get(document_id) if is_member else None
+                        if (
+                            stored is None
+                            or stored.record.get("source", {}).get("sha256") != expected_source_hash
+                        ):
+                            return _page(environ, start_response, "404 Not Found", "Pagina non disponibile")
+                        try:
+                            page_png = _source_page_png(stored.record, stored.source_bytes, int(raw_page))
+                        except (DocumentDecodeError, ValueError, OverflowError):
+                            return _page(environ, start_response, "422 Unprocessable Content", "Pagina non disponibile per la revisione")
+                        headers = [
+                            ("Content-Type", "image/png"),
+                            ("Content-Length", str(len(page_png))),
+                            ("Cache-Control", "no-store"),
+                            ("X-Content-Type-Options", "nosniff"),
+                            ("Content-Security-Policy", "default-src 'none'; sandbox"),
+                            ("Referrer-Policy", "no-referrer"),
+                        ]
+                        start_response("200 OK", headers)
+                        return [page_png]
+                    reconciliation, documents, labels = _build_case_reconciliation(archive_store, case)
+                    if reconciliation is None:
+                        return _page(
+                            environ, start_response, "409 Conflict",
+                            '<h1>Confronto non disponibile</h1><p>Elabora localmente la nota spese prima del confronto.</p>'
+                            f'<p><a href="/cases/{quote(case_id, safe="")}/intake">Torna al fascicolo</a></p>',
+                        )
+                    if case_review_route is not None:
+                        if method != "POST":
+                            return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                        if not _same_origin_loopback_post(environ):
+                            return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                        try:
+                            fields = _multipart_form_values(environ, max_form_bytes=8192)
+                            allowed = {
+                                "_reconciliation_revision", "_line_id", "_line_evidence_sha256",
+                                "_event_id", "_action", "_reviewer_note", "_candidate_document_id",
+                            }
+                            if set(fields) - allowed or any(
+                                len(fields.get(name, [])) != 1 for name in (
+                                    "_reconciliation_revision", "_line_id", "_line_evidence_sha256",
+                                    "_event_id", "_action", "_reviewer_note",
+                                )
+                            ) or len(fields.get("_candidate_document_id", [])) > 5:
+                                raise IntakeRequestError("Dati della revisione non validi")
+                            expected_revision = fields["_reconciliation_revision"][0]
+                            if expected_revision != reconciliation["case_revision"]:
+                                return _page(environ, start_response, "409 Conflict", "Confronto aggiornato; ricarica prima di salvare la revisione.")
+                            line_id = fields["_line_id"][0]
+                            line = next((item for item in reconciliation["lines"] if item["line_id"] == line_id), None)
+                            if line is None:
+                                raise IntakeRequestError("Riga non disponibile")
+                            selected_ids = fields.get("_candidate_document_id", [])
+                            if len(set(selected_ids)) != len(selected_ids):
+                                raise IntakeRequestError("Giustificativi selezionati duplicati")
+                            allowed_suggestions = {item["document_id"] for item in line["suggestions"]}
+                            if any(document_id not in allowed_suggestions for document_id in selected_ids):
+                                raise IntakeRequestError("Giustificativo non proposto per questa riga")
+                            sources = [
+                                {"document_id": document_id, "source_sha256": next(
+                                    item["source_sha256"] for item in reconciliation["attachments"]
+                                    if item["document_id"] == document_id
+                                )}
+                                for document_id in selected_ids
+                            ]
+                            note = fields["_reviewer_note"][0] or None
+                            action = fields["_action"][0]
+                            # Input mistakes get their own message; 409 stays for changed evidence.
+                            if action == "excluded_with_reason" and not (note and note.strip()):
+                                return _page(environ, start_response, "400 Bad Request",
+                                             "Revisione non salvata: per escludere una riga serve una nota di revisione.")
+                            if action == "confirmed" and not selected_ids:
+                                return _page(environ, start_response, "400 Bad Request",
+                                             "Revisione non salvata. Seleziona almeno un giustificativo prima di confermare.")
+                            updated = append_line_review(
+                                reconciliation,
+                                expected_case_revision=expected_revision,
+                                line_id=line_id,
+                                expected_line_evidence_sha256=fields["_line_evidence_sha256"][0],
+                                action=action,
+                                candidate_sources=sources,
+                                event_id=fields["_event_id"][0],
+                                reviewer_note=note,
+                                actor_id=_windows_review_actor(),
+                            )
+                            if len(updated["review_events"]) == len(case.get("review_events", [])):
+                                notice = "Questa revisione era gi� stata salvata."
+                            else:
+                                case["review_events"] = updated["review_events"]
+                                archive_store.save_case(case, expected_revision=case["case_revision"])
+                                notice = "Decisione salvata nella cronologia locale."
+                            case = archive_store.get_case(case_id)
+                            reconciliation, documents, labels = _build_case_reconciliation(archive_store, case)
+                            return _page(
+                                environ, start_response, "200 OK",
+                                _expense_case_reconciliation_page(case, reconciliation, documents, labels, notice=notice),
+                            )
+                        except IntakeRequestError:
+                            return _page(environ, start_response, "400 Bad Request", "Revisione non salvata; verifica i dati e ricarica il confronto.")
+                        except ReconciliationError:
+                            return _page(environ, start_response, "409 Conflict", "Revisione non salvata: le prove o il fascicolo sono cambiati.")
+                        except StoreConcurrentUpdate:
+                            return _page(environ, start_response, "409 Conflict", "Fascicolo modificato da un�altra operazione; ricarica il confronto.")
+                        except StoreError:
+                            return _page(environ, start_response, "500 Internal Server Error", "Revisione non salvata; archivio invariato.")
+                    if method != "GET":
+                        return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                    if case_export_route is not None:
+                        payload = {
+                            "export_schema_version": "1.0.0",
+                            "case_id": case_id,
+                            "statement": reconciliation["statement"],
+                            "case_revision": reconciliation["case_revision"],
+                            "attachments": reconciliation["attachments"],
+                            "lines": reconciliation["lines"],
+                            "unused_document_ids": reconciliation["unused_document_ids"],
+                            "duplicate_source_groups": reconciliation["duplicate_source_groups"],
+                            "possible_duplicate_claim_groups": reconciliation["possible_duplicate_claim_groups"],
+                            "review_events": reconciliation["review_events"],
+                        }
+                        export_query = environ.get("QUERY_STRING", "")
+                        if export_query == "format=csv":
+                            output = io.StringIO(newline="")
+                            writer = csv.DictWriter(output, fieldnames=("export_format_version", "case_id", "review_event_json"), lineterminator="\r\n")
+                            writer.writeheader()
+                            for event in payload["review_events"] or [None]:
+                                writer.writerow({"export_format_version": "ocr2-case-review-csv-v1", "case_id": case_id,
+                                    "review_event_json": json.dumps(event, ensure_ascii=True, sort_keys=True, separators=(",", ":"))})
+                            return _page(environ, start_response, "200 OK", output.getvalue(),
+                                         "text/csv; charset=utf-8", download_filename="expense-review-events.csv")
+                        if export_query:
+                            return _page(environ, start_response, "400 Bad Request", "Formato di esportazione non valido")
+                        return _page(
+                            environ, start_response, "200 OK",
+                            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                            "application/json; charset=utf-8",
+                            download_filename="expense-reconciliation.json",
+                        )
+                    raw_query = environ.get("QUERY_STRING", "")
+                    if len(raw_query) > 128:
+                        return _page(environ, start_response, "400 Bad Request", "Pagina non valida")
+                    try:
+                        page_values = parse_qs(raw_query, keep_blank_values=True, max_num_fields=2)
+                    except ValueError:
+                        return _page(environ, start_response, "400 Bad Request", "Pagina non valida")
+                    raw_page = page_values.get("page", ["0"])
+                    page = int(raw_page[0]) if len(raw_page) == 1 and raw_page[0].isdigit() else 0
+                    return _page(
+                        environ, start_response, "200 OK",
+                        _expense_case_reconciliation_page(case, reconciliation, documents, labels, page=page),
+                    )
+                except StoreError:
+                    return _page(environ, start_response, "500 Internal Server Error", "Fascicolo non disponibile")
+            if case_work_route is not None:
+                case_id = case_work_route.group(1)
+                route_action = case_work_route.group(2)
+                job_id = case_work_route.group(3)
+                is_cancel = case_work_route.group(4) == "cancel"
+                if expense_case_processing_manager is None:
+                    return _page(environ, start_response, "503 Service Unavailable", "OCR locale del fascicolo non configurato")
+                if route_action == "process":
+                    if method != "POST":
+                        return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                    if not _same_origin_loopback_post(environ):
+                        return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                    try:
+                        fields = _multipart_form_values(environ, max_form_bytes=4096)
+                        if set(fields) != {"_case_revision"} or len(fields["_case_revision"]) != 1:
+                            raise IntakeRequestError("Revisione del fascicolo non valida")
+                        case = archive_store.get_case(case_id)
+                        if case is None:
+                            return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                        worker_job_id = expense_case_processing_manager.start(
+                            case_id, fields["_case_revision"][0],
+                        )
+                        status = expense_case_processing_manager.snapshot(worker_job_id)
+                        if status is None:
+                            return _page(environ, start_response, "503 Service Unavailable", "Stato OCR non disponibile")
+                        return _page(environ, start_response, "202 Accepted", _expense_case_job_page(status))
+                    except IntakeRequestError:
+                        return _page(environ, start_response, "400 Bad Request", "Richiesta OCR non valida")
+                    except ValueError as exc:
+                        code = str(exc)
+                        if code == "case_missing":
+                            return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                        if code == "case_changed":
+                            return _page(environ, start_response, "409 Conflict", "Il fascicolo � cambiato; ricarica la pagina.")
+                        return _page(environ, start_response, "409 Conflict", "Elaborazione non avviata; fascicolo invariato.")
+                    except RuntimeError:
+                        return _page(environ, start_response, "409 Conflict", "Un�elaborazione locale � gi� in corso.")
+                    except StoreError:
+                        return _page(environ, start_response, "500 Internal Server Error", "Fascicolo non disponibile")
+                if is_cancel:
+                    if method != "POST":
+                        return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                    if not _same_origin_loopback_post(environ):
+                        return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                    status = expense_case_processing_manager.snapshot(job_id or "")
+                    if status is None or status.case_id != case_id:
+                        return _page(environ, start_response, "404 Not Found", "Elaborazione non disponibile")
+                    expense_case_processing_manager.cancel(job_id or "")
+                    status = expense_case_processing_manager.snapshot(job_id or "") or status
+                    return _page(environ, start_response, "200 OK", _expense_case_job_page(status))
+                if method != "GET":
+                    return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                status = expense_case_processing_manager.snapshot(job_id or "")
+                if status is None or status.case_id != case_id:
+                    return _page(environ, start_response, "404 Not Found", "Elaborazione non disponibile")
+                return _page(environ, start_response, "200 OK", _expense_case_job_page(status))
+            case_id = case_route.group(1) if case_route is not None else case_intake_route.group(1)
+            is_attachments = case_route is not None and path.endswith("/attachments")
+            if case_route is not None and method == "GET" and not is_attachments:
+                try:
+                    case = archive_store.get_case(case_id)
+                except StoreError:
+                    return _page(environ, start_response, "500 Internal Server Error", "Fascicolo non disponibile")
+                if case is None:
+                    return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                return _case_json_response(environ, start_response, "200 OK", _case_status_payload(case))
+            if case_intake_route is not None and method == "GET":
+                try:
+                    case = archive_store.get_case(case_id)
+                except StoreError:
+                    return _page(environ, start_response, "500 Internal Server Error", "Fascicolo non disponibile")
+                if case is None:
+                    return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                return _page(
+                    environ, start_response, "200 OK",
+                    _expense_case_intake_page(
+                        case, processing_enabled=expense_case_processing_manager is not None,
+                    ),
+                )
+            if is_attachments and method == "POST":
+                if not _same_origin_loopback_post(environ):
+                    return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                try:
+                    case = archive_store.get_case(case_id)
+                    if case is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    files, fields = _multipart_files_and_fields(
+                        environ, allowed_scalar_fields=frozenset({"_case_revision", "_chunk_id"}),
+                    )
+                    expected_revision = fields.get("_case_revision", "")
+                    chunk_id = fields.get("_chunk_id", "")
+                    batch = materialize_stream_batch(
+                        [(name, io.BytesIO(data)) for name, data in files],
+                        limits,
+                        max_batch_document_bytes=min(max_batch_document_bytes, _MAX_UPLOAD_REQUEST_BYTES),
+                    )
+                    payloads = tuple(document for upload in batch.uploads for document in upload.documents)
+                    if len(payloads) > 20:
+                        raise IntakeRequestError("Il lotto contiene pi� di 20 documenti materializzati")
+                    source_records = []
+                    received_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                    for index, payload in enumerate(payloads, start=1):
+                        stable_id = hashlib.sha256(
+                            f"OCR2-case-document-v1\0{case_id}\0{chunk_id}\0{index}".encode("utf-8")
+                        ).hexdigest()
+                        document_id = "doc-" + stable_id[:36]
+                        record = _document_record_from_materialized(
+                            payload, document_id=document_id, session_id=case_id,
+                            document_family="unknown", received_at=received_at,
+                        )
+                        source_records.append({"record": record, "source_bytes": payload.data})
+                    chunk_digest = archive_store.case_chunk_digest(source_records)
+                    saved = archive_store.append_case_chunk(
+                        case_id, expected_revision, chunk_id, chunk_digest, source_records,
+                    )
+                    return _page(
+                        environ, start_response, "200 OK",
+                        _expense_case_intake_page(saved, notice=f"Lotto acquisito: {len(payloads)} giustificativi."),
+                    )
+                except StoreConcurrentUpdate:
+                    latest = archive_store.get_case(case_id)
+                    if latest is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    return _page(environ, start_response, "409 Conflict", _expense_case_intake_page(latest, notice="Il fascicolo � cambiato; ricarica la pagina."))
+                except StoreSourceConflict:
+                    latest = archive_store.get_case(case_id)
+                    if latest is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    return _page(environ, start_response, "409 Conflict", _expense_case_intake_page(latest, notice="Il lotto non corrisponde a quello gi� acquisito."))
+                except (IntakeRequestError, UploadRejected, ValueError, StoreRejected):
+                    latest = archive_store.get_case(case_id)
+                    if latest is None:
+                        return _page(environ, start_response, "404 Not Found", "Fascicolo non trovato")
+                    return _page(environ, start_response, "400 Bad Request", _expense_case_intake_page(latest, notice="Lotto rifiutato; i lotti precedenti restano salvati."))
+                except StoreError:
+                    return _page(environ, start_response, "500 Internal Server Error", "Lotto non acquisito; verifica lo stato del fascicolo.")
+            return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+        if state is not None and state.ocr_starting and path not in {"/clear", "/upload", "/assign-note"}:
+            return _page(environ, start_response, "409 Conflict", "<p>L�elaborazione OCR sta per iniziare. Attendi o cancella la sessione.</p>")
+        if state is not None and state.ocr_job_id is not None:
+            status = manager_status(state, state.ocr_job_id)
+            is_cancel_request = re.fullmatch(
+                r"/ocr/jobs/[0-9a-fA-F-]{1,64}/cancel", path,
+            ) is not None
+            if (status is not None and status.phase == "succeeded"
+                    and path not in {"/clear", "/upload"} and not is_cancel_request):
+                publish_completed_result(state)
+            if state is not None and state.ocr_publish_failed and path not in {"/clear", "/upload"}:
+                status = manager_status(state, state.ocr_job_id or "")
+                if status is not None:
+                    return _page(environ, start_response, "409 Conflict", _ocr_job_page(
+                        status.job_id, status, archive_enabled=archive_store is not None,
+                        publish_failed=True,
+                    ))
+        job_path = re.fullmatch(r"/ocr/jobs/([0-9a-fA-F-]{1,64})(?:/(cancel))?", path)
+        if job_path is not None:
+            if state is None or job_path.group(1) != state.ocr_job_id:
+                return _page(environ, start_response, "404 Not Found", "Elaborazione non disponibile")
+            job_id = job_path.group(1)
+            status = manager_status(state, job_id)
+            if status is None:
+                return _page(environ, start_response, "404 Not Found", "Elaborazione non disponibile")
+            if job_path.group(2) == "cancel":
+                if method != "POST":
+                    return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                if status.phase not in {"failed", "cancelled"} and not state.ocr_result_published:
+                    cancel_session(state)
+                status = manager_status(state, job_id) or status
+                return _page(environ, start_response, "200 OK", _ocr_job_page(
+                    job_id, status, archive_enabled=archive_store is not None,
+                    publish_failed=state.ocr_publish_failed,
+                ))
+            if method != "GET":
+                return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+            if status.phase == "succeeded":
+                publish_completed_result(state)
+                status = manager_status(state, job_id) or status
+            return _page(environ, start_response, "200 OK", _ocr_job_page(
+                job_id, status, archive_enabled=archive_store is not None,
+                publish_failed=state.ocr_publish_failed,
+            ))
+        if state is not None and state.ocr_job_id is not None:
+            status = manager_status(state, state.ocr_job_id)
+            if status is None and path not in {"/clear", "/upload"}:
+                return _page(environ, start_response, "409 Conflict", "<p>Stato dell�elaborazione non verificabile. Cancella la sessione prima di continuare.</p>")
+            pending = status is not None and status.phase not in {"succeeded", "failed", "cancelled"}
+            terminal_unavailable = (
+                status is not None and status.phase in {"failed", "cancelled"}
+                and path not in {"/clear", "/upload"}
+                and not path.startswith("/ocr/jobs/")
+            )
+            if terminal_unavailable:
+                return _page(environ, start_response, "409 Conflict", _ocr_job_page(
+                    status.job_id, status, archive_enabled=archive_store is not None,
+                ))
+            mutating_review = (
+                path.startswith("/reviews/") or path.startswith("/chatgpt")
+                or path.startswith("/archive/save/")
+                or path.startswith("/archive/open/")
+                or path.startswith("/archive/delete/")
+                or path == "/archive/return"
+            )
+            if pending and mutating_review:
+                return _page(environ, start_response, "409 Conflict", "<p>Elaborazione OCR in corso: attendi o annulla prima di rivedere o modificare i documenti.</p>")
+        if archive_store is not None and method == "GET" and path == "/archive":
+            raw_query = environ.get("QUERY_STRING", "")
+            try:
+                params = parse_qs(raw_query, keep_blank_values=True, max_num_fields=4)
+                query = params.get("q", [""])
+                if len(query) != 1 or len(query[0]) > 200:
+                    raise ValueError
+                return _page(environ, start_response, "200 OK", _archive_list_page(archive_store, query[0]))
+            except ValueError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Ricerca non valida</p>")
+            except StoreError:
+                return _page(environ, start_response, "500 Internal Server Error", "<p>Archivio non disponibile</p>")
+        if archive_store is not None and path.startswith("/archive/") and path != "/archive/return":
+            parts = path.split("/")
+            if len(parts) != 4:
+                return _page(environ, start_response, "404 Not Found", "Risorsa non trovata")
+            if len(parts) == 4:
+                document_id = parts[3].removesuffix(".json").removesuffix(".csv")
+                if not _ARCHIVE_ID.fullmatch(document_id):
+                    return _page(environ, start_response, "404 Not Found", "Risorsa non trovata")
+                try:
+                    if method == "GET" and parts[2] == "export" and parts[3].endswith((".json", ".csv")):
+                        stored = archive_store.get(document_id)
+                        if stored is None:
+                            return _page(environ, start_response, "404 Not Found", "Documento non trovato")
+                        is_json = parts[3].endswith(".json")
+                        output = export_document_json(stored.record) if is_json else export_document_csv(stored.record)
+                        extension = "json" if is_json else "csv"
+                        content_type = "application/json; charset=utf-8" if is_json else "text/csv; charset=utf-8"
+                        return _page(environ, start_response, "200 OK", output, content_type,
+                                     download_filename=f"ocr2-{document_id}.{extension}")
+                    if method == "GET" and parts[2] == "delete":
+                        stored = archive_store.get(document_id)
+                        if stored is None:
+                            return _page(environ, start_response, "404 Not Found", "Documento non trovato")
+                        filename = escape(str(stored.record["source"].get("original_filename", "documento")))
+                        return _page(environ, start_response, "200 OK",
+                                     f'<h1>Conferma eliminazione</h1><p>{filename}</p>'
+                                     f'<form method="post" action="/archive/delete/{quote(document_id, safe="")}">'
+                                     '<button type="submit">Elimina definitivamente</button></form>'
+                                     '<a href="/archive">Annulla</a>')
+                    if method == "POST" and parts[2] == "open":
+                        if not _same_origin_loopback_post(environ):
+                            return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                        with state_lock:
+                            observed_session = state
+                        stored = archive_store.get(document_id)
+                        if stored is None:
+                            return _page(environ, start_response, "404 Not Found", "Documento non trovato")
+                        with state_lock:
+                            if app_closed:
+                                return _page(environ, start_response, "503 Service Unavailable", "Servizio locale in arresto")
+                            if state is not observed_session:
+                                return _page(environ, start_response, "409 Conflict", "Sessione modificata durante l'apertura")
+                            if state is None:
+                                replacement = _VolatileSession(
+                                    secrets.token_hex(18), MaterializedBatch((), (), ()), (), now,
+                                    archive_only=True,
+                                )
+                                with state_lock:
+                                    state = replacement
+                            elif state.intake is None:
+                                return _page(environ, start_response, "409 Conflict",
+                                             "<p>Completa o annulla prima la selezione dei documenti correnti.</p>")
+                            if state.intake is not None:
+                                existing = state.intake.documents.get(document_id)
+                                if existing is not None and _record_fingerprint(existing) != _record_fingerprint(stored.record):
+                                    return _page(environ, start_response, "409 Conflict", "Il documento contiene modifiche non salvate")
+                            if state.intake is None:
+                                state.intake = ExpenseReportIntakeSession(
+                                    {"expense_report_id": f"archive-{state.session_id}", "note_document_id": document_id,
+                                     "attachment_document_ids": []}, {}, {},
+                                )
+                            documents = dict(state.intake.documents)
+                            sources = dict(state.intake.source_bytes)
+                            documents[document_id] = deepcopy(stored.record)
+                            sources[document_id] = stored.source_bytes
+                            state.intake = replace(state.intake, documents=documents, source_bytes=sources)
+                            state.archive_loaded_document_id = document_id
+                            state.archive_baselines[document_id] = _record_fingerprint(stored.record)
+                            state.last_activity = now
+                        return _page(environ, start_response, "200 OK", _archive_document_page(document_id, stored.record))
+                    if method == "POST" and parts[2] == "delete":
+                        if not _same_origin_loopback_post(environ):
+                            return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                        deleted = archive_store.delete(document_id)
+                        with state_lock:
+                            if state is not None and state.intake is not None:
+                                documents = dict(state.intake.documents)
+                                sources = dict(state.intake.source_bytes)
+                                documents.pop(document_id, None)
+                                sources.pop(document_id, None)
+                                state.intake = replace(state.intake, documents=documents, source_bytes=sources)
+                                state.archive_baselines.pop(document_id, None)
+                                state.archive_ids = {
+                                    session_id: archived_id
+                                    for session_id, archived_id in state.archive_ids.items()
+                                    if archived_id != document_id
+                                }
+                                if state.archive_loaded_document_id == document_id:
+                                    state.archive_loaded_document_id = None
+                        if not deleted:
+                            return _page(environ, start_response, "404 Not Found", "Documento non trovato")
+                        return _page(environ, start_response, "200 OK",
+                                     '<p>Documento eliminato.</p><a href="/archive">Archivio</a>'
+                                     '<form method="post" action="/archive/return"><button type="submit">Torna alla sessione corrente</button></form>')
+                except StoreError:
+                    return _page(environ, start_response, "500 Internal Server Error", "<p>Operazione archivio non riuscita</p>")
+        if archive_store is not None and method == "POST" and path.startswith("/archive/save/"):
+            if not _same_origin_loopback_post(environ):
+                return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+            document_id = path[len("/archive/save/"):]
+            if not _ARCHIVE_ID.fullmatch(document_id) or state is None or state.intake is None:
+                return _page(environ, start_response, "409 Conflict", "<p>Documento non disponibile nella sessione</p>")
+            record = state.intake.documents.get(document_id)
+            source_bytes = state.intake.source_bytes.get(document_id)
+            if not isinstance(record, dict) or not isinstance(source_bytes, bytes):
+                return _page(environ, start_response, "404 Not Found", "Documento non trovato")
+            archive_id = state.archive_ids.get(document_id, document_id if document_id == state.archive_loaded_document_id else "")
+            is_update = bool(archive_id)
+            if not archive_id:
+                archive_id = "archive-" + secrets.token_hex(16)
+            baseline = None
+            try:
+                latest = archive_store.get(archive_id) if is_update else None
+                if is_update:
+                    baseline = state.archive_baselines.get(archive_id)
+                    if latest is None or baseline is None or _record_fingerprint(latest.record) != baseline:
+                        return _page(environ, start_response, "409 Conflict", "<p>Il documento � cambiato nell�archivio. Riaprilo prima di salvare.</p>")
+                archived_record = deepcopy(record)
+                archived_record["document_id"] = archive_id
+                archived_record["source"]["storage_ref"] = f"local-archive://{archive_id}"
+                archive_store.save(
+                    archived_record,
+                    source_bytes,
+                    expected_record_sha256=baseline if is_update else None,
+                )
+                state.archive_ids[document_id] = archive_id
+                state.archive_baselines[archive_id] = _record_fingerprint(archived_record)
+                state.archive_loaded_document_id = archive_id if is_update else state.archive_loaded_document_id
+                state.last_activity = now
+                label = "Documento aggiornato" if is_update else "Documento salvato"
+                return _page(environ, start_response, "200 OK", f'<p>{label} nell�archivio locale.</p><a href="/archive">Apri archivio</a>')
+            except StoreConcurrentUpdate:
+                return _page(environ, start_response, "409 Conflict", "<p>Il documento � cambiato durante il salvataggio. Riaprilo prima di riprovare.</p>")
+            except StoreError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Il documento non pu� essere salvato nell�archivio</p>")
+        if archive_store is not None and method == "POST" and path == "/archive/return":
+            if not _same_origin_loopback_post(environ):
+                return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+            if state is not None:
+                state.archive_loaded_document_id = None
+                state.last_activity = now
+                if state.archive_only or not state.document_ids:
+                    previous = state
+                    with state_lock:
+                        state = None
+                    cancel_session(previous)
+            if state is None:
+                return _page(environ, start_response, "200 OK", _upload_page(archive_enabled=True))
+            if state.intake is None:
+                return _page(environ, start_response, "200 OK", _choose_note_page(state))
+            return _page(environ, start_response, "200 OK", _bundle_page(state, archive_enabled=True))
+        if method == "GET" and path == "/review-times.csv":
+            if state is None or state.intake is None:
+                return _page(environ, start_response, "409 Conflict", "<p>La sessione di revisione non � disponibile.</p>")
+            output = io.StringIO(newline="")
+            writer = csv.writer(output, lineterminator="\n")
+            writer.writerow(["case_id", "review_seconds"])
+            for document_id, seconds in sorted(state.review_seconds.items()):
+                record = state.intake.documents.get(document_id)
+                if isinstance(record, dict) and record["review"]["status"] == "completed":
+                    writer.writerow([f"{state.session_id}-{document_id}", seconds])
+            return _page(
+                environ, start_response, "200 OK", output.getvalue(),
+                "text/csv; charset=utf-8", download_filename="review-times.csv",
+            )
+        if method == "GET" and path in {"/", "/upload"}:
+            if state is None:
+                return _page(environ, start_response, "200 OK", _upload_page(archive_enabled=archive_store is not None))
+            state.last_activity = now
+            if state.intake is None:
+                return _page(environ, start_response, "200 OK", _choose_note_page(state))
+            if state.archive_loaded_document_id is not None:
+                record = state.intake.documents.get(state.archive_loaded_document_id)
+                if record is not None:
+                    return _page(environ, start_response, "200 OK", _archive_document_page(state.archive_loaded_document_id, record))
+            if state.archive_only:
+                return _page(environ, start_response, "200 OK", _upload_page(archive_enabled=True))
+            return _page(environ, start_response, "200 OK", _bundle_page(state, archive_enabled=archive_store is not None))
+        if method == "POST" and path == "/upload":
+            try:
+                files = _multipart_files(environ)
+                batch = materialize_stream_batch(
+                    [(name, io.BytesIO(data)) for name, data in files],
+                    limits,
+                    max_batch_document_bytes=max_batch_document_bytes,
+                )
+            except (IntakeRequestError, UploadRejected, OSError, ValueError) as exc:
+                return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p><p><a href=\"/\">Torna all'inizio</a></p>")
+            payloads = tuple(document for upload in batch.uploads for document in upload.documents)
+            if len(payloads) > _MAX_UPLOAD_FILES * 100:
+                return _page(environ, start_response, "400 Bad Request", "<p>Numero di documenti estratti superato</p>")
+            cancel_session(state)
+            session_id = secrets.token_hex(18)
+            document_ids = tuple(f"doc-{index + 1:03d}" for index in range(len(payloads)))
+            replacement = _VolatileSession(session_id, batch, document_ids, now)
+            previous = state
+            with state_lock:
+                state = replacement
+            cancel_session(previous)
+            return _page(environ, start_response, "200 OK", _choose_note_page(state))
+        if method == "POST" and path == "/chatgpt/confirm":
+            if state is None or state.intake is None:
+                return _page(environ, start_response, "409 Conflict", "Sessione non disponibile")
+            try:
+                supplied = _multipart_scalar(environ, "prompt_sha256")
+                confirmation = _multipart_scalar(environ, "confirmation")
+                _, fingerprint, blocked = _handoff_state(state)
+                if confirmation != "1" or not blocked or not secrets.compare_digest(supplied, fingerprint):
+                    return _page(environ, start_response, "409 Conflict", "Il testo o la revisione sono cambiati; ricarica la pagina")
+                state.chatgpt_confirmed_hash = fingerprint
+                state.last_activity = now
+            except (IntakeRequestError, ChatGPTHandoffError, ValueError):
+                return _page(environ, start_response, "400 Bad Request", "Conferma non valida")
+            return _page(environ, start_response, "200 OK", _chatgpt_handoff_page(state))
+        if method == "POST" and path == "/chatgpt/return":
+            if state is None or state.intake is None:
+                return _page(environ, start_response, "409 Conflict", "<p>La sessione di revisione non � disponibile.</p>")
+            try:
+                draft = _multipart_scalar(environ, "draft", max_form_bytes=128 * 1024)
+                if len(draft) > 20_000:
+                    raise IntakeRequestError("La bozza supera il limite di 20.000 caratteri")
+                supplied = _multipart_scalar(environ, "draft_prompt_sha256")
+                _, fingerprint, blocked = _handoff_state(state)
+                if not secrets.compare_digest(supplied, fingerprint):
+                    return _page(environ, start_response, "409 Conflict", "Il testo � cambiato; ricarica la pagina")
+                if blocked and state.chatgpt_confirmed_hash != fingerprint:
+                    return _page(environ, start_response, "409 Conflict", "Conferma nuovamente i limiti della revisione")
+>               state.chatgpt_draft = draft
+                ^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'NoneType' object has no attribute 'chatgpt_draft' and no __dict__ for setting new attributes
+
+src\alfa_document_intelligence\local_intake_app.py:2492: AttributeError
+=========================== short test summary info ===========================
+FAILED tests/test_manual_chatgpt_handoff_ui.py::test_clearing_session_during_draft_save_does_not_crash_or_save
+1 failed in 0.56s

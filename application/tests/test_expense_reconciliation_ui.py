@@ -336,6 +336,37 @@ class ExpenseReconciliationUITests(unittest.TestCase):
         self.assertEqual(exported["review_events"][0]["action"], "confirmed")
         self.assertIn("evidence_sha256", exported["lines"][0])
 
+    def test_csv_export_includes_review_actor_time_and_event_evidence(self):
+        import csv
+        from alfa_document_intelligence.expense_reconciliation import build_reconciliation
+        line = self.archive.documents["statement"].record["expense_lines"][0]
+        current = build_reconciliation("case-1", "statement", self.archive.case["statement_sha256"], [line],
+            self.archive.case["attachments"], {k: v.record for k, v in self.archive.documents.items()},
+            source_set_revision=self.archive.source_set_revision())
+        review = urlencode({"_reconciliation_revision": current["case_revision"],
+            "_line_id": current["lines"][0]["line_id"], "_line_evidence_sha256": current["lines"][0]["evidence_sha256"],
+            "_event_id": "event-csv", "_action": "confirmed", "_candidate_document_id": "receipt-1", "_reviewer_note": "=synthetic"}).encode("ascii")
+        with patch("alfa_document_intelligence.local_intake_app._windows_review_actor", return_value="synthetic-user"):
+            self.assertEqual(_request(self.app, "POST", "/cases/case-1/reconciliation/review", review,
+                                      "application/x-www-form-urlencoded")[0], "200 OK")
+        status, headers, data = _request(self.app, path="/cases/case-1/export", headers={"QUERY_STRING": "format=csv"})
+        self.assertEqual(status, "200 OK")
+        self.assertIn("text/csv", headers["Content-Type"])
+        rows = list(csv.DictReader(io.StringIO(data.decode("utf-8"))))
+        event = json.loads(rows[0]["review_event_json"])
+        self.assertEqual(event["actor_id"], "synthetic-user")
+        self.assertTrue(event["timestamp"].endswith("+00:00"))
+        self.assertEqual(event["line_evidence_sha256"], current["lines"][0]["evidence_sha256"])
+        self.assertTrue(all(not value.startswith(("=", "+", "-", "@")) for row in rows for value in row.values()))
+
+    def test_case_csv_export_empty_history_and_invalid_format(self):
+        import csv
+        status, _, data = _request(self.app, path="/cases/case-1/export", headers={"QUERY_STRING": "format=csv"})
+        self.assertEqual(status, "200 OK")
+        rows = list(csv.DictReader(io.StringIO(data.decode("utf-8"))))
+        self.assertEqual(json.loads(rows[0]["review_event_json"]), None)
+        self.assertEqual(_request(self.app, path="/cases/case-1/export", headers={"QUERY_STRING": "format=other"})[0], "400 Bad Request")
+
     def test_statement_and_candidate_show_local_source_page_links(self):
         status, _, page = _request(self.app, path="/cases/case-1/reconciliation")
         self.assertEqual(status, "200 OK")

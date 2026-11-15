@@ -21,14 +21,15 @@ from urllib.parse import parse_qs, quote
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 
 from .chatgpt_handoff import ChatGPTHandoffError, build_chatgpt_handoff_prompt
-from .contracts import validate_document_record
+from .contracts import _validate_custom_value, validate_document_record
 from .expense_reports import (
     ExpenseReportIntakeSession,
     _document_record_from_materialized,
     create_expense_report_intake_session,
 )
 from .ingestion import IngestionLimits, MaterializedBatch, UploadRejected, materialize_stream_batch
-from .review_ledger import append_review_event, reviewed_overlay
+from .review_ledger import append_review_event, reviewed_overlay, verify_review_ledger
+from .review_identity import local_review_actor
 from .review_ui import create_review_app
 from .document_export import export_document_csv, export_document_json
 from .catalog_editor import (
@@ -92,7 +93,10 @@ class _VolatileSession:
     last_activity: float
     intake: ExpenseReportIntakeSession | None = None
     chatgpt_draft: str | None = None
+    chatgpt_confirmed_hash: str | None = None
+    chatgpt_draft_hash: str | None = None
     review_seconds: dict[str, int] = field(default_factory=dict)
+    previewed_pages: dict[tuple[str, str, int], None] = field(default_factory=dict)
     archive_ids: dict[str, str] = field(default_factory=dict)
     archive_baselines: dict[str, str] = field(default_factory=dict)
     archive_loaded_document_id: str | None = None
@@ -689,6 +693,16 @@ def _archive_document_page(document_id: str, record: dict[str, Any]) -> str:
     )
 
 
+def _review_conflict_page(environ: dict[str, Any], start_response: Callable, document_id: str) -> list[bytes]:
+    href = "/reviews/" + quote(document_id, safe="")
+    body = ('<!doctype html><html lang="it"><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>Revisione aggiornata</title><main><h1>La revisione è cambiata</h1>'
+            '<p>Questa modifica non è stata salvata. Apri la versione aggiornata e verifica i dati prima di riprovare.</p>'
+            f'<p><a href="{escape(href, quote=True)}">Apri la revisione aggiornata</a></p></main></html>')
+    return _page(environ, start_response, "409 Conflict", body)
+
+
 def _render_document_family_review(
     record: dict[str, Any], overlay: dict[str, Any], *, document_id: str, elapsed_seconds: int
 ) -> str:
@@ -701,9 +715,13 @@ def _render_document_family_review(
     choices = []
     selected = overlay.get("reviewed_document_family", "unknown")
     selected_available = any(
-        isinstance(item, dict) and item.get("value") == selected
+        isinstance(item, dict) and item.get("status") == "observed" and item.get("value") == selected
         for item in alternatives
     )
+    labels = {}
+    if not validate_document_record(record):
+        labels = {snapshot["family"]["id"]: snapshot["family"]["label"]
+                  for snapshot in record.get("document_family_definitions", [])}
     if not selected_available:
         choices.append('<option value="" selected disabled>Seleziona famiglia</option>')
     for alternative in alternatives:
@@ -712,7 +730,7 @@ def _render_document_family_review(
         family = alternative.get("value")
         if not isinstance(family, str):
             continue
-        label = family.replace("_", " ")
+        label = labels.get(family, family.replace("_", " "))
         selected_attr = " selected" if family == selected else ""
         choices.append(
             f'<option value="{escape(family)}"{selected_attr}>{escape(label)}</option>'
@@ -808,12 +826,41 @@ def _render_fiscal_state_review(
         f'<input type="hidden" name="review_seconds" data-review-seconds value="{elapsed_seconds}">'
         '<button type="submit">Registra classificazione fiscale revisionata</button></form></section>'
     )
+_MANUAL_FIELDS = {
+    "merchant_name": "Esercente", "supplier_name": "Fornitore", "bill_to_name": "Intestatario",
+    "sold_to_name": "Acquirente", "document_number": "Numero documento", "vat_registration_number": "Partita IVA",
+    "issue_date": "Data documento", "check_in_date": "Data di arrivo", "check_out_date": "Data di partenza",
+    "trip_start_date": "Inizio trasferta", "trip_end_date": "Fine trasferta", "traveler_name": "Viaggiatore",
+    "trip_destination": "Destinazione trasferta", "trip_purpose": "Motivo trasferta", "total_amount": "Importo totale",
+    "payment_amount": "Importo pagato", "tip_amount": "Mancia", "payment_method": "Metodo di pagamento",
+    "payment_reference": "Riferimento pagamento", "currency": "Valuta", "vat_amount": "Importo IVA",
+    "taxable_base": "Imponibile", "vat_rate": "Aliquota IVA",
+}
+
+
+def _manual_fields(record: dict[str, Any]) -> dict[str, str]:
+    fields = dict(_MANUAL_FIELDS)
+    if validate_document_record(record):
+        return fields
+    for snapshot in record.get("document_family_definitions", []):
+        family = snapshot["family"]
+        for definition in family.get("fields", []):
+            hint = {"date": " (AAAA-MM-GG)", "amount": " (1234.50)"}.get(definition.get("type"), "")
+            fields[f"{family['id']}_{definition['id']}"] = f"{family['label']} — {definition['label']}{hint}"
+    return fields
+
+
 def _render_region_correction_form(
     *, document_id: str, field_name: str, page_numbers: list[int], elapsed_seconds: int,
+    initial: dict[str, str] | None = None,
 ) -> str:
     safe_id = quote(document_id, safe="")
     safe_field = quote(field_name, safe="")
-    options = "".join(f'<option value="{number}">{number}</option>' for number in page_numbers)
+    initial = initial or {}
+    options = "".join(f'<option value="{number}"' + (' selected' if initial.get("region_page") == str(number) else '') + f'>{number}</option>' for number in page_numbers)
+    initial_page = initial.get("region_page") if initial.get("region_page") in {str(number) for number in page_numbers} else str(page_numbers[0])
+    def initial_value(name: str) -> str:
+        return escape(initial.get(name, ""), quote=True)
     return (
         f'<form method="post" data-review-timer data-region-review action="/reviews/{safe_id}/fields/{safe_field}">'
         "<h3>Correzione manuale con riferimento alla pagina</h3>"
@@ -821,16 +868,16 @@ def _render_region_correction_form(
         "Il valore sarà registrato come revisione umana, non come testo OCR.</p>"
         f'<label>Pagina sorgente <select name="region_page" data-region-page>{options}</select></label>'
         f'<div class="region-viewer"><img data-region-image alt="Pagina del documento; trascina per delimitare il valore da correggere" '
-        f'data-preview-base="/reviews/{safe_id}/pages" src="/reviews/{safe_id}/pages/{page_numbers[0]}.png" loading="lazy">'
+        f'data-preview-base="/reviews/{safe_id}/pages" src="/reviews/{safe_id}/pages/{initial_page}.png" loading="lazy">'
         '<svg data-region-overlay viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">'
         '<rect data-region-selection x="0" y="0" width="0" height="0"></rect></svg></div>'
         '<p data-region-status aria-live="polite">Trascina sulla pagina oppure inserisci le coordinate normalizzate.</p>'
         '<fieldset><legend>Coordinate normalizzate da 0 a 1</legend>'
-        '<label>X iniziale <input type="number" name="region_x0" min="0" max="1" step="any" required></label>'
-        '<label>Y iniziale <input type="number" name="region_y0" min="0" max="1" step="any" required></label>'
-        '<label>X finale <input type="number" name="region_x1" min="0" max="1" step="any" required></label>'
-        '<label>Y finale <input type="number" name="region_y1" min="0" max="1" step="any" required></label></fieldset>'
-        '<label>Valore letto e verificato sulla pagina <input name="value" maxlength="512" required></label>'
+        f'<label>X iniziale <input type="number" name="region_x0" value="{initial_value("region_x0")}" min="0" max="1" step="any" required></label>'
+        f'<label>Y iniziale <input type="number" name="region_y0" value="{initial_value("region_y0")}" min="0" max="1" step="any" required></label>'
+        f'<label>X finale <input type="number" name="region_x1" value="{initial_value("region_x1")}" min="0" max="1" step="any" required></label>'
+        f'<label>Y finale <input type="number" name="region_y1" value="{initial_value("region_y1")}" min="0" max="1" step="any" required></label></fieldset>'
+        f'<label>Valore letto e verificato sulla pagina <input name="value" value="{initial_value("value")}" maxlength="512" required></label>'
         f'<input type="hidden" name="review_seconds" data-review-seconds value="{elapsed_seconds}">'
         '<button type="submit">Registra correzione umana</button></form>'
     )
@@ -854,7 +901,7 @@ _REGION_REVIEW_SCRIPT = (
     'const render=(x0,y0,x1,y1)=>{rect.setAttribute("x",x0);rect.setAttribute("y",y0);rect.setAttribute("width",x1-x0);rect.setAttribute("height",y1-y0)};'
     'const announce=()=>{status.textContent=`Regione selezionata nella pagina ${page.value}. Verifica il testo e registra la correzione.`};'
     'const coordinates=()=>{const raw=fields.map(field=>field.value);if(raw.some(value=>value==="")){clear();status.textContent="Completa tutte e quattro le coordinate per visualizzare la regione.";return}const values=raw.map(Number);if(values.some(value=>!Number.isFinite(value)||value<0||value>1)){clear();status.textContent="Coordinate non valide: usa valori compresi tra 0 e 1.";return}const [x0,y0,x1,y1]=values;if(x0>x1||y0>y1){clear();status.textContent="Coordinate invertite: i valori iniziali devono precedere quelli finali.";return}if(x1<=x0||y1<=y0){clear();status.textContent="La regione deve avere larghezza e altezza maggiori di zero.";return}render(x0,y0,x1,y1);announce()};'
-    'fields.forEach(field=>field.addEventListener("input",coordinates));'
+    'fields.forEach(field=>field.addEventListener("input",coordinates));if(fields.every(field=>field.value!==""))coordinates();'
     'page.addEventListener("change",()=>{img.src=`${img.dataset.previewBase}/${page.value}.png`;fields.forEach(field=>{field.value=""});clear();status.textContent=`Pagina ${page.value}: inserisci coordinate o trascina per selezionare una regione.`});'
     'const point=e=>{const r=svg.getBoundingClientRect();return [Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))]};'
     'svg.addEventListener("pointerdown",e=>{if(e.button!==0)return;start=point(e);svg.setPointerCapture(e.pointerId);rect.setAttribute("x",start[0]);rect.setAttribute("y",start[1]);rect.setAttribute("width","0");rect.setAttribute("height","0")});'
@@ -924,12 +971,63 @@ def _render_line_items(record: dict[str, Any]) -> str:
     )
 
 
+def _render_review_history(record: dict[str, Any]) -> str:
+    """Show verified append-only events without changing the extracted data."""
+    events = record["review"]["events"]
+    if not events:
+        return ""
+    fields = deepcopy(record.get("fields", {}))
+    fields["document_family"] = {"value": record.get("document_family"), "evidence": []}
+    fiscal = deepcopy(record.get("fiscal_document_state", {}))
+    rows = []
+
+    def evidence_text(candidate: Any) -> str:
+        if not isinstance(candidate, dict):
+            return ""
+        parts = []
+        for evidence in candidate.get("evidence", []):
+            if not isinstance(evidence, dict):
+                continue
+            page = escape(str(evidence.get("page_number", "?")))
+            region = escape(json.dumps(evidence.get("region"), ensure_ascii=True, sort_keys=True))
+            literal = escape(str(evidence.get("literal", "")))
+            source = escape(str(evidence.get("source_sha256", "")))
+            parts.append(f"Pagina {page}; area {region}; fonte {source}; testo {literal}")
+        return "; ".join(parts) if parts else "non disponibili"
+
+    for event in events:
+        action = event["action"]
+        detail = ""
+        if action in {"field_corrected", "alternative_selected"}:
+            field = event["field_name"]
+            previous = fields.get(field, {})
+            current = event["candidate"]
+            old_value = previous.get("value") if isinstance(previous, dict) else None
+            detail = (f"; campo {escape(field)}; precedente {escape(str(old_value))}; "
+                      f"nuovo {escape(str(current.get('value')))}; "
+                      f"prove precedenti: {evidence_text(previous)}; nuove prove: {evidence_text(current)}")
+            fields[field] = current
+        elif action == "fiscal_state_corrected":
+            current = event["fiscal_state"]
+            detail = (f"; stato fiscale precedente {escape(str(fiscal.get('status')))}; "
+                      f"nuovo {escape(str(current.get('status')))}; "
+                      f"prove precedenti: {evidence_text(fiscal)}; nuove prove: {evidence_text(current)}")
+            fiscal = current
+        reason = event.get("reason_code")
+        if reason:
+            detail += "; motivo " + escape(str(reason))
+        rows.append(f"<li>{escape(str(event['timestamp']))}; {escape(str(event['actor_id']))}; "
+                    f"{escape(str(action))}{detail}</li>")
+    return "<section><h2>Cronologia revisioni</h2><ol>" + "".join(rows) + "</ol></section>"
+
+
 def _render_editable_record(
     record: dict[str, Any], *, document_id: str, has_source: bool, elapsed_seconds: int = 0,
     archive_save_enabled: bool = False,
 ) -> str:
     overlay = reviewed_overlay(record)
     fields = overlay["reviewed_fields"]
+    manual_labels = _manual_fields(record)
     failed_rules = failed_rules_by_field(record)
     page_numbers = sorted({
         item.get("page_number") for item in record.get("pages", [])
@@ -940,17 +1038,48 @@ def _render_editable_record(
     for name, candidate in sorted(fields.items()):
         value = candidate.get("value")
         evidence = candidate.get("evidence", [])
-        snippets = []
-        for item in evidence:
-            literal = item.get("literal", "")
-            page = item.get("page_number", "?")
-            detail = f"<q>{escape(str(literal))}</q>" if literal else (
-                "regione selezionata e verificata da una persona"
-                if isinstance(item.get("region"), dict) else "riferimento sorgente senza testo OCR"
+        def evidence_items(items: Any) -> str:
+            parts = []
+            for item in items if isinstance(items, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                literal = item.get("literal", "")
+                page = item.get("page_number", "?")
+                producer = item.get("producer")
+                human_region = isinstance(producer, dict) and producer.get("stage") == "human_review" and isinstance(item.get("region"), dict)
+                detail = f"<q>{escape(str(literal))}</q>" if literal else (
+                    "regione selezionata e verificata da una persona" if human_region
+                    else "riferimento sorgente senza testo OCR"
+                )
+                region = item.get("region")
+                region_text = ("; area: " + escape(json.dumps(region, ensure_ascii=True, sort_keys=True))) if isinstance(region, dict) else ""
+                parts.append(f"<li>Pagina {escape(str(page))}: {detail}{region_text}</li>")
+            return "".join(parts)
+
+        snippets = evidence_items(evidence)
+        original_candidate = record.get("fields", {}).get(name, {})
+        original_alternatives = original_candidate.get("alternatives") or [] if isinstance(original_candidate, dict) else []
+        alternatives = original_alternatives or candidate.get("alternatives") or []
+        alternatives_label = "Alternative originali da verificare:" if original_alternatives and candidate != original_candidate else "Alternative da verificare:"
+        alternative_rows = []
+        for index, alternative in enumerate(alternatives):
+            if not isinstance(alternative, dict):
+                continue
+            alternative_value = alternative.get("value")
+            selection = ""
+            if alternative.get("status") == "observed" and name not in {"document_family_candidates", "fiscal_document_state"}:
+                selection = (f'<form method="post" data-review-timer action="/reviews/{quote(document_id, safe="")}/alternatives/{quote(name, safe="")}">'
+                             f'<input type="hidden" name="alternative_index" value="{index}">'
+                             f'<input type="hidden" name="review_seconds" data-review-seconds value="{elapsed_seconds}">'
+                             '<button type="submit">Seleziona questa alternativa</button></form>')
+            alternative_rows.append(
+                f"<li>{escape(str(alternative_value)) if alternative_value is not None else '—'} "
+                f"(stato: {escape(str(alternative.get('status', 'incerto')))})"
+                f"<ul>{evidence_items(alternative.get('evidence', []))}</ul>{selection}</li>"
             )
-            snippets.append(f"<li>Pagina {escape(str(page))}: {detail}</li>")
+        alternatives_html = (f"<p>{alternatives_label}</p><ul>" + "".join(alternative_rows) + "</ul>") if alternative_rows else ""
         correction = ""
-        if evidence and name != "document_family_candidates":
+        if evidence and name not in {"document_family_candidates", "document_family"}:
             correction = (
                 f'<form method="post" data-review-timer action="/reviews/{quote(document_id, safe="")}/fields/{quote(name, safe="")}">'
                 f'<label>Valore corretto <input name="value" value="{escape(str(value)) if value is not None else ""}" maxlength="512" required></label>'
@@ -969,11 +1098,20 @@ def _render_editable_record(
             else:
                 correction += "<p>La selezione di una nuova regione non è disponibile: la pagina originale non è presente nella sessione corrente.</p>"
         rows.append(
-            f"<section><h2>{escape(name)}</h2>"
-            f"<p>Valore verificato: {escape(str(value)) if value is not None else '—'}. "
+            f"<section><h2>{escape(manual_labels.get(name, name) if name.startswith('custom_') else name)}</h2>"
+            f"<p>Valore corrente: {escape(str(value)) if value is not None else '—'}. "
             f"{_goal_status_text(record.get('fields', {}).get(name), candidate, failed_rules.get(name, frozenset()))}</p>"
-            f"<ul>{''.join(snippets)}</ul>{correction}</section>"
+            f"<ul>{snippets}</ul>{alternatives_html}{correction}</section>"
         )
+    missing = [(name, label) for name, label in manual_labels.items() if name not in fields]
+    missing_forms = ""
+    if has_source and page_numbers and missing and overlay["review_status"] != "completed":
+        missing_forms = '<section><h2>Aggiungi un campo non rilevato</h2>' + "".join(
+            f'<details><summary>{escape(label)}</summary>' + _render_region_correction_form(
+                document_id=document_id, field_name=name, page_numbers=page_numbers,
+                elapsed_seconds=elapsed_seconds,
+            ) + '</details>' for name, label in missing
+        ) + '</section>'
     family_review = _render_document_family_review(
         record, overlay, document_id=document_id, elapsed_seconds=elapsed_seconds
     )
@@ -996,17 +1134,17 @@ def _render_editable_record(
         '<button type="submit">Salva modifiche in archivio</button></form>'
         if archive_save_enabled else ""
     )
-    has_region_editor = has_source and bool(page_numbers) and any(
+    has_region_editor = bool(missing_forms) or (has_source and bool(page_numbers) and any(
         candidate.get("status") == "absent" and name not in {"document_family_candidates", "fiscal_document_state"}
         for name, candidate in fields.items()
-    )
-    return (
+    ))
+    body = (
         "<!doctype html><html lang=\"it\"><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
         "<title>Revisione documento</title><main><p><a href=\"/\">Torna al fascicolo</a></p>"
         f"<h1>Revisione {escape(document_id)}</h1>"
         f"<p>Stato revisione: {escape(str(overlay['review_status']))}. Le correzioni si aggiungono al registro; i dati OCR non vengono sovrascritti.</p>"
-        f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{_render_line_items(record)}{_render_ruleset(record)}{completion}{archive_save}"
+        f"{source_link}{family_review}{fiscal_review}{empty}{''.join(rows)}{missing_forms}{_render_line_items(record)}{_render_ruleset(record)}{_render_review_history(record)}{completion}{archive_save}"
         + (_REGION_REVIEW_STYLE if has_region_editor else "")
         + '<script nonce="__CSP_NONCE__">'
         + (_REGION_REVIEW_SCRIPT if has_region_editor else "")
@@ -1017,16 +1155,27 @@ def _render_editable_record(
         '</script></main></html>'
     )
 
+    head = verify_review_ledger(record) or ""
+    revision = f'<input type="hidden" name="expected_review_head" value="{escape(head, quote=True)}">'
+    return re.sub(r'(<form\b(?=[^>]*\bdata-review-timer\b)[^>]*>)', lambda m: m.group(1) + revision, body, flags=re.IGNORECASE)
+
+
+def _windows_review_actor() -> str:
+    try:
+        return local_review_actor()
+    except OSError as exc:
+        raise IntakeRequestError("Impossibile identificare l'utente locale") from exc
+
 
 def _begin_document_review(record: dict[str, Any], *, timestamp: str) -> dict[str, Any]:
     """Start a review once a reviewer opens the editable document page."""
     updated = record
     status = updated["review"]["status"]
     if status == "not_started":
-        updated = append_review_event(updated, actor_id="local-session", action="queued", timestamp=timestamp)
+        updated = append_review_event(updated, actor_id=_windows_review_actor(), action="queued", timestamp=timestamp)
         status = "queued"
     if status in {"queued", "blocked"}:
-        updated = append_review_event(updated, actor_id="local-session", action="opened", timestamp=timestamp)
+        updated = append_review_event(updated, actor_id=_windows_review_actor(), action="opened", timestamp=timestamp)
     return updated
 
 
@@ -1055,9 +1204,12 @@ def _apply_field_correction(
     if not isinstance(value, str) or not value.strip() or len(value) > 512:
         raise IntakeRequestError("Il valore corretto deve contenere da 1 a 512 caratteri")
     original = record.get("fields", {}).get(field_name)
+    if original is None and field_name in _manual_fields(record):
+        original = {"status": "absent", "evidence": []}
     if not isinstance(original, dict):
         raise IntakeRequestError("Il campo non dispone di evidenze sorgente da revisionare")
-    original_evidence = original.get("evidence")
+    current = reviewed_overlay(record)["reviewed_fields"].get(field_name, original)
+    original_evidence = current.get("evidence") if isinstance(current, dict) else None
     if isinstance(original_evidence, list) and original_evidence:
         if region_page_number is not None or region_coordinates is not None:
             raise IntakeRequestError("Il campo dispone già di evidenze sorgente specifiche")
@@ -1102,16 +1254,16 @@ def _apply_field_correction(
     status = updated["review"]["status"]
     if status == "not_started":
         updated = append_review_event(
-            updated, actor_id="local-session", action="queued", timestamp=timestamp
+            updated, actor_id=_windows_review_actor(), action="queued", timestamp=timestamp
         )
         status = "queued"
     if status in {"queued", "blocked"}:
         updated = append_review_event(
-            updated, actor_id="local-session", action="opened", timestamp=timestamp
+            updated, actor_id=_windows_review_actor(), action="opened", timestamp=timestamp
         )
     return append_review_event(
         updated,
-        actor_id="local-session",
+        actor_id=_windows_review_actor(),
         action="field_corrected",
         timestamp=timestamp,
         field_name=field_name,
@@ -1120,15 +1272,35 @@ def _apply_field_correction(
     )
 
 
+def _apply_alternative_selection(record: dict[str, Any], *, field_name: str, alternative_index: str, timestamp: str) -> dict[str, Any]:
+    if field_name in {"document_family_candidates", "document_family", "fiscal_document_state"}:
+        raise IntakeRequestError("Campo non supportato")
+    source = record.get("fields", {}).get(field_name)
+    alternatives = source.get("alternatives") if isinstance(source, dict) else None
+    if not isinstance(alternative_index, str) or not alternative_index.isascii() or not alternative_index.isdecimal() or not isinstance(alternatives, list):
+        raise IntakeRequestError("Alternativa non valida")
+    index = int(alternative_index)
+    if index >= len(alternatives):
+        raise IntakeRequestError("Alternativa non disponibile")
+    chosen = alternatives[index]
+    if not isinstance(chosen, dict) or chosen.get("status") != "observed" or chosen.get("value") is None or not chosen.get("evidence"):
+        raise IntakeRequestError("Alternativa non selezionabile")
+    candidate = deepcopy(chosen)
+    candidate["alternatives"] = []
+    updated = _begin_document_review(record, timestamp=timestamp)
+    return append_review_event(updated, actor_id=_windows_review_actor(), action="alternative_selected", timestamp=timestamp,
+                               field_name=field_name, reason_code="human_selected_alternative", candidate=candidate)
+
+
 def _apply_document_family_selection(
     record: dict[str, Any], *, family: str, timestamp: str
 ) -> dict[str, Any]:
     if record.get("document_family") == "expense_report":
         raise IntakeRequestError("La famiglia della nota spese non può essere cambiata da questa revisione")
-    if not isinstance(family, str) or family not in {
-        "invoice", "fiscal_receipt", "parking_receipt", "hotel_document",
-        "pos_slip", "other", "unknown",
-    }:
+    supported = {"invoice", "fiscal_receipt", "parking_receipt", "hotel_document", "pos_slip", "other", "unknown"}
+    if not validate_document_record(record):
+        supported.update(snapshot["family"]["id"] for snapshot in record.get("document_family_definitions", []))
+    if not isinstance(family, str) or family not in supported:
         raise IntakeRequestError("Famiglia documento non supportata")
     proposal = record.get("fields", {}).get("document_family_candidates")
     alternatives = proposal.get("alternatives") if isinstance(proposal, dict) else None
@@ -1146,12 +1318,12 @@ def _apply_document_family_selection(
     updated = record
     status = updated["review"]["status"]
     if status == "not_started":
-        updated = append_review_event(updated, actor_id="local-session", action="queued", timestamp=timestamp)
+        updated = append_review_event(updated, actor_id=_windows_review_actor(), action="queued", timestamp=timestamp)
         status = "queued"
     if status in {"queued", "blocked"}:
-        updated = append_review_event(updated, actor_id="local-session", action="opened", timestamp=timestamp)
+        updated = append_review_event(updated, actor_id=_windows_review_actor(), action="opened", timestamp=timestamp)
     return append_review_event(
-        updated, actor_id="local-session", action="field_corrected",
+        updated, actor_id=_windows_review_actor(), action="field_corrected",
         timestamp=timestamp, field_name="document_family",
         reason_code="human_selected_evidence_bound_family", candidate=candidate,
     )
@@ -1173,15 +1345,32 @@ def _apply_fiscal_state_correction(
         raise IntakeRequestError("Una ricevuta POS non può essere classificata come documento fiscale")
     fiscal_state = {"status": status, "evidence": [deepcopy(references[index][1])] }
     return append_review_event(
-        record, actor_id="local-session", action="fiscal_state_corrected",
+        record, actor_id=_windows_review_actor(), action="fiscal_state_corrected",
         timestamp=timestamp, reason_code="human_reviewed_fiscal_state",
         fiscal_state=fiscal_state,
     )
 
+def _handoff_state(state: _VolatileSession) -> tuple[str, str, bool]:
+    assert state.intake is not None
+    blocked = False
+    for record in state.intake.documents.values():
+        verify_review_ledger(record)
+        blocked = blocked or record["review"]["status"] == "blocked"
+    prompt = build_chatgpt_handoff_prompt(state.intake.bundle, state.intake.documents)
+    fingerprint = hashlib.sha256(json.dumps({"prompt": prompt, "blocked": blocked, "documents": state.intake.documents}, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return prompt, fingerprint, blocked
+
+
 def _chatgpt_handoff_page(state: _VolatileSession) -> str:
     assert state.intake is not None
+    draft_form = ""
     try:
-        prompt = build_chatgpt_handoff_prompt(state.intake.bundle, state.intake.documents)
+        prompt, fingerprint, blocked = _handoff_state(state)
+        if state.chatgpt_confirmed_hash != fingerprint:
+            state.chatgpt_confirmed_hash = None
+        if state.chatgpt_draft_hash != fingerprint:
+            state.chatgpt_draft = None
+            state.chatgpt_draft_hash = None
         prompt_section = (
             "<p>Questo testo usa soltanto campi confermati. L'app non lo invia: selezionalo e copialo "
             "in ChatGPT manualmente. Non contiene i file originali né il testo OCR grezzo.</p>"
@@ -1189,8 +1378,28 @@ def _chatgpt_handoff_page(state: _VolatileSession) -> str:
             "Procedi solo se la tua organizzazione autorizza l'uso di ChatGPT con questi dati. L'app non invia nulla automaticamente.</p>"
             f'<textarea readonly rows="30" cols="100">{escape(prompt)}</textarea>'
         )
-    except ChatGPTHandoffError as exc:
-        prompt_section = f"<p>{escape(str(exc))} Dopo la revisione potrai tornare qui e incollare la bozza.</p>"
+        if not blocked or state.chatgpt_confirmed_hash == fingerprint:
+            draft_form = ('<form method="post" action="/chatgpt/return">'
+                          f'<input type="hidden" name="draft_prompt_sha256" value="{fingerprint}">'
+                          '<label>Incolla qui la risposta (massimo 20.000 caratteri)'
+                          '<textarea name="draft" rows="16" cols="100" maxlength="20000" required></textarea></label>'
+                          '<button type="submit">Salva bozza nella sessione</button></form>')
+        if blocked and state.chatgpt_confirmed_hash != fingerprint:
+            prompt_section = (
+                '<p><strong>Revisione bloccata:</strong> almeno un documento richiede ulteriore verifica.</p>'
+                '<form method="post" action="/chatgpt/confirm">'
+                f'<input type="hidden" name="prompt_sha256" value="{fingerprint}">'
+                '<label><input type="checkbox" name="confirmation" value="1" required> Ho compreso il limite e desidero visualizzare il testo.</label>'
+                '<button type="submit">Conferma e mostra il testo</button></form>'
+            )
+    except (ChatGPTHandoffError, ValueError) as exc:
+        state.chatgpt_confirmed_hash = None
+        state.chatgpt_draft = None
+        state.chatgpt_draft_hash = None
+        message = ("No human-confirmed fields are available; review and confirm fields first."
+                   if isinstance(exc, ChatGPTHandoffError)
+                   else "Testo non disponibile. Verifica i dati della revisione.")
+        prompt_section = f"<p>{message} Dopo la revisione potrai tornare qui e incollare la bozza.</p>"
     draft_section = (
         f'<section><h2>Bozza restituita — non approvata</h2><pre>{escape(state.chatgpt_draft)}</pre>'
         '<p>Controlla ogni frase sugli originali. La bozza non modifica campi estratti o verificati '
@@ -1203,10 +1412,7 @@ def _chatgpt_handoff_page(state: _VolatileSession) -> str:
         "<title>Testo da copiare in ChatGPT</title><main><h1>ChatGPT manuale</h1>"
         "<p>La risposta sarà una bozza non verificata da controllare sugli originali.</p>"
         + prompt_section
-        + '<form method="post" action="/chatgpt/return">'
-        + '<label>Incolla qui la risposta (massimo 20.000 caratteri)'
-        + '<textarea name="draft" rows="16" cols="100" maxlength="20000" required></textarea></label>'
-        + '<button type="submit">Salva bozza nella sessione</button></form>'
+        + draft_form
         + draft_section
         + "<p><a href=\"/\">Torna al fascicolo</a></p></main></html>"
     )
@@ -1429,6 +1635,7 @@ def _expense_case_reconciliation_page(
         + f'<p>Righe {page * page_size + 1 if lines else 0}–{min((page + 1) * page_size, len(lines))} di {len(lines)} · pagina {page + 1} / {page_count}</p>'
         + "".join(rows) + "".join(navigation)
         + f'<p><a href="/cases/{safe_case_id}/export">Esporta confronto locale (JSON)</a> · '
+        + f'<a href="/cases/{safe_case_id}/export?format=csv">Esporta cronologia revisioni (CSV)</a> · '
         + f'<a href="/cases/{safe_case_id}/intake">Torna al fascicolo</a></p></main></html>'
     )
 
@@ -1466,6 +1673,39 @@ def create_expense_report_app(
     csrf_token = secrets.token_urlsafe(32)
     state_lock = threading.RLock()
     app_closed = False
+
+    def handoff_snapshot(session: _VolatileSession) -> tuple[_VolatileSession, tuple]:
+        # Called while holding state_lock: records are replaced, not edited in place.
+        intake = session.intake
+        assert intake is not None
+        documents = dict(intake.documents)
+        signature = (intake, intake.bundle, tuple((key, id(value)) for key, value in sorted(documents.items())),
+                     session.chatgpt_confirmed_hash, session.chatgpt_draft, session.chatgpt_draft_hash)
+        snapshot = replace(session, intake=replace(intake, documents=documents))
+        return snapshot, signature
+
+    def handoff_matches(session: _VolatileSession, signature: tuple) -> bool:
+        if state is not session or session.intake is None:
+            return False
+        intake = session.intake
+        return (intake is signature[0] and intake.bundle is signature[1]
+                and tuple((key, id(value)) for key, value in sorted(intake.documents.items())) == signature[2]
+                and (session.chatgpt_confirmed_hash, session.chatgpt_draft, session.chatgpt_draft_hash) == signature[3:])
+
+    def render_handoff(environ: dict[str, Any], start_response: Callable, session: _VolatileSession | None, now: float):
+        with state_lock:
+            if session is None or state is not session or session.intake is None:
+                return _page(environ, start_response, "409 Conflict", "Sessione non disponibile")
+            snapshot, signature = handoff_snapshot(session)
+        body = _chatgpt_handoff_page(snapshot)
+        with state_lock:
+            if not handoff_matches(session, signature):
+                return _page(environ, start_response, "409 Conflict", "Sessione o dati cambiati")
+            session.chatgpt_confirmed_hash = snapshot.chatgpt_confirmed_hash
+            session.chatgpt_draft = snapshot.chatgpt_draft
+            session.chatgpt_draft_hash = snapshot.chatgpt_draft_hash
+            session.last_activity = now
+        return _page(environ, start_response, "200 OK", body)
 
     def cancel_session(current: _VolatileSession | None) -> None:
         if current is not None and current.ocr_job_id is not None and ocr_processing_manager is not None:
@@ -1548,7 +1788,7 @@ def create_expense_report_app(
         environ["_ocr2_csrf_token"] = csrf_token
         if _loopback_host_parts(environ.get("HTTP_HOST", "")) is None:
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
-        if environ.get("REQUEST_METHOD", "") == "POST" and not _validate_loopback_post(environ, csrf_token):
+        if environ.get("REQUEST_METHOD", "") == "POST" and not environ.get("_review_post_validated") and not _validate_loopback_post(environ, csrf_token):
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
         now = clock()
         if state is not None and now - state.last_activity > idle_timeout_seconds:
@@ -1854,6 +2094,7 @@ def create_expense_report_app(
                                 candidate_sources=sources,
                                 event_id=fields["_event_id"][0],
                                 reviewer_note=note,
+                                actor_id=_windows_review_actor(),
                             )
                             if len(updated["review_events"]) == len(case.get("review_events", [])):
                                 notice = "Questa revisione era già stata salvata."
@@ -1890,6 +2131,18 @@ def create_expense_report_app(
                             "possible_duplicate_claim_groups": reconciliation["possible_duplicate_claim_groups"],
                             "review_events": reconciliation["review_events"],
                         }
+                        export_query = environ.get("QUERY_STRING", "")
+                        if export_query == "format=csv":
+                            output = io.StringIO(newline="")
+                            writer = csv.DictWriter(output, fieldnames=("export_format_version", "case_id", "review_event_json"), lineterminator="\r\n")
+                            writer.writeheader()
+                            for event in payload["review_events"] or [None]:
+                                writer.writerow({"export_format_version": "ocr2-case-review-csv-v1", "case_id": case_id,
+                                    "review_event_json": json.dumps(event, ensure_ascii=True, sort_keys=True, separators=(",", ":"))})
+                            return _page(environ, start_response, "200 OK", output.getvalue(),
+                                         "text/csv; charset=utf-8", download_filename="expense-review-events.csv")
+                        if export_query:
+                            return _page(environ, start_response, "400 Bad Request", "Formato di esportazione non valido")
                         return _page(
                             environ, start_response, "200 OK",
                             json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
@@ -2159,51 +2412,63 @@ def create_expense_report_app(
                     if method == "POST" and parts[2] == "open":
                         if not _same_origin_loopback_post(environ):
                             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                        with state_lock:
+                            observed_session = state
                         stored = archive_store.get(document_id)
                         if stored is None:
                             return _page(environ, start_response, "404 Not Found", "Documento non trovato")
-                        if state is None:
-                            replacement = _VolatileSession(
-                                secrets.token_hex(18), MaterializedBatch((), (), ()), (), now,
-                                archive_only=True,
-                            )
-                            with state_lock:
-                                state = replacement
-                        elif state.intake is None:
-                            return _page(environ, start_response, "409 Conflict",
-                                         "<p>Completa o annulla prima la selezione dei documenti correnti.</p>")
-                        if state.intake is None:
-                            state.intake = ExpenseReportIntakeSession(
-                                {"expense_report_id": f"archive-{state.session_id}", "note_document_id": document_id,
-                                 "attachment_document_ids": []}, {}, {},
-                            )
-                        documents = dict(state.intake.documents)
-                        sources = dict(state.intake.source_bytes)
-                        documents[document_id] = deepcopy(stored.record)
-                        sources[document_id] = stored.source_bytes
-                        state.intake = replace(state.intake, documents=documents, source_bytes=sources)
-                        state.archive_loaded_document_id = document_id
-                        state.archive_baselines[document_id] = _record_fingerprint(stored.record)
-                        state.last_activity = now
+                        with state_lock:
+                            if app_closed:
+                                return _page(environ, start_response, "503 Service Unavailable", "Servizio locale in arresto")
+                            if state is not observed_session:
+                                return _page(environ, start_response, "409 Conflict", "Sessione modificata durante l'apertura")
+                            if state is None:
+                                replacement = _VolatileSession(
+                                    secrets.token_hex(18), MaterializedBatch((), (), ()), (), now,
+                                    archive_only=True,
+                                )
+                                with state_lock:
+                                    state = replacement
+                            elif state.intake is None:
+                                return _page(environ, start_response, "409 Conflict",
+                                             "<p>Completa o annulla prima la selezione dei documenti correnti.</p>")
+                            if state.intake is not None:
+                                existing = state.intake.documents.get(document_id)
+                                if existing is not None and _record_fingerprint(existing) != _record_fingerprint(stored.record):
+                                    return _page(environ, start_response, "409 Conflict", "Il documento contiene modifiche non salvate")
+                            if state.intake is None:
+                                state.intake = ExpenseReportIntakeSession(
+                                    {"expense_report_id": f"archive-{state.session_id}", "note_document_id": document_id,
+                                     "attachment_document_ids": []}, {}, {},
+                                )
+                            documents = dict(state.intake.documents)
+                            sources = dict(state.intake.source_bytes)
+                            documents[document_id] = deepcopy(stored.record)
+                            sources[document_id] = stored.source_bytes
+                            state.intake = replace(state.intake, documents=documents, source_bytes=sources)
+                            state.archive_loaded_document_id = document_id
+                            state.archive_baselines[document_id] = _record_fingerprint(stored.record)
+                            state.last_activity = now
                         return _page(environ, start_response, "200 OK", _archive_document_page(document_id, stored.record))
                     if method == "POST" and parts[2] == "delete":
                         if not _same_origin_loopback_post(environ):
                             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
                         deleted = archive_store.delete(document_id)
-                        if state is not None and state.intake is not None:
-                            documents = dict(state.intake.documents)
-                            sources = dict(state.intake.source_bytes)
-                            documents.pop(document_id, None)
-                            sources.pop(document_id, None)
-                            state.intake = replace(state.intake, documents=documents, source_bytes=sources)
-                            state.archive_baselines.pop(document_id, None)
-                            state.archive_ids = {
-                                session_id: archived_id
-                                for session_id, archived_id in state.archive_ids.items()
-                                if archived_id != document_id
-                            }
-                            if state.archive_loaded_document_id == document_id:
-                                state.archive_loaded_document_id = None
+                        with state_lock:
+                            if state is not None and state.intake is not None:
+                                documents = dict(state.intake.documents)
+                                sources = dict(state.intake.source_bytes)
+                                documents.pop(document_id, None)
+                                sources.pop(document_id, None)
+                                state.intake = replace(state.intake, documents=documents, source_bytes=sources)
+                                state.archive_baselines.pop(document_id, None)
+                                state.archive_ids = {
+                                    session_id: archived_id
+                                    for session_id, archived_id in state.archive_ids.items()
+                                    if archived_id != document_id
+                                }
+                                if state.archive_loaded_document_id == document_id:
+                                    state.archive_loaded_document_id = None
                         if not deleted:
                             return _page(environ, start_response, "404 Not Found", "Documento non trovato")
                         return _page(environ, start_response, "200 OK",
@@ -2301,8 +2566,10 @@ def create_expense_report_app(
                     limits,
                     max_batch_document_bytes=max_batch_document_bytes,
                 )
-            except (IntakeRequestError, UploadRejected, OSError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p><p><a href=\"/\">Torna all'inizio</a></p>")
+            except (UploadRejected, OSError, ValueError):
+                return _page(environ, start_response, "400 Bad Request", '<p>Caricamento non riuscito. Verifica i file e riprova.</p><p><a href="/">Torna all\'inizio</a></p>')
             payloads = tuple(document for upload in batch.uploads for document in upload.documents)
             if len(payloads) > _MAX_UPLOAD_FILES * 100:
                 return _page(environ, start_response, "400 Bad Request", "<p>Numero di documenti estratti superato</p>")
@@ -2315,21 +2582,57 @@ def create_expense_report_app(
                 state = replacement
             cancel_session(previous)
             return _page(environ, start_response, "200 OK", _choose_note_page(state))
+        if method == "POST" and path == "/chatgpt/confirm":
+            with state_lock:
+                session = state
+                if session is None or session.intake is None:
+                    return _page(environ, start_response, "409 Conflict", "Sessione non disponibile")
+                snapshot, signature = handoff_snapshot(session)
+            try:
+                supplied = _multipart_scalar(environ, "prompt_sha256")
+                confirmation = _multipart_scalar(environ, "confirmation")
+                _, fingerprint, blocked = _handoff_state(snapshot)
+                if confirmation != "1" or not blocked or not re.fullmatch(r"[a-f0-9]{64}", supplied) or not secrets.compare_digest(supplied, fingerprint):
+                    return _page(environ, start_response, "409 Conflict", "Il testo o la revisione sono cambiati; ricarica la pagina")
+                with state_lock:
+                    if not handoff_matches(session, signature):
+                        return _page(environ, start_response, "409 Conflict", "Sessione o dati cambiati")
+                    session.chatgpt_confirmed_hash = fingerprint
+                    session.last_activity = now
+            except (IntakeRequestError, ChatGPTHandoffError, ValueError):
+                return _page(environ, start_response, "400 Bad Request", "Conferma non valida")
+            return render_handoff(environ, start_response, session, now)
         if method == "POST" and path == "/chatgpt/return":
-            if state is None or state.intake is None:
-                return _page(environ, start_response, "409 Conflict", "<p>La sessione di revisione non è disponibile.</p>")
+            with state_lock:
+                session = state
+                if session is None or session.intake is None:
+                    return _page(environ, start_response, "409 Conflict", "<p>La sessione di revisione non è disponibile.</p>")
+                snapshot, signature = handoff_snapshot(session)
             try:
                 draft = _multipart_scalar(environ, "draft", max_form_bytes=128 * 1024)
                 if len(draft) > 20_000:
                     raise IntakeRequestError("La bozza supera il limite di 20.000 caratteri")
-                state.chatgpt_draft = draft
-                state.last_activity = now
+                supplied = _multipart_scalar(environ, "draft_prompt_sha256")
+                _, fingerprint, blocked = _handoff_state(snapshot)
+                if not re.fullmatch(r"[a-f0-9]{64}", supplied) or not secrets.compare_digest(supplied, fingerprint):
+                    return _page(environ, start_response, "409 Conflict", "Il testo è cambiato; ricarica la pagina")
+                if blocked and session.chatgpt_confirmed_hash != fingerprint:
+                    return _page(environ, start_response, "409 Conflict", "Conferma nuovamente i limiti della revisione")
+                with state_lock:
+                    if not handoff_matches(session, signature):
+                        return _page(environ, start_response, "409 Conflict", "Sessione o dati cambiati")
+                    session.chatgpt_draft = draft
+                    session.chatgpt_draft_hash = fingerprint
+                    session.last_activity = now
             except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
-            return _page(environ, start_response, "200 OK", _chatgpt_handoff_page(state))
-        if method == "GET" and path == "/chatgpt" and state is not None and state.intake is not None:
-            state.last_activity = now
-            return _page(environ, start_response, "200 OK", _chatgpt_handoff_page(state))
+            except (ChatGPTHandoffError, ValueError):
+                return _page(environ, start_response, "400 Bad Request", "Bozza non salvata: dati di revisione non validi")
+            return render_handoff(environ, start_response, session, now)
+        if method == "GET" and path == "/chatgpt":
+            with state_lock:
+                session = state
+            return render_handoff(environ, start_response, session, now)
         if method == "POST" and path == "/assign-note":
             session = state
             if session is None or session.intake is not None or session.ocr_starting:
@@ -2401,17 +2704,25 @@ def create_expense_report_app(
                             raise IntakeRequestError("Il processore OCR ha restituito un record fuori contratto")
                         processed_documents[document_id] = processed
                     intake = replace(intake, documents=processed_documents)
-                state.intake = intake
+                with state_lock:
+                    if app_closed or state is not session or session.intake is not None:
+                        return _page(environ, start_response, "409 Conflict", "Sessione modificata durante l'elaborazione")
+                    session.intake = intake
             except RuntimeError:
                 with state_lock:
                     if state is session:
                         session.ocr_starting = False
                 return _page(environ, start_response, "409 Conflict", "<p>Un'elaborazione precedente è ancora in chiusura. Attendi prima di avviarne un'altra.</p>")
-            except (IntakeRequestError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 with state_lock:
                     if state is session:
                         session.ocr_starting = False
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p><p><a href=\"/\">Riprova</a></p>")
+            except ValueError:
+                with state_lock:
+                    if state is session:
+                        session.ocr_starting = False
+                return _page(environ, start_response, "400 Bad Request", '<p>Elaborazione non riuscita. Verifica i dati e riprova.</p><p><a href="/">Riprova</a></p>')
             state.last_activity = now
             return _page(environ, start_response, "200 OK", _bundle_page(state, archive_enabled=archive_store is not None))
         if method == "POST" and path == "/clear":
@@ -2422,18 +2733,30 @@ def create_expense_report_app(
             return _page(environ, start_response, "200 OK", _upload_page(archive_enabled=archive_store is not None))
         preview_match = re.fullmatch(r"/reviews/([^/]+)/pages/([1-9][0-9]{0,4})\.png", path)
         if method == "GET" and preview_match is not None:
-            if state is None or state.intake is None:
-                return _page(environ, start_response, "404 Not Found", "Pagina non disponibile")
             document_id, raw_page = preview_match.groups()
-            record = state.intake.documents.get(document_id)
-            source_bytes = state.intake.source_bytes.get(document_id)
-            if not isinstance(record, dict) or not isinstance(source_bytes, bytes):
-                return _page(environ, start_response, "404 Not Found", "Pagina non disponibile")
+            with state_lock:
+                session = state
+                if session is None or session.intake is None:
+                    return _page(environ, start_response, "404 Not Found", "Pagina non disponibile")
+                record = session.intake.documents.get(document_id)
+                source_bytes = session.intake.source_bytes.get(document_id)
+                if not isinstance(record, dict) or not isinstance(source_bytes, bytes):
+                    return _page(environ, start_response, "404 Not Found", "Pagina non disponibile")
             try:
                 page_png = _source_page_png(record, source_bytes, int(raw_page))
             except (DocumentDecodeError, ValueError, OverflowError):
                 return _page(environ, start_response, "422 Unprocessable Content", "Pagina non disponibile per la revisione")
-            state.last_activity = now
+            with state_lock:
+                if (state is not session or session.intake is None
+                        or session.intake.documents.get(document_id) is not record
+                        or session.intake.source_bytes.get(document_id) != source_bytes):
+                    return _page(environ, start_response, "409 Conflict", "Documento o sessione modificati durante l'anteprima")
+                key = (document_id, record["source"]["sha256"], int(raw_page))
+                session.previewed_pages.pop(key, None)
+                session.previewed_pages[key] = None
+                if len(session.previewed_pages) > 128:
+                    session.previewed_pages.pop(next(iter(session.previewed_pages)))
+                session.last_activity = now
             headers = [
                 ("Content-Type", "image/png"),
                 ("Content-Length", str(len(page_png))),
@@ -2444,10 +2767,32 @@ def create_expense_report_app(
             ]
             start_response("200 OK", headers)
             return [page_png]
+        source_match = re.fullmatch(r"/reviews/([^/]+)/source", path)
+        if method == "GET" and source_match is not None:
+            document_id = source_match.group(1)
+            with state_lock:
+                session = state
+                if session is None or session.intake is None:
+                    return _page(environ, start_response, "404 Not Found", "Documento non disponibile")
+                record = session.intake.documents.get(document_id)
+                source_bytes = session.intake.source_bytes.get(document_id)
+                if not isinstance(record, dict) or not isinstance(source_bytes, bytes):
+                    return _page(environ, start_response, "404 Not Found", "Documento non disponibile")
+                record_snapshot = deepcopy(record)
+            review_app = create_review_app({document_id: record_snapshot}, {document_id: source_bytes})
+            captured = {}
+            def capture_response(status, headers, exc_info=None):
+                captured["status"], captured["headers"] = status, headers
+            response = review_app(environ, capture_response)
+            with state_lock:
+                if (state is not session or session.intake is None
+                        or session.intake.documents.get(document_id) is not record
+                        or session.intake.source_bytes.get(document_id) != source_bytes):
+                    return _page(environ, start_response, "409 Conflict", "Documento o sessione modificati")
+                start_response(captured["status"], captured["headers"])
+                return response
         if method == "GET" and path.startswith("/reviews/") and state is not None and state.intake is not None:
             review_app = create_review_app(state.intake.documents, state.intake.source_bytes)
-            if path.endswith("/source"):
-                return review_app(environ, start_response)
             document_id = path[len("/reviews/"):].rstrip("/")
             if document_id and "/" not in document_id:
                 record = state.intake.documents.get(document_id)
@@ -2455,7 +2800,10 @@ def create_expense_report_app(
                     if document_id == state.archive_loaded_document_id:
                         return _page(environ, start_response, "200 OK", _archive_document_page(document_id, record))
                     timestamp = datetime.now(timezone.utc).isoformat()
-                    record = _begin_document_review(record, timestamp=timestamp)
+                    try:
+                        record = _begin_document_review(record, timestamp=timestamp)
+                    except IntakeRequestError:
+                        return _page(environ, start_response, "503 Service Unavailable", "Impossibile identificare l'utente locale. Revisione non avviata.")
                     state.intake.documents[document_id] = record
                     state.last_activity = now
                     return _page(
@@ -2478,7 +2826,10 @@ def create_expense_report_app(
             record = state.intake.documents.get(document_id)
             if document_id != state.archive_loaded_document_id or not isinstance(record, dict):
                 return _page(environ, start_response, "404 Not Found", "Documento archiviato non trovato")
-            record = _begin_document_review(record, timestamp=datetime.now(timezone.utc).isoformat())
+            try:
+                record = _begin_document_review(record, timestamp=datetime.now(timezone.utc).isoformat())
+            except IntakeRequestError:
+                return _page(environ, start_response, "503 Service Unavailable", "Impossibile identificare l'utente locale. Revisione non avviata.")
             state.intake = replace(state.intake, documents={**state.intake.documents, document_id: record})
             state.last_activity = now
             editable = _render_editable_record(record, document_id=document_id,
@@ -2494,20 +2845,26 @@ def create_expense_report_app(
                 record = state.intake.documents.get(document_id)
                 if not document_id or "/" in document_id or not isinstance(record, dict):
                     raise IntakeRequestError("Documento non trovato")
+                expected_head = _multipart_scalar(environ, "expected_review_head", required=False)
+                current_head = verify_review_ledger(record) or ""
+                if not re.fullmatch(r"[a-f0-9]{64}", expected_head or "") or not secrets.compare_digest(expected_head, current_head):
+                    return _review_conflict_page(environ, start_response, document_id)
                 if record["review"]["status"] != "in_progress":
                     raise IntakeRequestError("La revisione non è aperta o è già conclusa")
                 seconds = _read_review_seconds(environ)
                 if seconds < state.review_seconds.get(document_id, 0):
                     raise IntakeRequestError("La durata non può diminuire durante la revisione")
                 record = append_review_event(
-                    record, actor_id="local-session", action="completed",
+                    record, actor_id=_windows_review_actor(), action="completed",
                     timestamp=datetime.now(timezone.utc).isoformat(),
                 )
                 state.intake.documents[document_id] = record
                 state.review_seconds[document_id] = seconds
                 state.last_activity = now
-            except (IntakeRequestError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except ValueError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Revisione non salvata. Verifica i dati e riprova.</p>")
             return _page(
                 environ, start_response, "200 OK",
                 f'<h1>Revisione conclusa</h1><p>Tempo con la scheda in primo piano: {seconds} secondi.</p>'
@@ -2525,6 +2882,10 @@ def create_expense_report_app(
                 record = state.intake.documents.get(document_id)
                 if not document_id or "/" in document_id or not isinstance(record, dict):
                     raise IntakeRequestError("Documento non trovato")
+                expected_head = _multipart_scalar(environ, "expected_review_head", required=False)
+                current_head = verify_review_ledger(record) or ""
+                if not re.fullmatch(r"[a-f0-9]{64}", expected_head or "") or not secrets.compare_digest(expected_head, current_head):
+                    return _review_conflict_page(environ, start_response, document_id)
                 if seconds < state.review_seconds.get(document_id, 0):
                     raise IntakeRequestError("La durata non può diminuire durante la revisione")
                 updated = _apply_fiscal_state_correction(
@@ -2534,8 +2895,10 @@ def create_expense_report_app(
                 state.intake.documents[document_id] = updated
                 state.review_seconds[document_id] = seconds
                 state.last_activity = now
-            except (IntakeRequestError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except ValueError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Revisione non salvata. Verifica i dati e riprova.</p>")
             return _page(environ, start_response, "200 OK", _render_editable_record(
                 state.intake.documents[document_id], document_id=document_id,
                 has_source=document_id in state.intake.source_bytes,
@@ -2552,20 +2915,53 @@ def create_expense_report_app(
                 record = state.intake.documents.get(document_id)
                 if not document_id or "/" in document_id or not isinstance(record, dict):
                     raise IntakeRequestError("Documento non trovato")
+                expected_head = _multipart_scalar(environ, "expected_review_head", required=False)
+                current_head = verify_review_ledger(record) or ""
+                if not re.fullmatch(r"[a-f0-9]{64}", expected_head or "") or not secrets.compare_digest(expected_head, current_head):
+                    return _review_conflict_page(environ, start_response, document_id)
                 if seconds < state.review_seconds.get(document_id, 0):
                     raise IntakeRequestError("La durata non può diminuire durante la revisione")
                 updated = _apply_document_family_selection(record, family=family, timestamp=datetime.now(timezone.utc).isoformat())
                 state.intake.documents[document_id] = updated
                 state.review_seconds[document_id] = seconds
                 state.last_activity = now
-            except (IntakeRequestError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except ValueError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Revisione non salvata. Verifica i dati e riprova.</p>")
             return _page(environ, start_response, "200 OK", _render_editable_record(
                 state.intake.documents[document_id], document_id=document_id,
                 has_source=document_id in state.intake.source_bytes,
                 elapsed_seconds=state.review_seconds.get(document_id, 0),
                 archive_save_enabled=archive_store is not None,
             ))
+        if method == "POST" and path.startswith("/reviews/") and "/alternatives/" in path:
+            if state is None or state.intake is None:
+                return _page(environ, start_response, "409 Conflict", "Sessione non disponibile")
+            prefix, field_name = path.split("/alternatives/", 1)
+            document_id = prefix[len("/reviews/"):]
+            try:
+                index = _multipart_scalar(environ, "alternative_index")
+                seconds = _read_review_seconds(environ, required=False)
+                record = state.intake.documents.get(document_id)
+                if not document_id or "/" in document_id or "/" in field_name or not isinstance(record, dict):
+                    raise IntakeRequestError("Documento non trovato")
+                expected = _multipart_scalar(environ, "expected_review_head", required=False)
+                current = verify_review_ledger(record) or ""
+                if not re.fullmatch(r"[a-f0-9]{64}", expected or "") or not secrets.compare_digest(expected, current):
+                    return _review_conflict_page(environ, start_response, document_id)
+                if seconds < state.review_seconds.get(document_id, 0):
+                    raise IntakeRequestError("La durata non può diminuire durante la revisione")
+                updated = _apply_alternative_selection(record, field_name=field_name, alternative_index=index, timestamp=datetime.now(timezone.utc).isoformat())
+                state.intake.documents[document_id] = updated
+                state.review_seconds[document_id] = seconds
+                state.last_activity = now
+            except IntakeRequestError as exc:
+                return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except ValueError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Revisione non salvata. Verifica i dati e riprova.</p>")
+            return _page(environ, start_response, "200 OK", _render_editable_record(updated, document_id=document_id,
+                has_source=document_id in state.intake.source_bytes, elapsed_seconds=seconds, archive_save_enabled=archive_store is not None))
         if method == "POST" and path.startswith("/reviews/") and "/fields/" in path:
             if state is None or state.intake is None:
                 return _page(environ, start_response, "409 Conflict", "<p>La sessione di revisione non è disponibile.</p>")
@@ -2595,6 +2991,10 @@ def create_expense_report_app(
                 record = state.intake.documents.get(document_id)
                 if not document_id or "/" in document_id or not isinstance(record, dict):
                     raise IntakeRequestError("Documento non trovato")
+                expected_head = _multipart_scalar(environ, "expected_review_head", required=False)
+                current_head = verify_review_ledger(record) or ""
+                if not re.fullmatch(r"[a-f0-9]{64}", expected_head or "") or not secrets.compare_digest(expected_head, current_head):
+                    return _review_conflict_page(environ, start_response, document_id)
                 if region_page_number is not None:
                     source_bytes = state.intake.source_bytes.get(document_id)
                     source = record.get("source", {})
@@ -2604,8 +3004,45 @@ def create_expense_report_app(
                         or source.get("sha256") != hashlib.sha256(source_bytes).hexdigest()
                     ):
                         raise IntakeRequestError("Il documento originale non è disponibile o non corrisponde al record")
+                    if (document_id, source.get("sha256"), region_page_number) not in state.previewed_pages:
+                        raise IntakeRequestError("Apri l'anteprima della pagina originale prima della correzione")
                 if seconds < state.review_seconds.get(document_id, 0):
                     raise IntakeRequestError("La durata non può diminuire durante la revisione")
+                if field_name.startswith("custom_") and field_name in _manual_fields(record):
+                    custom_type = next((definition.get("type", "text")
+                        for snapshot in record.get("document_family_definitions", [])
+                        for definition in snapshot["family"].get("fields", [])
+                        if field_name == f"{snapshot['family']['id']}_{definition['id']}"), None)
+                    issues: list[str] = []
+                    if custom_type in {"date", "amount"}:
+                        _validate_custom_value(value.strip(), custom_type, "value", issues)
+                    if issues and len(value) <= 512:
+                        head_input = f'<input type="hidden" name="expected_review_head" value="{escape(current_head, quote=True)}">'
+                        if region_page_number is not None:
+                            pages = sorted({item["page_number"] for item in record.get("pages", [])
+                                if isinstance(item, dict) and isinstance(item.get("page_number"), int)
+                                and not isinstance(item.get("page_number"), bool) and item["page_number"] > 0})
+                            if region_page_number not in pages:
+                                raise IntakeRequestError("La pagina selezionata non appartiene al documento")
+                            build_human_region_evidence(source.get("sha256"), region_page_number, *region_coordinates)
+                            initial = {"value": value, "region_page": region_page_raw, **dict(zip(coordinate_names, coordinate_values))}
+                            form = _render_region_correction_form(document_id=document_id, field_name=field_name,
+                                page_numbers=pages, elapsed_seconds=seconds, initial=initial)
+                            form = form.replace('><h3>', '>' + head_input + '<h3>', 1)
+                        else:
+                            current = reviewed_overlay(record)["reviewed_fields"].get(field_name)
+                            if not isinstance(current, dict) or not current.get("evidence"):
+                                raise IntakeRequestError("Il campo non dispone di evidenze sorgente da revisionare")
+                            form = (f'<form method="post" data-review-timer data-region-review action="/reviews/{quote(document_id, safe="")}/fields/{quote(field_name, safe="")}">'
+                                + head_input + f'<label>Valore corretto <input name="value" value="{escape(value, quote=True)}" maxlength="512" required></label>'
+                                + f'<input type="hidden" name="review_seconds" data-review-seconds value="{seconds}">'
+                                + '<button type="submit">Registra correzione</button></form>')
+                        hint = "AAAA-MM-GG" if custom_type == "date" else "1234.50"
+                        label = escape(_manual_fields(record)[field_name])
+                        return _page(environ, start_response, "400 Bad Request", f'<!doctype html><html lang="it"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Formato non valido — {label}</title><main><h1>Formato non valido — {label}</h1><p>Usa {hint}.</p>{form}'
+                            + _REGION_REVIEW_STYLE + '<script nonce="__CSP_NONCE__">' + (_REGION_REVIEW_SCRIPT if region_page_number is not None else "")
+                            + '(()=>{let active=0,last=performance.now(),visible=!document.hidden;const tick=()=>{const now=performance.now();if(visible)active+=now-last;last=now;visible=!document.hidden};document.addEventListener("visibilitychange",tick);setInterval(tick,1000);document.querySelector("[data-region-review]").addEventListener("submit",()=>{tick();const input=document.querySelector("[data-review-seconds]");input.value=String(Math.floor(Number(input.value||0)+active/1000))})})();'
+                            + '</script></main></html>')
                 updated = _apply_field_correction(
                     record,
                     field_name=field_name,
@@ -2619,8 +3056,10 @@ def create_expense_report_app(
                 state.intake.documents[document_id] = updated
                 state.review_seconds[document_id] = seconds
                 state.last_activity = now
-            except (IntakeRequestError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except ValueError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Revisione non salvata. Verifica i dati e riprova.</p>")
             return _page(
                 environ, start_response, "200 OK",
                 _render_editable_record(
@@ -2647,8 +3086,28 @@ def create_expense_report_app(
         if ocr_processing_manager is not None:
             ocr_processing_manager.close()
 
-    app.close = close
-    return app
+    def serialized_app(environ: dict[str, Any], start_response: Callable) -> list[bytes]:
+        path = environ.get("PATH_INFO", "")
+        method = environ.get("REQUEST_METHOD")
+        review_route = path.startswith("/reviews/") and (
+            method == "POST" or (method == "GET" and re.fullmatch(r"/reviews/[^/]+/?", path) is not None)
+        )
+        if review_route:
+            if method == "POST":
+                if not _validate_loopback_post(environ, csrf_token):
+                    return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
+                if not path.endswith("/open"):
+                    try:
+                        _multipart_form_values(environ)
+                    except IntakeRequestError:
+                        return _page(environ, start_response, "400 Bad Request", "Modulo di revisione non valido")
+                environ["_review_post_validated"] = True
+            with state_lock:
+                return app(environ, start_response)
+        return app(environ, start_response)
+
+    serialized_app.close = close
+    return serialized_app
 
 
 def _multipart_form_values(environ: dict[str, Any], *, max_form_bytes: int = 64 * 1024) -> dict[str, list[str]]:

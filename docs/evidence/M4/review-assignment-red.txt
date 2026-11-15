@@ -1,0 +1,18 @@
+test_slow_assignment_cannot_overwrite_newer_assignment_and_review (test_review_identity.ReviewIdentityTests.test_slow_assignment_cannot_overwrite_newer_assignment_and_review) ... FAIL
+
+======================================================================
+FAIL: test_slow_assignment_cannot_overwrite_newer_assignment_and_review (test_review_identity.ReviewIdentityTests.test_slow_assignment_cannot_overwrite_newer_assignment_and_review)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    release.set(); self.assertEqual(first.result(timeout=3)[0], "409 Conflict")
+                   ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '200 OK' != '409 Conflict'
+- 200 OK
++ 409 Conflict
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.023s
+
+FAILED (failures=1)

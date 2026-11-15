@@ -1,0 +1,41 @@
+FF                                                                       [100%]
+================================== FAILURES ===================================
+_ FieldStatusPresentationTests.test_review_history_shows_previous_and_new_values_with_evidence _
+
+self = <test_field_status_presentation.FieldStatusPresentationTests testMethod=test_review_history_shows_previous_and_new_values_with_evidence>
+
+    def test_review_history_shows_previous_and_new_values_with_evidence(self):
+        from alfa_document_intelligence.local_intake_app import _apply_field_correction
+        from unittest.mock import patch
+        record = _record()
+        original = record["fields"]["merchant_name"]["value"]
+        with patch("alfa_document_intelligence.local_intake_app._windows_review_actor", return_value="synthetic-reviewer"):
+            first = _apply_field_correction(record, field_name="merchant_name", value="<prima>", timestamp="2026-11-15T12:00:00Z")
+            second = _apply_field_correction(first, field_name="merchant_name", value="seconda", timestamp="2026-11-15T12:01:00Z")
+        html = _render_editable_record(second, document_id="doc-1", has_source=False)
+>       self.assertIn("Cronologia revisioni", html)
+E       AssertionError: 'Cronologia revisioni' not found in '<!doctype html><html lang="it"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Revisione documento</title><main><p><a href="/">Torna al fascicolo</a></p><h1>Revisione doc-1</h1><p>Stato revisione: in_progress. Le correzioni si aggiungono al  [output troncato]
+
+tests\test_field_status_presentation.py:74: AssertionError
+_ FieldStatusPresentationTests.test_review_history_includes_fiscal_before_after_and_evidence _
+
+self = <test_field_status_presentation.FieldStatusPresentationTests testMethod=test_review_history_includes_fiscal_before_after_and_evidence>
+
+    def test_review_history_includes_fiscal_before_after_and_evidence(self):
+        from alfa_document_intelligence.review_ledger import append_review_event
+        record = _record()
+        for action in ("queued", "opened"):
+            record = append_review_event(record, actor_id="synthetic", action=action, timestamp="2026-11-15T12:00:00Z")
+        old = record["fiscal_document_state"]["status"]
+        state = {"status":"payment_evidence", "evidence":copy.deepcopy(record["fiscal_document_state"]["evidence"])}
+        record = append_review_event(record, actor_id="synthetic", action="fiscal_state_corrected",
+            timestamp="2026-11-15T12:01:00Z", fiscal_state=state, reason_code="synthetic_reason")
+        html = _render_editable_record(record, document_id="doc-1", has_source=False)
+>       self.assertIn("Cronologia revisioni", html)
+E       AssertionError: 'Cronologia revisioni' not found in '<!doctype html><html lang="it"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Revisione documento</title><main><p><a href="/">Torna al fascicolo</a></p><h1>Revisione doc-1</h1><p>Stato revisione: in_progress. Le correzioni si aggiungono al  [output troncato]
+
+tests\test_field_status_presentation.py:93: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_field_status_presentation.py::FieldStatusPresentationTests::test_review_history_shows_previous_and_new_values_with_evidence
+FAILED tests/test_field_status_presentation.py::FieldStatusPresentationTests::test_review_history_includes_fiscal_before_after_and_evidence
+2 failed in 0.51s

@@ -20,12 +20,12 @@ reopen the original source by itself.
 
 `export_document_csv(record)` returns one row per field candidate, or one
 document-identity row when no field candidates exist. Columns include the
-`ocr2-document-csv-v2` format marker, document and schema identity, family,
+`ocr2-document-csv-v3` format marker, document and schema identity, family,
 source SHA-256, source filename as JSON, field name, the field state required by
 GOAL.md (`goal_status`: `valido`, `incerto`, `mancante`, `non_valido` or
 `non_applicabile`) with its Italian reason (`goal_status_reason`), and the
 complete candidate object as JSON. Version 2 (2026-11-15, M3) added the two
-state columns; the state values and reasons come from a fixed vocabulary and
+state columns; version 3 adds `review_events_json` in the first row only, as a JSON array containing the complete review history, including actor and timestamp. Subsequent rows leave this cell empty to avoid multiplying the history by the number of fields. The state values and reasons come from a fixed vocabulary and
 always start with a letter. Candidate JSON retains the value, status, alternatives,
 normalization, and evidence as one parseable cell. This is an analysis view, not
 a round-trip representation of every document-level property; use JSON when
@@ -39,7 +39,7 @@ instead of treating them as display-ready plain text.
 
 ## Privacy and validation
 
-Both functions check the repository's cross-record invariants and the presence
+Both functions verify the review ledger and check the repository's cross-record invariants and the presence
 of the top-level required properties, raising `ExportValidationError` when
 those checks fail. They do not independently execute the JSON Schema validator;
 callers remain responsible for structural schema validation before exporting.
@@ -64,3 +64,7 @@ documentation does not claim that export is operationally verified or ready for
 real documents. The archive/store-dependent tests are not part of the current
 authorized CI allowlist.
 
+
+## Reconciliation review-event CSV
+
+The reconciliation page also offers `/cases/{case_id}/export?format=csv`, a local CSV projection of the case review history (`ocr2-case-review-csv-v1`). Each event is a JSON object in `review_event_json`, preserving its actor, UTC timestamp, action, source-bound evidence and event digest. An empty history is a single row with JSON `null`. All event data is JSON-encoded to prevent free-text values from becoming spreadsheet formulas. The separate JSON endpoint retains the complete reconciliation. This CSV is a review-event projection, not a reconciliation round-trip or a backup.

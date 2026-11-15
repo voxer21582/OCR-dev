@@ -1,0 +1,9 @@
+# M4 — proposta per revisione
+
+La proposta realizza la revisione dei documenti con provenienza, correzioni e alternative, storia degli eventi con autore e data UTC, esportazione della cronologia, selezione manuale della regione e controlli di accessibilità. Le prove sintetiche, il percorso browser e il riscontro del proprietario con Assistente vocale sono raccolti nella cartella `docs/evidence/M4/`; la revisione indipendente è in `review.md`.
+
+Il lavoro tocca R8: modifica la proiezione CSV della cronologia e gli export della riconciliazione. La PR #149 lo dichiara e il 2026-11-15 il proprietario ha approvato esplicitamente in chat tali modifiche; il merge resta un'azione distinta. I job Ubuntu e Windows della PR sul commit `b6dc0f5` sono passati.
+
+Per evitare di pubblicare un percorso personale presente nella storia del ramo precedente, il contenuto è stato ricostruito in un nuovo worktree a partire da `origin/main`, senza modificare quel ramo. Prima delle aggiunte documentali di questa proposta, l'albero preparato coincideva con il risultato revisionato; ricerca del percorso del profilo nel contenuto preparato e `test_public_data_guard` non hanno rilevato esposizioni. La verifica non equivale a una garanzia generale di assenza di dati sensibili. La suite sintetica eseguita sul worktree preparato è `proposal-windows-suite.txt` (835 test e 365 sottocasi).
+
+Una revisione indipendente del commit `5bbabfc` ha verificato che il vecchio commit non è antenato del nuovo ramo. La scansione euristica delle righe aggiunte non ha trovato indirizzi email, percorsi di profilo o indicatori comuni di credenziali; i tre JPEG aggiunti sono stati ispezionati come immagini sintetiche e non presentano marker EXIF/XMP. `test_public_data_guard` è passato con 13 test. La revisione non è un controllo DLP completo e non esamina file preesistenti fuori dal diff né oggetti locali non raggiungibili.

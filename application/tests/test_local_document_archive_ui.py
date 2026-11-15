@@ -95,6 +95,95 @@ class LocalDocumentArchiveUiTests(unittest.TestCase):
             b"", "application/x-www-form-urlencoded", origin=origin,
         )
 
+    def test_archive_open_rejects_session_changed_during_store_read(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        self._start_expense_report_session()
+        _request(self.app, path="/reviews/doc-001")
+        self._save_current_document()
+        document_id = self.store.search("synthetic-note.pdf")[0].document_id
+        entered, release = threading.Event(), threading.Event()
+        original = self.store.get
+        def delayed(identifier):
+            value = original(identifier)
+            entered.set()
+            if not release.wait(3):
+                raise RuntimeError("test release timed out")
+            return value
+        try:
+            with patch.object(self.store, "get", side_effect=delayed):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    opening = pool.submit(_request, self.app, "POST", f"/archive/open/{document_id}", b"", "application/x-www-form-urlencoded")
+                    self.assertTrue(entered.wait(2))
+                    self.assertEqual(_request(self.app, "POST", "/clear", b"clear=1", "application/x-www-form-urlencoded")[0], "200 OK")
+                    release.set()
+                    self.assertEqual(opening.result(timeout=3)[0], "409 Conflict")
+        finally:
+            release.set()
+
+    def test_reopening_archive_does_not_discard_unsaved_review(self):
+        import re
+        self._start_expense_report_session()
+        _request(self.app, path="/reviews/doc-001")
+        self._save_current_document()
+        document_id = self.store.search("synthetic-note.pdf")[0].document_id
+        self.assertEqual(_request(self.app, "POST", f"/archive/open/{document_id}", b"", "application/x-www-form-urlencoded")[0], "200 OK")
+        status, _, page = _request(self.app, "POST", f"/reviews/{document_id}/open", b"", "application/x-www-form-urlencoded")
+        self.assertEqual(status, "200 OK")
+        head = re.search(rb'name="expected_review_head" value="([a-f0-9]{64})"', page).group(1).decode()
+        form = urlencode({"expected_review_head": head, "review_seconds": "0"}).encode()
+        self.assertEqual(_request(self.app, "POST", f"/reviews/{document_id}/complete", form, "application/x-www-form-urlencoded")[0], "200 OK")
+        self.assertEqual(_request(self.app, "POST", f"/archive/open/{document_id}", b"", "application/x-www-form-urlencoded")[0], "409 Conflict")
+        self.assertEqual(_request(self.app, "POST", f"/reviews/{document_id}/complete", form, "application/x-www-form-urlencoded")[0], "409 Conflict")
+
+    def test_preview_rejects_document_removed_during_decode(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        self._start_expense_report_session()
+        _request(self.app, path="/reviews/doc-001")
+        self._save_current_document()
+        document_id = self.store.search("synthetic-note.pdf")[0].document_id
+        self.assertEqual(_request(self.app, "POST", f"/archive/open/{document_id}", b"", "application/x-www-form-urlencoded")[0], "200 OK")
+        entered, release = threading.Event(), threading.Event()
+        def preview(*args):
+            entered.set()
+            if not release.wait(3): raise RuntimeError("test release timed out")
+            return b"synthetic"
+        try:
+            with patch("alfa_document_intelligence.local_intake_app._source_page_png", side_effect=preview):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    request = pool.submit(_request, self.app, path=f"/reviews/{document_id}/pages/1.png")
+                    self.assertTrue(entered.wait(2))
+                    self.assertEqual(_request(self.app, "POST", f"/archive/delete/{document_id}", b"", "application/x-www-form-urlencoded")[0], "200 OK")
+                    release.set()
+                    self.assertEqual(request.result(timeout=3)[0], "409 Conflict")
+        finally: release.set()
+
+    def test_archive_open_cannot_recreate_session_after_app_shutdown(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        self._start_expense_report_session()
+        _request(self.app, path="/reviews/doc-001")
+        self._save_current_document()
+        document_id = self.store.search("synthetic-note.pdf")[0].document_id
+        _request(self.app, "POST", "/clear", b"clear=1", "application/x-www-form-urlencoded")
+        entered, release = threading.Event(), threading.Event()
+        original = self.store.get
+        def delayed(identifier):
+            result = original(identifier); entered.set()
+            if not release.wait(3): raise RuntimeError("test release timed out")
+            return result
+        try:
+            with patch.object(self.store, "get", side_effect=delayed):
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    opening = pool.submit(_request, self.app, "POST", f"/archive/open/{document_id}", b"", "application/x-www-form-urlencoded")
+                    self.assertTrue(entered.wait(2)); self.app.close(); release.set()
+                    self.assertIn(opening.result(timeout=3)[0], {"409 Conflict", "503 Service Unavailable"})
+        finally: release.set()
+
     def test_explicit_save_creates_archive_entry_with_unique_persistent_id(self):
         self._start_expense_report_session()
         status, _, _ = _request(self.app, path="/reviews/doc-001")
@@ -143,7 +232,7 @@ class LocalDocumentArchiveUiTests(unittest.TestCase):
         )
         self.assertEqual(status, "200 OK")
         self.assertEqual(headers["Content-Type"], "text/csv; charset=utf-8")
-        self.assertIn(b"ocr2-document-csv-v2", csv_export)
+        self.assertIn(b"ocr2-document-csv-v3", csv_export)
 
     def test_archive_only_open_and_return_does_not_create_a_fake_expense_bundle(self):
         self._start_expense_report_session()

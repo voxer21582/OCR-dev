@@ -30,7 +30,12 @@ from alfa_document_intelligence.review_ledger import reviewed_overlay
 class ManualRegionEvidenceTests(unittest.TestCase):
     def test_browser_can_append_source_bound_human_correction_with_opaque_origin_token(self):
         def processor(record, _source):
-            record["pages"] = [{"page_number": 1}]
+            from test_catalog_pipeline import _catalog, _family, FAMILY_ID
+            record["pages"] = [{"page_number": 1}, {"page_number": 2}]
+            family = _family()
+            family["fields"][0]["type"] = "date"
+            record["schema_version"] = "0.2.0"
+            record["document_family_definitions"] = [_catalog(family, version="2").snapshot_for(FAMILY_ID)]
             record["fields"]["merchant_name"] = {
                 "value": None, "status": "absent", "evidence": [], "alternatives": [],
             }
@@ -67,7 +72,8 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         token_match = re.search(rb'name="_ocr2_csrf" value="([A-Za-z0-9_-]+)"', page)
         self.assertIsNotNone(token_match)
         form = urlencode({
-            "_ocr2_csrf": token_match.group(1).decode("ascii"), "value": "Hotel Sintetico",
+            "_ocr2_csrf": token_match.group(1).decode("ascii"),
+            "expected_review_head": re.search(rb'name="expected_review_head" value="([a-f0-9]{64})"', page).group(1).decode(), "value": "Hotel Sintetico",
             "region_page": "1", "region_x0": "0.1", "region_y0": "0.2",
             "region_x1": "0.7", "region_y1": "0.4", "review_seconds": "0",
         }).encode("ascii")
@@ -75,9 +81,62 @@ class ManualRegionEvidenceTests(unittest.TestCase):
             "POST", "/reviews/doc-001/fields/merchant_name", form,
             "application/x-www-form-urlencoded", origin="null",
         )
+        self.assertTrue(response["status"].startswith("400"))
+        self.assertIn(b"anteprima", result)
+        decoded = DecodedPage(RasterPage(1, 1, 1, b"\xff\x00\x00"), 1)
+        with patch("alfa_document_intelligence.local_intake_app.iter_decoded_pages_isolated", return_value=iter([decoded])):
+            response, _ = invoke("GET", "/reviews/doc-001/pages/1.png")
+        self.assertEqual(response["status"], "200 OK")
+        other_page = form.replace(b"region_page=1", b"region_page=2")
+        response, _ = invoke("POST", "/reviews/doc-001/fields/merchant_name", other_page,
+                             "application/x-www-form-urlencoded", origin="null")
+        self.assertTrue(response["status"].startswith("400"))
+        response, result = invoke(
+            "POST", "/reviews/doc-001/fields/merchant_name", form,
+            "application/x-www-form-urlencoded", origin="null",
+        )
         self.assertTrue(response["status"].startswith("200"))
         self.assertIn(b"Hotel Sintetico", result)
         self.assertIn(b"regione selezionata e verificata da una persona", result)
+        custom_form = urlencode({
+            "_ocr2_csrf": token_match.group(1).decode("ascii"),
+            "expected_review_head": re.search(rb'name="expected_review_head" value="([a-f0-9]{64})"', result).group(1).decode(),
+            "value": "data errata", "region_page": "1", "region_x0": "0.1", "region_y0": "0.2",
+            "region_x1": "0.7", "region_y1": "0.4", "review_seconds": "0",
+        }).encode("ascii")
+        response, result = invoke("POST", "/reviews/doc-001/fields/custom_taxi_receipt_pickup_city", custom_form,
+                                  "application/x-www-form-urlencoded", origin="null")
+        self.assertTrue(response["status"].startswith("400"))
+        self.assertIn(b"data errata", result)
+        self.assertIn(b"AAAA-MM-GG", result)
+        self.assertIn(b'name="region_x0"', result)
+        self.assertIn(b'<html lang="it">', result)
+        self.assertIn(b'<title>Formato non valido', result)
+        self.assertIn(b"Ricevuta taxi", result)
+        self.assertIn(b'value="0.1"', result)
+        self.assertIn(b'name="expected_review_head"', result)
+        valid_form = custom_form.replace(b"data+errata", b"2026-11-08")
+        response, result = invoke("POST", "/reviews/doc-001/fields/custom_taxi_receipt_pickup_city", valid_form,
+                                  "application/x-www-form-urlencoded", origin="null")
+        self.assertTrue(response["status"].startswith("200"))
+        self.assertIn(b"2026-11-08", result)
+        self.assertIn(b"Ricevuta taxi", result)
+        self.assertNotIn(b"<h2>custom_taxi_receipt_pickup_city</h2>", result)
+        head = re.search(rb'name="expected_review_head" value="([a-f0-9]{64})"', result).group(1).decode()
+        second = urlencode({"_ocr2_csrf": token_match.group(1).decode(), "expected_review_head": head,
+                            "value": "ancora errata", "review_seconds": "0"}).encode()
+        response, result = invoke("POST", "/reviews/doc-001/fields/custom_taxi_receipt_pickup_city", second,
+                                  "application/x-www-form-urlencoded", origin="null")
+        self.assertTrue(response["status"].startswith("400"))
+        self.assertIn(b"ancora errata", result)
+        self.assertIn(b"AAAA-MM-GG", result)
+        self.assertIn(b'name="expected_review_head"', result)
+        self.assertNotIn(b'name="region_page"', result)
+        valid_second = second.replace(b"ancora+errata", b"2026-11-09")
+        response, result = invoke("POST", "/reviews/doc-001/fields/custom_taxi_receipt_pickup_city", valid_second,
+                                  "application/x-www-form-urlencoded", origin="null")
+        self.assertTrue(response["status"].startswith("200"))
+        self.assertIn(b"2026-11-09", result)
 
     def test_preview_route_serves_only_hash_bound_synthetic_png(self):
         def processor(record, _source):
@@ -268,6 +327,50 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         self.assertEqual(evidence["page_number"], 1)
         self.assertEqual(evidence["producer"]["stage"], "human_review")
         self.assertNotIn("literal", evidence)
+
+    def test_manual_field_can_be_corrected_again_without_losing_evidence(self):
+        record = self._record_with_absent_field()
+        first = _apply_field_correction(record, field_name="merchant_name", value="Primo",
+            timestamp="2026-11-08T10:00:00Z", region_page_number=1,
+            region_coordinates=("0.1", "0.2", "0.6", "0.35"))
+        second = _apply_field_correction(first, field_name="merchant_name", value="Secondo",
+            timestamp="2026-11-08T10:01:00Z")
+        self.assertEqual(reviewed_overlay(second)["reviewed_fields"]["merchant_name"]["value"], "Secondo")
+        self.assertEqual(first["review"]["events"][-1]["candidate"]["evidence"], second["review"]["events"][-1]["candidate"]["evidence"])
+        self.assertEqual(record["fields"]["merchant_name"]["status"], "absent")
+        self.assertEqual(len(second["review"]["events"]), 4)
+
+    def test_add_missing_standard_and_snapshot_custom_fields_without_changing_extraction(self):
+        from test_catalog_pipeline import _catalog, _family, FAMILY_ID, FIELD_NAME
+        record = self._record_with_absent_field()
+        family = _family()
+        family["fields"][0]["type"] = "date"
+        record["schema_version"] = "0.2.0"
+        record["document_family_definitions"] = [_catalog(family, version="2").snapshot_for(FAMILY_ID)]
+        record["fields"].pop("document_number", None)
+        html = _render_editable_record(record, document_id="synthetic-1", has_source=True)
+        self.assertIn('/fields/document_number', html)
+        self.assertIn('/fields/' + FIELD_NAME, html)
+        corrected = _apply_field_correction(record, field_name="document_number", value="DOC-1",
+            timestamp="2026-11-08T10:00:00Z", region_page_number=1,
+            region_coordinates=("0.1", "0.2", "0.6", "0.35"))
+        self.assertNotIn("document_number", corrected["fields"])
+        self.assertEqual(reviewed_overlay(corrected)["reviewed_fields"]["document_number"]["value"], "DOC-1")
+        with self.assertRaises(ValueError):
+            _apply_field_correction(corrected, field_name=FIELD_NAME, value="not-a-date",
+                timestamp="2026-11-08T10:01:00Z", region_page_number=1,
+                region_coordinates=("0.1", "0.2", "0.6", "0.35"))
+        corrected = _apply_field_correction(corrected, field_name=FIELD_NAME, value="2026-11-08",
+            timestamp="2026-11-08T10:01:00Z", region_page_number=1,
+            region_coordinates=("0.1", "0.2", "0.6", "0.35"))
+        corrected = _apply_field_correction(corrected, field_name=FIELD_NAME, value="2026-11-09",
+            timestamp="2026-11-08T10:02:00Z")
+        self.assertNotIn(FIELD_NAME, corrected["fields"])
+        self.assertEqual(reviewed_overlay(corrected)["reviewed_fields"][FIELD_NAME]["value"], "2026-11-09")
+        with self.assertRaises(ValueError):
+            _apply_field_correction(record, field_name=FAMILY_ID + "_unknown", value="x",
+                timestamp="2026-11-08T10:00:00Z", region_page_number=1,
+                region_coordinates=("0.1", "0.2", "0.6", "0.35"))
 
     def test_invalid_region_is_rejected_without_rewriting_source_candidate(self):
         record = self._record_with_absent_field()

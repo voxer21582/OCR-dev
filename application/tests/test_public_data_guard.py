@@ -137,6 +137,25 @@ class EvidenceFolderGuardTests(unittest.TestCase):
             with self.assertRaisesRegex(PublicDataGuardError, "email-like value"):
                 scan_evidence_folder(root)
 
+    def test_evidence_screenshot_requires_exact_allowlisted_hash(self):
+        import hashlib
+        from unittest.mock import patch
+        from alfa_document_intelligence import public_data_guard
+        data = b"\xff\xd8\xffsynthetic-image\xff\xd9"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "M4").mkdir()
+            image = root / "M4" / "screen.jpg"
+            image.write_bytes(data)
+            with patch.object(public_data_guard, "_EVIDENCE_IMAGE_HASHES", {"M4/screen.jpg": hashlib.sha256(data).hexdigest()}):
+                self.assertEqual(scan_evidence_folder(root), 1)
+                image.write_bytes(data + b"tampered")
+                with self.assertRaises(PublicDataGuardError):
+                    scan_evidence_folder(root)
+            with patch.object(public_data_guard, "_EVIDENCE_IMAGE_HASHES", {}):
+                with self.assertRaises(PublicDataGuardError):
+                    scan_evidence_folder(root)
+
     def test_repository_evidence_folder_is_clean(self):
         self.assertGreaterEqual(scan_evidence_folder(REPOSITORY_EVIDENCE), 1)
 

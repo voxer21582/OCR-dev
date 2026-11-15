@@ -1,0 +1,15 @@
+test_csv_export_includes_review_actor_time_and_event_evidence (test_expense_reconciliation_ui.ExpenseReconciliationUITests.test_csv_export_includes_review_actor_time_and_event_evidence) ... FAIL
+
+======================================================================
+FAIL: test_csv_export_includes_review_actor_time_and_event_evidence (test_expense_reconciliation_ui.ExpenseReconciliationUITests.test_csv_export_includes_review_actor_time_and_event_evidence)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    self.assertIn("text/csv", headers["Content-Type"])
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'text/csv' not found in 'application/json; charset=utf-8'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.005s
+
+FAILED (failures=1)

@@ -1,0 +1,27 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_ FieldStatusPresentationTests.test_review_history_preserves_original_and_prior_document_family _
+
+self = <test_field_status_presentation.FieldStatusPresentationTests testMethod=test_review_history_preserves_original_and_prior_document_family>
+
+    def test_review_history_preserves_original_and_prior_document_family(self):
+        from alfa_document_intelligence.review_ledger import append_review_event
+        record = _record()
+        record["document_family"] = "unknown"
+        evidence = copy.deepcopy(record["fiscal_document_state"]["evidence"])
+        alternatives = [{"value": name, "status": "observed", "evidence": evidence} for name in ("invoice", "other")]
+        record["fields"]["document_family_candidates"] = {"value": None, "status": "uncertain", "alternatives": alternatives, "evidence": evidence}
+        for action in ("queued", "opened"):
+            record = append_review_event(record, actor_id="synthetic", action=action, timestamp="2026-11-15T12:00:00Z")
+        for name in ("invoice", "other"):
+            candidate = {"value": name, "status": "observed", "alternatives": [], "evidence": evidence}
+            record = append_review_event(record, actor_id="synthetic", action="field_corrected", field_name="document_family",
+                candidate=candidate, reason_code="family_review", timestamp="2026-11-15T12:00:00Z")
+        html = _render_editable_record(record, document_id="doc-1", has_source=False)
+>       self.assertIn("campo document_family; precedente unknown; nuovo invoice; prove precedenti: non disponibili", html)
+E       AssertionError: 'campo document_family; precedente unknown; nuovo invoice; prove precedenti: non disponibili' not found in '<!doctype html><html lang="it"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Revisione documento</title><main><p><a href="/">Torna al fascicolo</a></p><h1>Revisione doc [output troncato]
+
+tests\test_field_status_presentation.py:113: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_field_status_presentation.py::FieldStatusPresentationTests::test_review_history_preserves_original_and_prior_document_family
+1 failed in 0.42s

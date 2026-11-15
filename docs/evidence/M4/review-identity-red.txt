@@ -1,0 +1,39 @@
+test_new_events_use_server_identity (test_review_identity.ReviewIdentityTests.test_new_events_use_server_identity) ... ERROR
+test_unavailable_identity_cannot_create_events (test_review_identity.ReviewIdentityTests.test_unavailable_identity_cannot_create_events) ... ERROR
+
+======================================================================
+ERROR: test_new_events_use_server_identity (test_review_identity.ReviewIdentityTests.test_new_events_use_server_identity)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<local-path>", line 13, in test_new_events_use_server_identity
+    with patch.object(local_intake_app, '_windows_review_actor', return_value='synthetic-user'):
+         ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<local-path>", line 1503, in __enter__
+    original, local = self.get_original()
+                      ~~~~~~~~~~~~~~~~~^^
+  File "<local-path>", line 1473, in get_original
+    raise AttributeError(
+        "%s does not have the attribute %r" % (target, name)
+    )
+[percorso locale omesso]
+
+======================================================================
+ERROR: test_unavailable_identity_cannot_create_events (test_review_identity.ReviewIdentityTests.test_unavailable_identity_cannot_create_events)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<local-path>", line 20, in test_unavailable_identity_cannot_create_events
+    with patch.object(local_intake_app, '_windows_review_actor', side_effect=local_intake_app.IntakeRequestError('identity unavailable')):
+         ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<local-path>", line 1503, in __enter__
+    original, local = self.get_original()
+                      ~~~~~~~~~~~~~~~~~^^
+  File "<local-path>", line 1473, in get_original
+    raise AttributeError(
+        "%s does not have the attribute %r" % (target, name)
+    )
+[percorso locale omesso]
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.007s
+
+FAILED (errors=2)

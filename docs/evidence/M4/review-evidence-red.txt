@@ -1,0 +1,15 @@
+test_review_shows_alternatives_regions_and_neutral_value_label (test_field_status_presentation.FieldStatusPresentationTests.test_review_shows_alternatives_regions_and_neutral_value_label) ... FAIL
+
+======================================================================
+FAIL: test_review_shows_alternatives_regions_and_neutral_value_label (test_field_status_presentation.FieldStatusPresentationTests.test_review_shows_alternatives_regions_and_neutral_value_label)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+[percorso locale omesso]
+    self.assertIn("&lt;12.34&gt;", html)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '&lt;12.34&gt;' not found in '<!doctype html><html lang="it"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Revisione documento</title><main><p><a href="/">Torna al fascicolo</a></p><h1>Revisione doc-1</h1><p>Stato revisione: not_started. Le correzioni si aggiungono al registro; i dati OCR non vengono sovrascritti.</p><p>Originale no [output troncato]
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (failures=1)

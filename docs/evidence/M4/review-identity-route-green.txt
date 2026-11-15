@@ -1,0 +1,9 @@
+test_local_account_can_be_resolved (test_review_identity.ReviewIdentityTests.test_local_account_can_be_resolved) ... ok
+test_new_events_use_server_identity (test_review_identity.ReviewIdentityTests.test_new_events_use_server_identity) ... ok
+test_review_page_handles_unavailable_identity_without_recording_events (test_review_identity.ReviewIdentityTests.test_review_page_handles_unavailable_identity_without_recording_events) ... ok
+test_unavailable_identity_cannot_create_events (test_review_identity.ReviewIdentityTests.test_unavailable_identity_cannot_create_events) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.017s
+
+OK

@@ -1,0 +1,39 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_________ test_blocked_review_requires_confirmation_of_current_prompt _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000023BA0B2C180>
+
+    def test_blocked_review_requires_confirmation_of_current_prompt(monkeypatch):
+        from alfa_document_intelligence.review_ledger import append_review_event
+        real = local_intake_app.create_expense_report_intake_session
+        captured = {}
+        def blocked(*args, **kwargs):
+            session = real(*args, **kwargs)
+            record = session.documents["doc-001"]
+            for action in ("queued", "opened", "flagged"):
+                kw = {"reason_code": "synthetic_block"} if action == "flagged" else {}
+                record = append_review_event(record, actor_id="synthetic", action=action, timestamp="2026-11-15T12:00:00Z", **kw)
+            session.documents["doc-001"] = record
+            captured["session"] = session
+            return session
+        monkeypatch.setattr(local_intake_app, "create_expense_report_intake_session", blocked)
+        monkeypatch.setattr(local_intake_app, "build_chatgpt_handoff_prompt", lambda bundle, docs: "synthetic prompt " + docs["doc-001"]["document_family"])
+        app = create_expense_report_app(); _upload(app)
+        _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")
+        result, page = _request(app, path="/chatgpt")
+        assert result["status"] == "200 OK"
+        assert "revisione bloccata".encode() in page.lower()
+        assert b"<textarea readonly" not in page
+        digest = re.search(rb'name="prompt_sha256" value="([a-f0-9]{64})"', page).group(1).decode()
+        form = urlencode({"prompt_sha256": digest, "confirmation": "1"}).encode()
+        result, page = _request(app, "POST", "/chatgpt/confirm", form, "application/x-www-form-urlencoded")
+        assert result["status"] == "200 OK" and b"<textarea readonly" in page
+>       draft_head = re.search(rb'name="draft_prompt_sha256" value="([a-f0-9]{64})"', page).group(1).decode()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'group'
+
+tests\test_manual_chatgpt_handoff_ui.py:129: AttributeError
+=========================== short test summary info ===========================
+FAILED tests/test_manual_chatgpt_handoff_ui.py::test_blocked_review_requires_confirmation_of_current_prompt
+1 failed in 0.49s
