@@ -36,3 +36,9 @@ Le decisioni del proprietario sono marcate **(P)**; le altre sono scelte reversi
 | DEC-028 | 2026-11-15 | Il controllo delle evidenze accetta solo tre screenshot sintetici M4 identificati da percorso e SHA-256, oltre ai formati testuali; revisione umana delle immagini obbligatoria. Il controllo non esamina i pixel. | Vietare ogni immagine; ammettere tutte le immagini | Rimuovere le voci e le immagini o introdurre una procedura di revisione diversa |
 
 | DEC-029 | 2026-11-15 | Il backup dell'archivio resta cifrato con la DPAPI dell'utente Windows: si ripristina solo con lo stesso utente sullo stesso PC (o con il profilo DPAPI migrato). | Backup portabile con password | Aggiungere un formato di backup portabile (Q-003) |
+
+| DEC-030 (P) | 2026-11-15 | Il file FFmpeg (LGPL) dentro OpenCV è escluso dall'installer, dopo un test che dimostri che l'OCR funziona senza (Q-001). | Includerlo rispettando gli obblighi LGPL | Includere il file e adempiere agli obblighi LGPL |
+
+| DEC-031 (P) | 2026-11-15 | Nessun backup portabile: DEC-029 resta valida (Q-003). | Backup protetto da una password scelta dall'utente | Nuova richiesta di dipendenza per un componente di cifratura |
+
+| DEC-032 (P) | 2026-11-15 | Nessuna registrazione in «App installate» (V4); la disinstallazione si avvia dal menu Start. Una cartella per versione, al massimo due versioni conservate. I collegamenti del menu Start puntano a un piccolo `OCR2.exe` in `%LOCALAPPDATA%\Programs\OCR2` che legge `active.txt` (versione attiva e precedente): il ritorno alla versione precedente non richiede di riscrivere i collegamenti. La matrice di prova su PC pulito è eseguita dal proprietario con una procedura scritta. | Registrazione in «App installate»; tutte le versioni conservate | Aggiungere la registrazione e cambiare il numero di versioni conservate |

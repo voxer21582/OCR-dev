@@ -1,4 +1,5 @@
 STATO: MILESTONE COMPLETATA — M5 (R7/R8 approvati dal proprietario il 2026-11-15; limite di REQ-089 accettato)
+M6 (applicazione installabile) avviata il 2026-11-15 con le decisioni del proprietario: R-001 e R-002 approvate, Q-001 e Q-003 risolte (DEC-030, DEC-031, DEC-032); il collaudo su PC pulito lo esegue il proprietario con una procedura scritta.
 
 Criteri di accettazione M5 ed evidenze: [acceptance.md](evidence/M5/acceptance.md).
 - Libreria: ricerca con filtri e pagine (REQ-081); rinomina di documenti e fascicoli (REQ-083); etichette (REQ-084). [Percorso nel browser](evidence/M5/browser-walkthrough.md).
@@ -196,9 +197,9 @@ Design approvato dal proprietario il 2026-11-15: [`superpowers/specs/2026-11-15-
 | M1 Ordine e verificabilità | **completata** (2026-11-15) |
 | M2 Motori e decodifica | **completata** (2026-11-15, #147) |
 | M3 Classificazione ed estrazione | **completata** (2026-11-15, #148) |
-| M4 Revisione | non iniziata |
-| M5 Libreria | non iniziata |
-| M6 Applicazione installabile | non iniziata |
+| M4 Revisione | **completata** (2026-11-15, #149) |
+| M5 Libreria | **completata** (2026-11-15, #150) |
+| M6 Applicazione installabile | in corso |
 | M7 Sicurezza e prestazioni | non iniziata |
 | M8 Prova sul campo e collaudo | non iniziata |
 
