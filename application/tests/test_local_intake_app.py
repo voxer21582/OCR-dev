@@ -87,6 +87,34 @@ def test_browser_upload_selects_expense_note_from_zip_and_shows_linked_sources()
     assert original == NOTE
 
 
+def test_internal_exceptions_do_not_leak_into_browser_responses(monkeypatch):
+    from alfa_document_intelligence import local_intake_app
+    secret = "INTERNAL_SECRET_TRACE_SENTINEL"
+    app = create_expense_report_app()
+    body, content_type = _multipart("trasferta.zip", _zip_bytes())
+    with monkeypatch.context() as mocked:
+        mocked.setattr(local_intake_app, "materialize_stream_batch", lambda *a, **k: (_ for _ in ()).throw(OSError(secret)))
+        status, _, page = _request(app, "POST", "/upload", body, content_type)
+        assert status == "400 Bad Request" and secret.encode() not in page
+    assert _request(app, "POST", "/upload", body, content_type)[0] == "200 OK"
+    with monkeypatch.context() as mocked:
+        mocked.setattr(local_intake_app, "create_expense_report_intake_session", lambda *a, **k: (_ for _ in ()).throw(ValueError(secret)))
+        status, _, page = _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")
+        assert status == "400 Bad Request" and secret.encode() not in page
+    assert _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")[0] == "200 OK"
+    _, _, review_page = _request(app, path="/reviews/doc-001")
+    head = re.search(rb'name="expected_review_head" value="([a-f0-9]{64})"', review_page).group(1).decode()
+    form = urlencode({"value": "x", "expected_review_head": head, "review_seconds": "0"}).encode()
+    with monkeypatch.context() as mocked:
+        mocked.setattr(local_intake_app, "_apply_field_correction", lambda *a, **k: (_ for _ in ()).throw(ValueError(secret)))
+        status, _, page = _request(app, "POST", "/reviews/doc-001/fields/merchant_name", form, "application/x-www-form-urlencoded")
+        assert status == "400 Bad Request" and secret.encode() not in page
+    with monkeypatch.context() as mocked:
+        mocked.setattr(local_intake_app, "_multipart_form_values", lambda *a, **k: (_ for _ in ()).throw(local_intake_app.IntakeRequestError(secret)))
+        status, _, page = _request(app, "POST", "/reviews/doc-001/fields/merchant_name", b"value=x", "application/x-www-form-urlencoded")
+        assert status == "400 Bad Request" and secret.encode() not in page
+
+
 def test_reviewer_can_select_only_an_evidence_bound_document_family():
     def processor(record, _source_bytes):
         record["pages"] = [{"page_number": 1, "width_px": 1000, "height_px": 1400}]
@@ -200,7 +228,7 @@ def test_invalid_uploads_and_note_assignment_fail_without_creating_a_bundle():
         app, "POST", "/assign-note", assign, "application/x-www-form-urlencoded"
     )
     assert status == "400 Bad Request"
-    assert b"note" in error
+    assert b"Verifica i dati" in error
 
     status, _, page = _request(app)
     assert status == "200 OK"

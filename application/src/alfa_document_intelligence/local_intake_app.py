@@ -1396,7 +1396,10 @@ def _chatgpt_handoff_page(state: _VolatileSession) -> str:
         state.chatgpt_confirmed_hash = None
         state.chatgpt_draft = None
         state.chatgpt_draft_hash = None
-        prompt_section = f"<p>{escape(str(exc))} Dopo la revisione potrai tornare qui e incollare la bozza.</p>"
+        message = ("No human-confirmed fields are available; review and confirm fields first."
+                   if isinstance(exc, ChatGPTHandoffError)
+                   else "Testo non disponibile. Verifica i dati della revisione.")
+        prompt_section = f"<p>{message} Dopo la revisione potrai tornare qui e incollare la bozza.</p>"
     draft_section = (
         f'<section><h2>Bozza restituita — non approvata</h2><pre>{escape(state.chatgpt_draft)}</pre>'
         '<p>Controlla ogni frase sugli originali. La bozza non modifica campi estratti o verificati '
@@ -2563,8 +2566,10 @@ def create_expense_report_app(
                     limits,
                     max_batch_document_bytes=max_batch_document_bytes,
                 )
-            except (IntakeRequestError, UploadRejected, OSError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p><p><a href=\"/\">Torna all'inizio</a></p>")
+            except (UploadRejected, OSError, ValueError):
+                return _page(environ, start_response, "400 Bad Request", '<p>Caricamento non riuscito. Verifica i file e riprova.</p><p><a href="/">Torna all\'inizio</a></p>')
             payloads = tuple(document for upload in batch.uploads for document in upload.documents)
             if len(payloads) > _MAX_UPLOAD_FILES * 100:
                 return _page(environ, start_response, "400 Bad Request", "<p>Numero di documenti estratti superato</p>")
@@ -2708,11 +2713,16 @@ def create_expense_report_app(
                     if state is session:
                         session.ocr_starting = False
                 return _page(environ, start_response, "409 Conflict", "<p>Un'elaborazione precedente è ancora in chiusura. Attendi prima di avviarne un'altra.</p>")
-            except (IntakeRequestError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 with state_lock:
                     if state is session:
                         session.ocr_starting = False
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p><p><a href=\"/\">Riprova</a></p>")
+            except ValueError:
+                with state_lock:
+                    if state is session:
+                        session.ocr_starting = False
+                return _page(environ, start_response, "400 Bad Request", '<p>Elaborazione non riuscita. Verifica i dati e riprova.</p><p><a href="/">Riprova</a></p>')
             state.last_activity = now
             return _page(environ, start_response, "200 OK", _bundle_page(state, archive_enabled=archive_store is not None))
         if method == "POST" and path == "/clear":
@@ -2851,8 +2861,10 @@ def create_expense_report_app(
                 state.intake.documents[document_id] = record
                 state.review_seconds[document_id] = seconds
                 state.last_activity = now
-            except (IntakeRequestError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except ValueError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Revisione non salvata. Verifica i dati e riprova.</p>")
             return _page(
                 environ, start_response, "200 OK",
                 f'<h1>Revisione conclusa</h1><p>Tempo con la scheda in primo piano: {seconds} secondi.</p>'
@@ -2883,8 +2895,10 @@ def create_expense_report_app(
                 state.intake.documents[document_id] = updated
                 state.review_seconds[document_id] = seconds
                 state.last_activity = now
-            except (IntakeRequestError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except ValueError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Revisione non salvata. Verifica i dati e riprova.</p>")
             return _page(environ, start_response, "200 OK", _render_editable_record(
                 state.intake.documents[document_id], document_id=document_id,
                 has_source=document_id in state.intake.source_bytes,
@@ -2911,8 +2925,10 @@ def create_expense_report_app(
                 state.intake.documents[document_id] = updated
                 state.review_seconds[document_id] = seconds
                 state.last_activity = now
-            except (IntakeRequestError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except ValueError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Revisione non salvata. Verifica i dati e riprova.</p>")
             return _page(environ, start_response, "200 OK", _render_editable_record(
                 state.intake.documents[document_id], document_id=document_id,
                 has_source=document_id in state.intake.source_bytes,
@@ -2940,8 +2956,10 @@ def create_expense_report_app(
                 state.intake.documents[document_id] = updated
                 state.review_seconds[document_id] = seconds
                 state.last_activity = now
-            except (IntakeRequestError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except ValueError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Revisione non salvata. Verifica i dati e riprova.</p>")
             return _page(environ, start_response, "200 OK", _render_editable_record(updated, document_id=document_id,
                 has_source=document_id in state.intake.source_bytes, elapsed_seconds=seconds, archive_save_enabled=archive_store is not None))
         if method == "POST" and path.startswith("/reviews/") and "/fields/" in path:
@@ -3038,8 +3056,10 @@ def create_expense_report_app(
                 state.intake.documents[document_id] = updated
                 state.review_seconds[document_id] = seconds
                 state.last_activity = now
-            except (IntakeRequestError, ValueError) as exc:
+            except IntakeRequestError as exc:
                 return _page(environ, start_response, "400 Bad Request", f"<p>{escape(str(exc))}</p>")
+            except ValueError:
+                return _page(environ, start_response, "400 Bad Request", "<p>Revisione non salvata. Verifica i dati e riprova.</p>")
             return _page(
                 environ, start_response, "200 OK",
                 _render_editable_record(
@@ -3079,8 +3099,8 @@ def create_expense_report_app(
                 if not path.endswith("/open"):
                     try:
                         _multipart_form_values(environ)
-                    except IntakeRequestError as exc:
-                        return _page(environ, start_response, "400 Bad Request", escape(str(exc)))
+                    except IntakeRequestError:
+                        return _page(environ, start_response, "400 Bad Request", "Modulo di revisione non valido")
                 environ["_review_post_validated"] = True
             with state_lock:
                 return app(environ, start_response)

@@ -44,6 +44,19 @@ def _upload(app):
     assert result["status"] == "200 OK"
 
 
+def test_handoff_internal_error_does_not_expose_exception_details(monkeypatch):
+    app = create_expense_report_app()
+    _upload(app)
+    result, _ = _request(app, "POST", "/assign-note", b"note_document_id=doc-001", "application/x-www-form-urlencoded")
+    assert result["status"] == "200 OK"
+    secret = "INTERNAL_HANDOFF_TRACE_SENTINEL"
+    monkeypatch.setattr(local_intake_app, "build_chatgpt_handoff_prompt", lambda *a, **k: (_ for _ in ()).throw(ValueError(secret)))
+    result, page = _request(app, path="/chatgpt")
+    assert result["status"] == "200 OK"
+    assert secret.encode() not in page
+    assert b"non disponibile" in page
+
+
 def test_browser_shows_manual_prompt_only_after_human_field_confirmation(monkeypatch):
     original_create = local_intake_app.create_expense_report_intake_session
 

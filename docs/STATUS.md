@@ -2,6 +2,8 @@ STATO: M4 IN CORSO
 
 # Stato del lavoro
 
+PR #149 aperta in bozza: i job Ubuntu e Windows su `e4e0389` sono passati; CodeQL ha riportato tre avvisi di possibile esposizione di eccezioni. Sono stati corretti percorsi in cui `OSError` o `ValueError` interni potevano finire nella risposta, con test sentinella e revisione indipendente ([evidenza](evidence/M4/ci-security-review.md)). Suite locale: 837 test e 365 sottocasi passati ([output](evidence/M4/ci-security-suite.txt)). La CI deve essere rieseguita sulla nuova revisione.
+
 Il proprietario ha autorizzato la pubblicazione del ramo e l'apertura della PR in bozza. La chiusura richiede CI Ubuntu/Windows riuscita; la PR tocca R8 e richiederà inoltre approvazione esplicita prima del merge. Dettagli e controlli di privacy in [proposal-review.md](evidence/M4/proposal-review.md).
 
 Proposta locale separata preparata dalla base `origin/main`: i file applicativi e le evidenze riproducono il risultato revisionato senza includere la cronologia precedente del ramo M4. La suite sintetica nel nuovo worktree passa con 835 test e 365 sottocasi ([output](evidence/M4/proposal-windows-suite.txt)); il controllo privacy non ha trovato il percorso del profilo nel contenuto preparato. Restano pubblicazione della proposta, CI Ubuntu/Windows e approvazione esplicita del proprietario sulla PR che tocca R8 ([dettagli](evidence/M4/proposal-review.md)).
