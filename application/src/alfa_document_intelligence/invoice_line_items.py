@@ -16,7 +16,9 @@ from .ocr_adapter import OCRPageResult
 MAX_LINE_ITEMS = 1000
 _DESCRIPTION_HEAD = re.compile(r"(?i)\b(?:descrizione|description|articolo|item|prodotto|servizio|service)\b")
 _AMOUNT_HEAD = re.compile(r"(?i)\b(?:importo|amount|prezzo|price|totale|total)\b")
-_QUANTITY_HEAD = re.compile(r"(?i)(?:\bqt[aà]\.?|\bquantit[aà]\b|\bqty\b|\bquantity\b)")
+# OCR often drops the accent of "Qtà" and reads "Qt".
+# Observed readings of "Qtà": "Qt", "Qtá", or "Qt" followed by a non-Latin character.
+_QUANTITY_HEAD = re.compile(r"(?i)(?:\bqt(?![b-z])|\bquantit|\bqty\b|\bquantity\b)")
 _END_ROW = re.compile(r"(?i)^\s*(?:sub\s*totale|subtotale|subtotal|totale|total|imponibile|iva|vat|tax)\b")
 _QUANTITY = re.compile(r"^\d{1,6}(?:[.,]\d{1,3})?$")
 

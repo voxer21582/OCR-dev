@@ -38,5 +38,21 @@ class AttachedCurrencyAmountTests(unittest.TestCase):
                 self.assertNotIn("amount_candidates", fields)
 
 
+
+class ColumnTotalTests(unittest.TestCase):
+    def test_total_label_and_amount_in_separate_cells_of_a_row(self):
+        page = OCRPageResult(
+            source_sha256="d" * 64, page_number=1, engine_name="synthetic", engine_version="1", language="it+en",
+            tokens=(
+                OCRToken("label", "Totale", ((0.05, 0.45), (0.15, 0.45), (0.15, 0.47), (0.05, 0.47)), 0.9),
+                OCRToken("value", "211,10", ((0.8, 0.45), (0.9, 0.45), (0.9, 0.47), (0.8, 0.47)), 0.9),
+                OCRToken("other", "Materiale 136,17", ((0.05, 0.36), (0.9, 0.36), (0.9, 0.38), (0.05, 0.38)), 0.9),
+            ),
+        )
+        total = propose_common_fields([page])["total_amount"]
+        self.assertEqual([item["value"] for item in total["alternatives"]], ["211.10"])
+        self.assertEqual(total["alternatives"][0]["evidence"][0]["token_ids"], ["label", "value"])
+
+
 if __name__ == "__main__":
     unittest.main()

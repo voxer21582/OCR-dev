@@ -81,6 +81,15 @@ class LineItemExtractionTests(unittest.TestCase):
             [("Consulenza", "2", "50.00", "100.00")],
         )
 
+    def test_quantity_header_read_without_its_accent(self):
+        # Observed OCR readings of "Qtà": accent dropped, or replaced by a non-Latin character.
+        for header in ("Qt", "Qt凶", "Qtá", "Qta."):
+            with self.subTest(header=header):
+                rows = [[(0.05, "Descrizione"), (0.5, header), (0.65, "Prezzo"), (0.8, "Importo")],
+                        [(0.05, "Consulenza"), (0.5, "2"), (0.65, "50,00"), (0.8, "100,00")]]
+                item = extract_line_items([_invoice_page(rows)])[0]
+                self.assertEqual((_first(item["description"]), _first(item["quantity"])), ("Consulenza", "2"))
+
 def _record(items, total_value, total_status="uncertain"):
     record = json.loads((Path(__file__).parent / "fixtures" / "synthetic_invoice.json").read_text(encoding="utf-8"))
     record["schema_version"] = "0.3.0"

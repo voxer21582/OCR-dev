@@ -246,6 +246,58 @@ def _unglued(token: OCRToken) -> OCRToken:
     return OCRToken(token.token_id, text, token.polygon, token.confidence)
 
 
+_TOTAL_ONLY_LABEL = re.compile(
+    r"(?i)^\s*(?:importo\s+totale|totale(?:\s+(?:documento|fattura|da\s+pagare|dovuto|complessivo))?|"
+    r"grand\s+total|total(?:\s+(?:due|amount))?|amount\s+due)\s*:?\s*$"
+)
+
+
+def _row_label_totals(page: OCRPageResult) -> list[_Proposal]:
+    """A total label alone in a cell, with its amount in the next cell of the same row."""
+    proposals = []
+    for label in page.tokens:
+        if not _TOTAL_ONLY_LABEL.fullmatch(label.text):
+            continue
+        top, bottom = min(y for _, y in label.polygon), max(y for _, y in label.polygon)
+        right = max(x for x, _ in label.polygon)
+        best = None
+        for token in page.tokens:
+            if token is label:
+                continue
+            t_top, t_bottom = min(y for _, y in token.polygon), max(y for _, y in token.polygon)
+            left = min(x for x, _ in token.polygon)
+            overlap = min(bottom, t_bottom) - max(top, t_top)
+            if left < right or overlap < 0.5 * min(bottom - top, t_bottom - t_top):
+                continue
+            match = _AMOUNT.fullmatch(_unglue_text(token.text).strip()) or _AMOUNT.search(_unglue_text(token.text))
+            if match is None:
+                continue
+            if best is None or left < best[0]:
+                best = (left, token, match)
+        if best is None:
+            continue
+        _, token, match = best
+        literal = f"{label.text.strip()} {token.text.strip()}"
+        evidence = {
+            "source_sha256": page.source_sha256,
+            "page_number": page.page_number,
+            "region": {
+                "coordinate_space": "normalized_page",
+                "polygon": [[float(x), float(y)] for x, y in (
+                    (min(x for x, _ in label.polygon), min(top, min(y for _, y in token.polygon))),
+                    (max(x for x, _ in token.polygon), min(top, min(y for _, y in token.polygon))),
+                    (max(x for x, _ in token.polygon), max(bottom, max(y for _, y in token.polygon))),
+                    (min(x for x, _ in label.polygon), max(bottom, max(y for _, y in token.polygon))),
+                )],
+            },
+            "token_ids": [label.token_id, token.token_id],
+            "literal": literal,
+            "producer": {"stage": "ocr", "name": page.engine_name, "version": page.engine_version},
+        }
+        proposals.append(_Proposal(_normalize_amount(match.group(1)), evidence, "explicit-total-label-same-row", match.group(1)))
+    return proposals
+
+
 def _merchant_top_lines(page: OCRPageResult) -> list[_Proposal]:
     """Lines above the first structured line of a page that carries an amount.
 
@@ -495,6 +547,11 @@ def propose_common_fields(pages: Iterable[OCRPageResult], *, document_family: st
                 currencies.append(_Proposal(
                     "EUR", _evidence(page, token, literal), "explicit-euro-symbol", literal
                 ))
+
+    if not labelled_totals:
+        # Column layouts put "Totale" and its amount in separate cells of one row.
+        for page in ordered_pages:
+            labelled_totals.extend(_row_label_totals(page))
 
     other_parties = any(entity_proposals[name] for name in entity_proposals if name != "merchant_name")
     if (not entity_proposals["merchant_name"] and ordered_pages and not other_parties

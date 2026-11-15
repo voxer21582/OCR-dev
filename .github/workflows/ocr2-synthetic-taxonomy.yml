@@ -103,6 +103,7 @@ jobs:
           tests/test_ingestion.py
           tests/test_invoice_line_items.py
           tests/test_isolated_decoder.py
+          tests/test_line_item_benchmark.py
           tests/test_local_document_archive_ui.py
           tests/test_local_document_store.py
           tests/test_local_intake_app.py
@@ -217,6 +218,7 @@ jobs:
           tests/test_ingestion.py
           tests/test_invoice_line_items.py
           tests/test_isolated_decoder.py
+          tests/test_line_item_benchmark.py
           tests/test_local_document_archive_ui.py
           tests/test_local_document_store.py
           tests/test_local_intake_app.py
