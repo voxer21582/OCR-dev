@@ -1,4 +1,4 @@
-STATO: IN ATTESA DI APPROVAZIONE — M1 (lavoro finito, servono decisioni del proprietario)
+STATO: MILESTONE COMPLETATA — M1
 
 # Stato del lavoro
 
@@ -6,10 +6,21 @@ Aggiornato: 2026-11-15.
 
 ## M1 — Ordine e verificabilità
 
-Tutti i compiti del piano M1 sono fatti e la revisione indipendente è chiusa: criteri ed evidenze in [`evidence/M1/acceptance.md`](evidence/M1/acceptance.md). M1 **non** è ancora dichiarata completata; mancano tre decisioni del proprietario:
-1. le 18 PR aggiunte alla rassegna ([`evidence/M1/pr-triage.md`](evidence/M1/pr-triage.md));
-2. se rendere obbligatorio anche il job CI Windows;
-3. l'approvazione e il merge della PR di M1 (contiene i test di R7/R8 in CI).
+M1 è completata: tutti i compiti del piano sono fatti, la revisione indipendente è chiusa e il proprietario ha approvato le decisioni aperte il 2026-11-15.
+
+Criteri di accettazione ed evidenze:
+- REQ-001…004: [`evidence/M1/acceptance.md`](evidence/M1/acceptance.md);
+- rassegna delle PR: [`evidence/M1/pr-triage.md`](evidence/M1/pr-triage.md);
+- tutti i test in CI: [`evidence/M1/2026-11-15-ci.md`](evidence/M1/2026-11-15-ci.md);
+- benchmark rigenerabile: [`evidence/M1/2026-11-15-case-benchmark.md`](evidence/M1/2026-11-15-case-benchmark.md);
+- revisione: [`evidence/M1/review.md`](evidence/M1/review.md);
+- base di partenza: [`evidence/baseline/README.md`](evidence/baseline/README.md).
+
+Azione lasciata al proprietario: rendere obbligatorio anche il controllo «Windows application contracts» nella protezione di `main`.
+
+Limite registrato per M3: un giustificativo avanzato viene proposto come possibile conflitto alle righe dello stesso giorno.
+
+Prossima milestone: M2 (motori e decodifica). Non è iniziata.
 
 Risultati principali (dati sintetici): tutti i 55 moduli di test in CI su Ubuntu (672 passati, 6 saltati con motivo) e Windows (678 passati); benchmark del fascicolo rigenerabile da script: 98/98 righe, 92/92 giustificativi giusti al primo posto (tutti come abbinamenti *possibili*), 3/3 conflitti, 40/40 date ambigue con suggerimento corretto, 0 connessioni esterne, 1,1–1,3 s per pagina.
 
@@ -30,7 +41,7 @@ Design approvato dal proprietario il 2026-11-15: [`superpowers/specs/2026-11-15-
 
 | Milestone | Stato |
 |---|---|
-| M1 Ordine e verificabilità | lavoro finito, in attesa delle decisioni del proprietario |
+| M1 Ordine e verificabilità | **completata** (2026-11-15) |
 | M2 Motori e decodifica | non iniziata |
 | M3 Classificazione ed estrazione | non iniziata |
 | M4 Revisione | non iniziata |

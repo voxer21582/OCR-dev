@@ -39,8 +39,8 @@ REQ-040, 043, 044, 050, 054, 056, 061, 063, 071 e 126 sono `SYN-CI` tramite i mo
 
 [`review.md`](review.md).
 
-## Ancora aperto prima di dichiarare M1 completata
+## Decisioni del proprietario (2026-11-15): «approvo tutte e tre»
 
-1. **Rassegna delle PR:** manca la decisione del proprietario sulle 18 PR aggiunte dopo la prima rassegna ([`pr-triage.md`](pr-triage.md)).
-2. **Controllo obbligatorio:** il proprietario decide se rendere obbligatorio anche il job Windows. È un'impostazione di GitHub che fa il proprietario.
-3. **Merge:** la PR di M1 va unita in `main`. Contiene i test di R7/R8 in CI, quindi serve l'approvazione del proprietario (DEC-001).
+1. **Rassegna delle PR:** approvata anche per le 18 PR aggiunte; le 17 PR superate sono chiuse ([`pr-triage.md`](pr-triage.md)).
+2. **Controllo obbligatorio Windows:** approvato. Lo attiva il proprietario nelle impostazioni del repository (regola di protezione di `main`), perché è un'impostazione di sicurezza del repository.
+3. **Merge della PR #146:** approvato (R7/R8, DEC-001).

@@ -55,10 +55,10 @@ Le modifiche **non** risultano in `main`: per esempio i file di test nuovi manca
 
 | Gruppo | Proposta | Decisione |
 |---|---|---|
-| A | Unire #144 e #126 | |
-| B | Chiudere le 14 PR con un commento che indica cosa le sostituisce | |
-| C | Lasciare aperte; ognuna si chiude quando la sua sostituta su `main` è unita | |
-| D | Chiudere #100 e #119; lasciare aperta #111 | |
+| A | Unire #144 e #126 | **Approvato**, eseguito |
+| B | Chiudere le 14 PR con un commento che indica cosa le sostituisce | **Approvato**, eseguito |
+| C | Lasciare aperte; ognuna si chiude quando la sua sostituta su `main` è unita | **Approvato** |
+| D | Chiudere #100 e #119; lasciare aperta #111 | **Approvato**, eseguito |
 
 **Decisione del proprietario (2026-11-15): «approvo» i gruppi A–D.** Eseguito:
 - unite #144 (`fe22a6c`) e #126 (`3d5ac61`), con i controlli verdi;
@@ -78,5 +78,7 @@ L'elenco usato per la prima rassegna si fermava a 50 voci (`--limit 50`): le PR 
 
 | Gruppo | Proposta | Decisione |
 |---|---|---|
-| Integrazione B | Chiudere #14, #15, #18, #19, #23, #24, #25, #26, #29, #30, #32, #33, #35, #36, #37, #40 e #45 (17 PR) | |
-| Integrazione C/D | Lasciare aperte #16 (M3) e #13 (M8) | |
+| Integrazione B | Chiudere #14, #15, #18, #19, #23, #24, #25, #26, #29, #30, #32, #33, #35, #36, #37, #40 e #45 (17 PR) | **Approvato** (2026-11-15): chiuse con commento |
+| Integrazione C/D | Lasciare aperte #16 (M3) e #13 (M8) | **Approvato** (2026-11-15) |
+
+**Stato dopo la rassegna:** 34 PR aperte, cioè la PR di M1 (#146), le 30 PR del gruppo C da rifare nelle milestone indicate (#45 è passata al gruppo B), #16, #13 e #111.
