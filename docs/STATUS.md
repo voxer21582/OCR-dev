@@ -1,6 +1,8 @@
-STATO: M4 IN CORSO
+STATO: BLOCCATO — M4
 
 # Stato del lavoro
+
+La PR #149 ha superato i job Ubuntu e Windows; resta in attesa dell'approvazione esplicita del proprietario per le modifiche all'export R8, richiesta da DEC-001. CodeQL mantiene due avvisi medi esaminati senza individuare divulgazioni concrete nei percorsi attuali ([valutazione](evidence/M4/ci-security-review.md)). Per riprendere serve la decisione del proprietario sulla PR; nessun merge è stato eseguito.
 
 PR #149: su `cd37ce4` i job Ubuntu e Windows sono passati. CodeQL segnala due avvisi medi residui; l'audit indipendente non ha individuato una divulgazione concreta negli otto flussi esaminati ([dettagli e limiti](evidence/M4/ci-security-review.md)). La PR tocca R8 e attende l'approvazione esplicita del proprietario; la CI finale è consultabile nei controlli della PR.
 
