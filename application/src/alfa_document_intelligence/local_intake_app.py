@@ -1204,7 +1204,12 @@ def _candidate_display(candidate: dict[str, Any]) -> str:
     alternatives = candidate.get("alternatives", [])
     values = [str(item.get("value", "")) for item in alternatives if isinstance(item, dict)]
     if values:
-        return "Da verificare: " + " · ".join(values[:8])
+        hint_labels = {"date-dmy-hint": "giorno/mese", "date-mdy-hint": "mese/giorno"}
+        first = alternatives[0] if isinstance(alternatives[0], dict) else {}
+        normalization = first.get("normalization") if isinstance(first.get("normalization"), dict) else {}
+        hint = hint_labels.get(normalization.get("rule_id"))
+        prefix = f"Da verificare (suggerito {hint}): " if hint else "Da verificare: "
+        return prefix + " · ".join(values[:8])
     return "Non rilevato" if candidate.get("status") in {"absent", "not_applicable"} else "Incerto o non leggibile"
 
 

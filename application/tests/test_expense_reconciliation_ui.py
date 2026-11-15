@@ -404,5 +404,26 @@ class ExpenseReconciliationUITests(unittest.TestCase):
         self.assertNotIn(b"pagamento", page.lower())
 
 
+class DateHintDisplayTests(unittest.TestCase):
+    """A8/D3: the preferred reading is shown first and named, the date stays to verify."""
+
+    def _display(self, text):
+        from alfa_document_intelligence.local_intake_app import _candidate_display
+        digest = hashlib.sha256(b"synthetic hint display").hexdigest()
+        line = extract_expense_lines([OCRPageResult(digest, 1, "SyntheticOCR", "1", "it+en", (
+            OCRToken("p1-t1", text, ((.05, .1), (.9, .1), (.9, .15), (.05, .15)), .99),
+        ))])[0]
+        return _candidate_display(line["date"])
+
+    def test_day_month_hint_is_named_and_listed_first(self):
+        self.assertEqual(
+            self._display("02/11/2026 Taxi EUR 11,37"),
+            "Da verificare (suggerito giorno/mese): 2026-11-02 · 2026-02-11",
+        )
+
+    def test_unambiguous_date_is_shown_plainly(self):
+        self.assertEqual(self._display("25/11/2026 Taxi EUR 11,37"), "2026-11-25")
+
+
 if __name__ == "__main__":
     unittest.main()

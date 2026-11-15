@@ -115,7 +115,7 @@ def analyze_ocr_results(
             proposals = {}
             omitted_field_limit_code = exc.code
         expense_lines = (
-            extract_expense_lines(materialized_pages)
+            extract_expense_lines(materialized_pages, document_language=document.get("language"))
             if document.get("document_family") == "expense_report" else None
         )
     except SemanticProposalLimitError as exc:
