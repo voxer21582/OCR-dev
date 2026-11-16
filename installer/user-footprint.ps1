@@ -1,4 +1,4 @@
-[CmdletBinding(DefaultParameterSetName='Capture')]
+﻿[CmdletBinding(DefaultParameterSetName='Capture')]
 param(
     [Parameter(Mandatory=$true,ParameterSetName='Capture')][string]$Out,
     [Parameter(Mandatory=$true,ParameterSetName='Compare')][ValidateCount(2,2)][string[]]$Compare
