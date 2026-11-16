@@ -193,10 +193,17 @@ def verify_installation(root: Path, manifest_path: Path) -> RuntimeVerification:
             contained = _resolved(path).is_relative_to(resolved_root)
         except (OSError, ValueError):
             contained = False
-        if _is_link(path) or not contained:
+        try:
+            is_link = _is_link(path)
+            is_file = path.is_file()
+        except (OSError, ValueError):
+            # e.g. ENAMETOOLONG on POSIX: an unusable name is a missing file, never an exception.
+            problems.append(f"File mancante: {relative}")
+            continue
+        if is_link or not contained:
             problems.append(f"Collegamento simbolico non ammesso: {relative}")
             continue
-        if not path.is_file():
+        if not is_file:
             problems.append(f"File mancante: {relative}")
             continue
         try:

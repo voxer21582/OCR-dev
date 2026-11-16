@@ -156,6 +156,22 @@ def test_malformed_path_keys_never_raise(tmp_path, key):
     assert not result.ok and result.problems
 
 
+def test_unusable_file_name_is_reported_not_raised(tmp_path, monkeypatch):
+    root = _tree(tmp_path)
+    path = _manifested(root)
+    real_is_file = Path.is_file
+
+    def too_long(self, *args, **kwargs):
+        if self.name == "main.py":
+            raise OSError(36, "File name too long")
+        return real_is_file(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_file", too_long)
+    result = rm.verify_installation(root, path)
+    assert not result.ok
+    assert any(p.startswith("File mancante:") and p.endswith("app/pkg/main.py") for p in result.problems)
+
+
 def test_launcher_turns_unexpected_verification_error_into_exit_2(monkeypatch, capsys, tmp_path):
     _installed_folder(tmp_path, monkeypatch, tamper=False)
 

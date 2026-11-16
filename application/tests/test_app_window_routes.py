@@ -274,7 +274,7 @@ def test_script_respects_csp_nonce(app_mode):
     status, headers, page = _invoke(app, "GET", "/")
     csp = headers["Content-Security-Policy"]
     nonce = re.search(r"script-src 'nonce-([^']+)'", csp).group(1)
-    scripts = re.findall(r"<script\b[^>]*>", page)
+    scripts = re.findall(r"<script\b[^>]*>", page, flags=re.IGNORECASE)
     assert scripts
     assert all(f'nonce="{nonce}"' in tag for tag in scripts)
     assert "__CSP_NONCE__" not in page
