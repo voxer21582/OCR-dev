@@ -10,6 +10,12 @@ NATIVE_COMPONENTS = (('OpenSSL', '3.5.9'), ('Expat', '2.9.0'), ('mpdecimal', '4.
                      ('zlib', '1.3.1'), ('libffi', '3.4.4'), ('bzip2', '1.0.8'),
                      ('liblzma', '5.2.5'), ('SQLite', '3.50.4'))
 
+PILLOW_WHEEL_SHA256 = '9dda0788a9932776a75d8bcc020076edc308ce2508b51f6739a45e3158b3fc42'
+PILLOW_NATIVE_COMPONENTS = (('FreeType', '2.14.3'), ('libwebp', '1.6.0'),
+                            ('libavif', '1.4.2'), ('libjpeg-turbo', '3.2.0'),
+                            ('OpenJPEG', '2.5.4'), ('zlib-ng', '2.3.3'),
+                            ('LibTIFF', '4.7.2'))
+
 MODELS = {
     'PP-OCRv6_det_small.onnx': '090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f',
     'PP-OCRv6_rec_small.onnx': '6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884',
@@ -55,6 +61,13 @@ def build_sbom(payload_root: Path, lock: Path, pins: Path) -> dict:
         if licence and len(licence) < 200:
             item['licenses'] = [{'license': {'name': licence}}]
         components.append(item)
+    if 'pillow' in locked:
+        if locked['pillow'] != ('13.0.0', PILLOW_WHEEL_SHA256):
+            raise ValueError('Pillow wheel has no verified native inventory')
+        components.extend({'type': 'library', 'name': name, 'version': version,
+                           'properties': [{'name': 'ocr2:inventory-source',
+                                           'value': 'Pillow wheel runtime features and bundled license'}]}
+                          for name, version in PILLOW_NATIVE_COMPONENTS)
     pin_data = json.loads(pins.read_text(encoding='utf-8'))
     pin = pin_data['python']
     if pin['sha256'] != PYTHON_BUILD_SHA256:

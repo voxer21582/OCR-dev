@@ -171,3 +171,22 @@ def test_sbom_rejects_python_build_without_native_inventory(tmp_path, monkeypatc
     pins.write_text(json.dumps({'python': {'sha256': 'b'*64}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
     with pytest.raises(ValueError, match='native inventory'):
         sbom.build_sbom(tmp_path, lock, pins)
+
+
+def test_sbom_includes_native_components_for_verified_pillow_wheel(tmp_path, monkeypatch):
+    sbom = _load('sbom')
+    monkeypatch.setattr(sbom, 'MODELS', {})
+    _dist(tmp_path, 'pillow')
+    metadata = tmp_path / 'python/Lib/site-packages/pillow-1.0.dist-info/METADATA'
+    metadata.write_text('Name: pillow\nVersion: 13.0.0\n', encoding='utf-8')
+    lock = tmp_path / 'lock'
+    lock.write_text('pillow==13.0.0 --hash=sha256:9dda0788a9932776a75d8bcc020076edc308ce2508b51f6739a45e3158b3fc42\n', encoding='utf-8')
+    pins = tmp_path / 'pins.json'
+    pins.write_text(json.dumps({'python': {'sha256': 'a2aa39db83d68ec06f4f98908a55682685fa4696696549188b2dd333bfd03041'}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
+    (tmp_path / 'runtime-manifest.json').write_text('{"version":"0.6.0"}', encoding='utf-8')
+    result = sbom.build_sbom(tmp_path, lock, pins)
+    native = {(c['name'], c['version']) for c in result['components']}
+    assert {('FreeType', '2.14.3'), ('libwebp', '1.6.0'), ('libavif', '1.4.2'), ('libjpeg-turbo', '3.2.0'), ('OpenJPEG', '2.5.4'), ('zlib-ng', '2.3.3'), ('LibTIFF', '4.7.2')} <= native
+    lock.write_text('pillow==13.0.0 --hash=sha256:' + 'd'*64 + '\n', encoding='utf-8')
+    with pytest.raises(ValueError, match='Pillow.*native inventory'):
+        sbom.build_sbom(tmp_path, lock, pins)
