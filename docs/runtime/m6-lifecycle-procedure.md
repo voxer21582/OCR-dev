@@ -4,7 +4,7 @@
 
 Usare un account Windows normale e solo documenti sintetici del progetto. Conservare le copie di prova e gli inventari sul PC: possono contenere nomi personali. Prima di condividere qualsiasi confronto, rileggere il risultato e condividere soltanto le righe che riguardano OCR2.
 
-1. **Prima dell'installazione.** Eseguire `user-footprint.ps1 -Out <file-prima>` in PowerShell. Se viene segnalato che l'inventario è incompleto, annotarlo. Conservare il file privatamente.
+1. **Prima dell'installazione.** Eseguire `user-footprint.ps1 -Out <file-prima>` in PowerShell. Se viene segnalato che l'inventario è incompleto, annotarlo. Il confronto rileva nomi aggiunti o rimossi: non rileva modifiche al contenuto di file esistenti né ai valori delle chiavi di registro, quindi non basta da solo a dimostrare che impostazioni già presenti siano invariate. Conservare il file privatamente.
 2. **Installare 0.6.0.** Eseguire l'installer firmato per l'utente corrente. Verificare che nel menu Start compaia OCR2 e che non servano privilegi amministrativi. □
 3. **Aprire l'app.** Dal menu Start avviare OCR2, aprire Informazioni e verificare versione 0.6.0 e runtime verificato. Creare un fascicolo usando esclusivamente fixture sintetiche. □
 4. **Uscire e riaprire.** Usare Esci, poi riaprire e controllare che il fascicolo sia ancora presente. Chiudere la finestra e verificare che il processo termini. □
