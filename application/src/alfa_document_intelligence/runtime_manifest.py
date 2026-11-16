@@ -35,7 +35,10 @@ class RuntimeVerification:
 
 
 def _matches(relative: str, patterns: Sequence[str]) -> bool:
+    """Case-insensitive glob match (Windows file names; an upper-case FFmpeg DLL must not slip through)."""
+    relative = relative.lower()
     for pattern in patterns:
+        pattern = pattern.lower()
         candidates = (pattern, pattern[3:]) if pattern.startswith("**/") else (pattern,)
         if any(fnmatch.fnmatchcase(relative, candidate) for candidate in candidates):
             return True
@@ -52,17 +55,42 @@ def _hash_file(path: Path) -> tuple[str, int]:
     return digest.hexdigest(), size
 
 
-def _walk(root: Path):
-    """Yield ``(relative posix path, absolute path, is_symlink)`` for every file under ``root``."""
-    for directory, dirnames, filenames in os.walk(root, followlinks=False):
+def _is_link(path: Path) -> bool:
+    """Symbolic link, NTFS junction or any other reparse point."""
+    if os.path.islink(path):
+        return True
+    isjunction = getattr(os.path, "isjunction", None)
+    if isjunction is not None and isjunction(path):
+        return True
+    try:
+        attributes = getattr(os.lstat(path), "st_file_attributes", 0)
+    except OSError:
+        return False
+    return bool(attributes & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
+
+
+def _walk(root: Path, errors: list[str] | None = None):
+    """Yield ``(relative posix path, absolute path, is_link)`` for every file under ``root``.
+
+    Linked folders are reported, not entered.  Unreadable folders are appended to ``errors``.
+    """
+    def on_error(error: OSError) -> None:
+        if errors is not None:
+            name = getattr(error, "filename", None)
+            try:
+                errors.append(Path(name).relative_to(root).as_posix())
+            except (TypeError, ValueError):
+                errors.append(".")
+
+    for directory, dirnames, filenames in os.walk(root, followlinks=False, onerror=on_error):
         base = Path(directory)
         for name in list(dirnames):
-            if os.path.islink(base / name):
+            if _is_link(base / name):
                 dirnames.remove(name)
                 yield (base / name).relative_to(root).as_posix(), base / name, True
         for name in filenames:
             path = base / name
-            yield path.relative_to(root).as_posix(), path, os.path.islink(path)
+            yield path.relative_to(root).as_posix(), path, _is_link(path)
 
 
 def build_manifest(root: Path, *, version: str, excluded_globs: Sequence[str]) -> dict:
@@ -74,7 +102,11 @@ def build_manifest(root: Path, *, version: str, excluded_globs: Sequence[str]) -
     root = Path(root)
     resolved_root = root.resolve()
     files: dict[str, dict] = {}
-    for relative, path, is_link in sorted(_walk(root)):
+    errors: list[str] = []
+    entries = sorted(_walk(root, errors))
+    if errors:
+        raise ValueError(f"cartella non leggibile: {errors[0]}")
+    for relative, path, is_link in entries:
         if relative == MANIFEST_NAME or _matches(relative, excluded_globs):
             continue
         if is_link:
@@ -129,6 +161,7 @@ def verify_installation(root: Path, manifest_path: Path) -> RuntimeVerification:
     """
     started = perf_counter()
     root = Path(root)
+    resolved_root = root.resolve()
     problems: list[str] = []
     data = _load(manifest_path)
     if isinstance(data, str):
@@ -140,7 +173,11 @@ def verify_installation(root: Path, manifest_path: Path) -> RuntimeVerification:
             problems.append(f"Percorso non valido nel manifest: {relative}")
             continue
         path = root / pure
-        if os.path.islink(path):
+        try:
+            contained = path.resolve().is_relative_to(resolved_root)
+        except OSError:
+            contained = False
+        if _is_link(path) or not contained:
             problems.append(f"Collegamento simbolico non ammesso: {relative}")
             continue
         if not path.is_file():
@@ -154,14 +191,17 @@ def verify_installation(root: Path, manifest_path: Path) -> RuntimeVerification:
         entry = listed[relative]
         if size != entry["size"] or digest != entry["sha256"]:
             problems.append(f"File alterato: {relative}")
-    for relative, _path, is_link in sorted(_walk(root)):
+    walk_errors: list[str] = []
+    for relative, _path, is_link in sorted(_walk(root, walk_errors)):
         parts = relative.split("/")
         if _matches(relative, FORBIDDEN_GLOBS):
             problems.append(f"File non ammesso (FFmpeg di OpenCV): {relative}")
         elif is_link:
             problems.append(f"Collegamento simbolico non ammesso: {relative}")
+        # Exact-name comparison: a case-only rename of a listed file shows up as missing plus extra (fails closed).
         elif relative not in listed and parts[0] in _CLOSED_FOLDERS and "__pycache__" not in parts[:-1]:
             problems.append(f"File in più: {relative}")
+    problems.extend(f"Cartella non leggibile: {name}" for name in walk_errors)
     problems = list(dict.fromkeys(problems))
     total = len(problems)
     shown = problems[:MAX_PROBLEMS]

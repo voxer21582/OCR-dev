@@ -177,11 +177,20 @@ def test_launcher_refuses_to_start_on_failed_verification(monkeypatch, capsys, t
     def forbidden(*_args, **_kwargs):
         raise AssertionError("no port, lock or window may be opened")
 
-    for name in ("serve_expense_report_local", "acquire", "running_instance", "open_window"):
+    class FakeLock:
+        released = False
+
+        def release(self):
+            self.released = True
+
+    lock = FakeLock()
+    for name in ("serve_expense_report_local", "open_window"):
         monkeypatch.setattr(launcher, name, forbidden)
+    monkeypatch.setattr(launcher, "running_instance", lambda _dir: None)
+    monkeypatch.setattr(launcher, "acquire", lambda _dir: lock)
     with pytest.raises(SystemExit) as exit_info:
         launcher.main(["--app-window"])
-    assert exit_info.value.code == 2
+    assert exit_info.value.code == 2 and lock.released
     assert "File alterato: app/pkg/main.py" in capsys.readouterr().err
     page = (local / "OCR2" / "runtime-error.html").read_text(encoding="utf-8")
     assert "File alterato: app/pkg/main.py" in page and "<script" not in page.lower()
@@ -190,6 +199,68 @@ def test_launcher_refuses_to_start_on_failed_verification(monkeypatch, capsys, t
     with pytest.raises(SystemExit) as exit_info:
         launcher.main(["--port", "0"])
     assert exit_info.value.code == 2
+
+
+def test_second_launch_opens_window_without_verifying(monkeypatch, tmp_path):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(launcher, "_APP_WINDOW_AVAILABLE", True)
+    opened = []
+    monkeypatch.setattr(launcher, "running_instance", lambda _dir: 4321)
+    monkeypatch.setattr(launcher, "open_window", lambda url, data_dir: opened.append(url) or "edge")
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("an already running instance must not trigger a verification")
+
+    monkeypatch.setattr(launcher, "_verify_runtime", forbidden)
+    launcher.main(["--app-window"])
+    assert opened == ["http://127.0.0.1:4321/"]
+
+
+def test_upper_case_ffmpeg_dll_is_refused(tmp_path):
+    root = _tree(tmp_path)
+    (root / "app" / "OPENCV_VIDEOIO_FFMPEG500_64.DLL").write_bytes(b"dll")
+    with pytest.raises(ValueError):
+        rm.build_manifest(root, version="1", excluded_globs=[])
+    manifest = rm.build_manifest(root, version="1", excluded_globs=[FFMPEG_GLOB])
+    assert "app/OPENCV_VIDEOIO_FFMPEG500_64.DLL" not in manifest["files"]
+    path = tmp_path / "m.json"
+    rm.write_manifest(manifest, path)
+    assert any("FFmpeg" in p for p in rm.verify_installation(root, path).problems)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="NTFS junctions exist only on Windows")
+def test_junction_is_refused_and_not_followed(tmp_path):
+    root = _tree(tmp_path / "prog")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "f.txt").write_text("outside")
+    made = subprocess.run(["cmd", "/c", "mklink", "/J", str(root / "app" / "j"), str(outside)], capture_output=True)
+    assert made.returncode == 0, made.stderr
+    with pytest.raises(ValueError):
+        rm.build_manifest(root, version="1", excluded_globs=[])
+    path = tmp_path / "m.json"
+    digest = hashlib.sha256((outside / "f.txt").read_bytes()).hexdigest()
+    files = rm.build_manifest(root, version="1", excluded_globs=["app/j"])["files"]
+    files["app/j/f.txt"] = {"sha256": digest, "size": (outside / "f.txt").stat().st_size}
+    rm.write_manifest({"format": 1, "version": "1", "files": files}, path)
+    result = rm.verify_installation(root, path)
+    assert not result.ok
+    assert "Collegamento simbolico non ammesso: app/j/f.txt" in result.problems
+    assert "Collegamento simbolico non ammesso: app/j" in result.problems
+
+
+def test_unreadable_folder_is_a_problem(monkeypatch, tmp_path):
+    root = _tree(tmp_path)
+    path = _manifested(root)
+    real_walk = os.walk
+
+    def failing_walk(top, followlinks=False, onerror=None):
+        if onerror is not None:
+            onerror(OSError(13, "denied", str(Path(top) / "app" / "locked")))
+        return real_walk(top, followlinks=followlinks, onerror=onerror)
+
+    monkeypatch.setattr(rm.os, "walk", failing_walk)
+    assert "Cartella non leggibile: app/locked" in rm.verify_installation(root, path).problems
 
 
 def test_error_page_escapes_problems(monkeypatch, tmp_path):

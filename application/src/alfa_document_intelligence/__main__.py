@@ -161,7 +161,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.port is None:
         args.port = 0 if args.app_window else 8000
 
-    runtime_status = _verify_runtime(args.app_window)
     instance_lock = None
     app_data_dir = None
     if args.app_window:
@@ -183,6 +182,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             _open_app_window(f"http://127.0.0.1:{running_port}/", app_data_dir)
             return
     try:
+        # An instance that was already running verified the runtime at its own start (R19).
+        runtime_status = _verify_runtime(args.app_window)
         _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status)
     finally:
         if instance_lock is not None:
