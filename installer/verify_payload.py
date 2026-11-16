@@ -5,7 +5,11 @@ import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "application" / "src"))
-from alfa_document_intelligence.runtime_manifest import verify_installation
+from alfa_document_intelligence.runtime_manifest import _linked, verify_installation
+
+# The manifest covers app/, python/ and the root files below; anything else at
+# the payload root would be packed into the installer without any check.
+_ROOT_ENTRIES = frozenset({"app", "python", "runtime-manifest.json", "sbom.json", "THIRD_PARTY_NOTICES.txt"})
 
 _COMPONENT_TYPES = frozenset({"application", "framework", "library", "container", "platform",
                               "operating-system", "device", "device-driver", "firmware", "file",
@@ -16,6 +20,14 @@ if __name__ == "__main__":
         raise SystemExit("Expected payload directory and version")
     root = Path(sys.argv[1])
     expected_version = sys.argv[2]
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        raise SystemExit("Payload directory is unreadable")
+    for entry in entries:
+        if entry.name not in _ROOT_ENTRIES or _linked(entry):
+            print(f"Unexpected payload root entry: {entry.name}", file=sys.stderr)
+            raise SystemExit(1)
     result = verify_installation(root, root / "runtime-manifest.json")
     if not result.ok:
         print("\n".join(result.problems), file=sys.stderr)

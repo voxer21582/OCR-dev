@@ -4,7 +4,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if ($Thumbprint -notmatch '^[0-9a-fA-F]{40}$') { throw 'Impronta certificato non valida.' }
-$root = (Resolve-Path -LiteralPath $Payload).Path
+# Children are listed from this same spelling (long or 8.3), so their FullName
+# starts with it; the relative path is still checked to stay inside the payload.
+$root = (Get-Item -LiteralPath $Payload -Force).FullName.TrimEnd('\')
 $python = Join-Path $root 'python'
 foreach ($dir in @($root, $python)) {
     if (-not (Test-Path -LiteralPath $dir -PathType Container) -or ((Get-Item -LiteralPath $dir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Cartella non valida o collegata.' }
@@ -56,7 +58,9 @@ $items = @(Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction Stop)
 foreach ($item in $items) {
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Collegamento non consentito nel payload.' }
     if ($item.PSIsContainer -or $item.Extension.ToLowerInvariant() -notin @('.exe', '.dll', '.pyd')) { continue }
-    $relative = $item.FullName.Substring($root.Length + 1).Replace('\', '/')
+    $relative = [IO.Path]::GetRelativePath($root, $item.FullName)
+    if ([IO.Path]::IsPathRooted($relative) -or $relative -eq '.' -or $relative -eq '..' -or $relative.StartsWith('..\')) { throw "Percorso fuori dal payload: $($item.FullName)" }
+    $relative = $relative.Replace('\', '/')
     $record = $manifest.files.PSObject.Properties[$relative].Value
     if (-not $record -or $record.size -ne $item.Length -or $record.sha256 -ne (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash) { throw "Manifest non corrispondente: $relative" }
     if ($localBuild.ContainsKey($relative)) { continue }

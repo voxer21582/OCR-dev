@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import zipfile
 
 import pytest
@@ -444,3 +445,83 @@ def test_release_payload_verifier_rejects_blank_notices(tmp_path):
     (payload / 'runtime-manifest.json').write_text(json.dumps(build_manifest(payload, version='0.6.0', excluded_globs=())), encoding='utf-8')
     script = Path(__file__).resolve().parents[2] / 'installer/verify_payload.py'
     assert subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.0'], capture_output=True).returncode != 0
+
+
+@pytest.mark.parametrize('extra', ['extra.dll', 'extra-folder/extra.exe', 'notes.txt'])
+def test_release_payload_verifier_rejects_unexpected_root_entries(tmp_path, extra):
+    """The unsigned release skips verify-runtime-signatures.ps1, so its payload-wide scan lives here too."""
+    import subprocess, sys
+    from alfa_document_intelligence.runtime_manifest import build_manifest
+    payload = tmp_path / 'payload'
+    for name in ('python/python.exe', 'python/pythonw.exe', 'python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
+        f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    (payload / 'sbom.json').write_text('{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[{"type":"library","name":"synthetic"}]}', encoding='utf-8')
+    (payload / 'THIRD_PARTY_NOTICES.txt').write_text('Synthetic notices', encoding='utf-8')
+    (payload / 'runtime-manifest.json').write_text(json.dumps(build_manifest(payload, version='0.6.0', excluded_globs=())), encoding='utf-8')
+    script = Path(__file__).resolve().parents[2] / 'installer/verify_payload.py'
+    assert subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.0'], capture_output=True).returncode == 0
+    target = payload / extra
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b'synthetic')
+    result = subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.0'], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert 'Unexpected payload root entry' in result.stderr
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='directory junctions are a Windows feature')
+def test_release_payload_verifier_rejects_a_linked_root_entry(tmp_path):
+    import _winapi, subprocess
+    from alfa_document_intelligence.runtime_manifest import build_manifest
+    payload = tmp_path / 'payload'
+    for name in ('python/python.exe', 'python/pythonw.exe', 'python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
+        f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    (payload / 'sbom.json').write_text('{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[{"type":"library","name":"synthetic"}]}', encoding='utf-8')
+    (payload / 'THIRD_PARTY_NOTICES.txt').write_text('Synthetic notices', encoding='utf-8')
+    (payload / 'runtime-manifest.json').write_text(json.dumps(build_manifest(payload, version='0.6.0', excluded_globs=())), encoding='utf-8')
+    elsewhere = tmp_path / 'elsewhere'
+    elsewhere.mkdir()
+    _winapi.CreateJunction(str(elsewhere), str(payload / 'linked'))
+    script = Path(__file__).resolve().parents[2] / 'installer/verify_payload.py'
+    result = subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.0'], capture_output=True, text=True)
+    assert result.returncode != 0
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='trailing separators and 8.3 names are Windows paths')
+def test_runtime_release_gate_accepts_trailing_separator_and_short_path_and_still_fails_closed(tmp_path):
+    import ctypes, os, shutil, subprocess
+    from alfa_document_intelligence.runtime_manifest import build_manifest
+    pwsh = shutil.which('pwsh')
+    if not pwsh:
+        pytest.skip('PowerShell 7 required for release gate')
+    builder = _builder()
+    payload = tmp_path / 'payload with a long folder name'
+    for name in builder.LOCAL_RUNTIME_BINARIES:
+        f = payload / 'python' / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    for name in ('python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
+        f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    third_party = payload / 'python/Lib/site-packages/synthetic/sample.pyd'
+    third_party.parent.mkdir(parents=True)
+    third_party.write_bytes(b'synthetic')
+    (payload / 'runtime-manifest.json').write_text(json.dumps(build_manifest(payload, version='0.6.0', excluded_globs=())), encoding='utf-8')
+    gate = Path(__file__).resolve().parents[2] / 'installer/verify-runtime-signatures.ps1'
+    wrapper = tmp_path / 'mock-gate.ps1'
+    wrapper.write_text("""param($Gate, $Payload)
+function Get-AuthenticodeSignature {
+    param($LiteralPath)
+    if ($LiteralPath -like '*sample.pyd') { return [pscustomobject]@{Status='NotSigned'; SignerCertificate=$null; TimeStamperCertificate=$null} }
+    return [pscustomobject]@{Status='Valid'; SignerCertificate=[pscustomobject]@{Thumbprint=('A' * 40)}; TimeStamperCertificate=[pscustomobject]@{Subject='synthetic'}}
+}
+& $Gate -Payload $Payload -Thumbprint ('A' * 40)
+""", encoding='utf-8')
+    buffer = ctypes.create_unicode_buffer(1024)
+    ctypes.windll.kernel32.GetShortPathNameW(str(payload), buffer, 1024)
+    spellings = [str(payload), str(payload) + os.sep]
+    if buffer.value and buffer.value.casefold() != str(payload).casefold():
+        spellings += [buffer.value, buffer.value + os.sep]
+    def check(spelling):
+        return subprocess.run([pwsh, '-NoProfile', '-NonInteractive', '-File', str(wrapper), str(gate), spelling], capture_output=True).returncode
+    for spelling in spellings:
+        assert check(spelling) == 0, spelling
+    third_party.write_bytes(b'tampered')
+    for spelling in spellings:
+        assert check(spelling) != 0, spelling
