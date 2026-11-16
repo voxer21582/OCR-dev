@@ -3,7 +3,7 @@ import re
 
 
 def test_nsis_script_is_per_user_and_avoids_system_changes():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     assert re.search(r'RequestExecutionLevel\s+user', script, re.I)
     assert '$LOCALAPPDATA\\Programs\\OCR2' in script
     for forbidden in ('WriteReg', 'DeleteReg', 'RequestExecutionLevel admin', '$PROGRAMFILES', '$WINDIR', 'SetShellVarContext all', 'http://', 'https://'):
@@ -11,14 +11,14 @@ def test_nsis_script_is_per_user_and_avoids_system_changes():
 
 
 def test_installer_starts_python_without_bytecode_and_verifies_before_shortcut():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     assert '-B -m alfa_document_intelligence.install_state' in script
     assert '-B -m alfa_document_intelligence --app-window' in script
     assert script.index('install_state') < script.index('CreateShortcut')
 
 
 def test_installer_provides_rollback_and_optional_data_removal():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     assert 'WriteUninstaller' in script
     assert '/ROLLBACK' in script
     assert 'Torna alla versione precedente.lnk' in script
@@ -29,7 +29,7 @@ def test_installer_provides_rollback_and_optional_data_removal():
 
 
 def test_release_installer_requires_signing_both_executables():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     assert '!uninstfinalize' in script
     assert '!finalize' in script
     assert '!error "Release builds require signing"' in script
@@ -37,7 +37,7 @@ def test_release_installer_requires_signing_both_executables():
 
 
 def test_installer_stages_files_and_shortcut_resolves_active_version():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     assert 'GetTempFileName' in script
     assert 'Rename "$0" "$INSTDIR\\versions\\${OCR2_VERSION}"' in script
     assert '"$INSTDIR\\Uninstall.exe" \'/LAUNCH\'' in script
@@ -45,7 +45,7 @@ def test_installer_stages_files_and_shortcut_resolves_active_version():
 
 
 def test_uninstaller_stops_if_files_cannot_be_removed():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     uninstall = script.split('Section "Uninstall"', 1)[1]
     assert 'IfErrors uninstall_failed' in uninstall
     assert uninstall.index('RMDir /r "$INSTDIR\\versions"') < uninstall.index('Delete "$INSTDIR\\active.json"')
@@ -57,13 +57,13 @@ def test_uninstaller_stops_if_files_cannot_be_removed():
 
 
 def test_shortcut_failure_aborts_before_activation():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     assert 'IfErrors shortcut_failed' in script
     assert script.index('IfErrors shortcut_failed') < script.index('install_state --base "$INSTDIR" activate')
 
 
 def test_uninstaller_can_find_another_verified_runtime_for_cleanup():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     section = script.split('Section "Uninstall"', 1)[1]
     assert 'FindFirst' in section and 'FindNext' in section
     assert 'install_state --base "$INSTDIR" verify "$4"' in section
@@ -71,7 +71,7 @@ def test_uninstaller_can_find_another_verified_runtime_for_cleanup():
 
 
 def test_launch_and_rollback_find_a_verified_runtime():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     assert 'Function un.RunVersionCommand' in script
     assert 'Push "active"' in script
     assert 'Push "rollback"' in script
@@ -79,14 +79,14 @@ def test_launch_and_rollback_find_a_verified_runtime():
 
 
 def test_release_installer_requires_runtime_signature_gate():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     assert '!ifndef OCR2_CERT_THUMBPRINT' in script
     assert 'verify-runtime-signatures.ps1' in script
     assert '!system' in script
 
 
 def test_installer_checks_reparse_paths_before_writing_or_extracting():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     section = script.split('Section "OCR2"', 1)[1]
     assert section.index('Call ValidateInstallPaths') < section.index('CreateDirectory "$INSTDIR"')
     assert section.index('Call ValidateInstallPaths') < section.index('GetTempFileName')
@@ -94,7 +94,7 @@ def test_installer_checks_reparse_paths_before_writing_or_extracting():
 
 
 def test_installer_checks_runtime_path_before_executing_it():
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     paths = script.split('Function ${PREFIX}ValidateInstallPaths', 1)[1].split('FunctionEnd', 1)[0]
     assert 'versions\\${OCR2_VERSION}\\python\\python.exe' in paths
     command = script.split('Function un.RunVersionCommand', 1)[1].split('FunctionEnd', 1)[0]
@@ -105,7 +105,7 @@ def test_installer_checks_runtime_path_before_executing_it():
 
 def test_launch_failure_names_remedies_the_installer_supports():
     """R38 (from #151): the Start-menu launch failure says what works in this installer."""
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     launch = script.split('Function un.onInit', 1)[1].split('launch_ok:', 1)[0]
     message = re.search(r'MessageBox MB_OK\|MB_ICONSTOP "([^"]*)"', launch).group(1)
     assert message.startswith('Impossibile avviare la versione attiva di OCR2.')
@@ -115,7 +115,7 @@ def test_launch_failure_names_remedies_the_installer_supports():
 
 def test_uninstaller_deletes_nothing_before_finding_a_verified_ocr2_version():
     """From #151's final review: remove files only from a folder that really holds OCR2."""
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     uninstall = script.split('Section "Uninstall"', 1)[1]
     search = uninstall.split('cleanup_done:', 1)[0]
     assert 'install_state --base "$INSTDIR" verify "$4"' in search
@@ -129,7 +129,7 @@ def test_uninstaller_deletes_nothing_before_finding_a_verified_ocr2_version():
 
 def test_failed_cleanup_after_activation_keeps_the_new_version():
     """From #151's final review: a prune failure never undoes or deletes the active version."""
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     section = script.split('Section "OCR2"', 1)[1].split('SectionEnd', 1)[0]
     assert section.index('activation_ok:') < section.index('install_state --base "$INSTDIR" prune')
     failure = section.split('prune_failed:', 1)[1].split('prune_ok:', 1)[0]
@@ -145,7 +145,7 @@ def _preprocess(defines):
     Only ``!ifdef``/``!ifndef``/``!else``/``!endif`` are interpreted; everything
     else is returned as written, so two configurations can be compared line by line.
     """
-    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
     stack = []
     active = []
     for raw in script.splitlines():
@@ -240,3 +240,19 @@ def test_test_build_is_unchanged_by_the_unsigned_option():
     error, lines = _preprocess(_BASE | {'OCR2_TEST'})
     assert error is None
     assert not any(line.startswith('!system') or 'non firmato' in line for line in lines)
+
+
+def test_nsis_script_has_a_utf8_bom_so_makensis_does_not_read_it_as_acp():
+    """Without a BOM makensis reads the script with the ANSI code page: «è» and «—» become mojibake."""
+    raw = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_bytes()
+    assert raw.startswith(b'\xef\xbb\xbf')
+    assert 'non è stata cambiata' in raw.decode('utf-8-sig')
+
+
+def test_installer_scripts_with_non_ascii_text_have_a_utf8_bom():
+    """Windows PowerShell 5.1 and makensis read BOM-less files with the ANSI code page."""
+    installer = Path(__file__).resolve().parents[2] / 'installer'
+    for path in sorted(installer.glob('*.nsi')) + sorted(installer.glob('*.ps1')):
+        raw = path.read_bytes()
+        if any(byte > 0x7F for byte in raw):
+            assert raw.startswith(b'\xef\xbb\xbf'), path.name

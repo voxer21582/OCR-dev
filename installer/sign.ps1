@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$Installer,
     [Parameter(Mandatory=$true)][string]$Thumbprint,
     [Parameter(Mandatory=$true)][string]$TimestampUrl

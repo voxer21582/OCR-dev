@@ -1,4 +1,4 @@
-; OCR2 per-user installer. Work in progress: lifecycle validation pending.
+﻿; OCR2 per-user installer. Work in progress: lifecycle validation pending.
 !include "FileFunc.nsh"
 Unicode true
 RequestExecutionLevel user
