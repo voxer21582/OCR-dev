@@ -30,6 +30,18 @@ def build_notices(payload_root: Path) -> str:
     for dist in sorted(package_dir.glob('*.dist-info')):
         metadata = Parser().parsestr((dist / 'METADATA').read_text(encoding='utf-8'))
         name, version = metadata['Name'], metadata['Version']
+        if name.lower().replace('_', '-') == 'opencv-python-headless':
+            if version != '5.0.0.93':
+                raise ValueError('OpenCV: unverified licence inventory')
+            for component, filename in (('Intel ITT', 'opencv-ittnotify-bsd.txt'),
+                                        ('LibTIFF 4.7.1', 'opencv-libtiff-4.7.1.md')):
+                licence = Path(__file__).parent / 'licenses' / filename
+                if not licence.is_file():
+                    raise ValueError(f'Missing OpenCV {component} licence')
+                attribution = ('Copyright (C) 2005-2019 Intel Corporation\n'
+                               'SPDX-License-Identifier: GPL-2.0-only OR BSD-3-Clause\n\n'
+                               if component == 'Intel ITT' else '')
+                blocks.append(f'{component} (bundled with OpenCV)\n\n' + attribution + _text(licence))
         paths = []
         for declared in metadata.get_all('License-File', []):
             candidate = dist / 'licenses' / declared

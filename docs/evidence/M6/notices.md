@@ -1,5 +1,7 @@
 # Licenze assenti dai metadati delle wheel
 
+Verifica successiva di OpenCV 5.0.0.93: il runtime riferisce Intel ITT 3.25.4 e libtiff 4.7.1 incorporati. Il confronto con i file del [sorgente ufficiale OpenCV 5.0.0](https://github.com/opencv/opencv/tree/40738fb16ceddb5fb3fea747585f7ce6abb0605b/3rdparty) ha rilevato che il testo BSD di Intel ITT non era presente integralmente negli avvisi; il testo di libtiff risultava già presente tramite Pillow, senza attribuzione esplicita a OpenCV. I sorgenti ITT esaminati riportano la scelta `GPL-2.0-only OR BSD-3-Clause`: gli avvisi includono l'alternativa BSD e l'intestazione di copyright. Sono stati aggiunti i testi ufficiali `opencv-ittnotify-bsd.txt` (SHA-256 `cf48cdd9ed87c2031b68fb1b9f4cfb55d00dcf815b21a30bf8304aa1e5e6f76a`) e `opencv-libtiff-4.7.1.md` (SHA-256 `0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade`). Il generatore richiede la versione OpenCV esaminata; la build integrata verifica anche il pin della wheel nella distinta. Il payload di prova ricostruito contiene entrambe le sezioni e il manifest è valido. Il controllo delle restanti licenze transitive non è concluso.
+
 Nel contenuto 0.6.0 le cartelle dist-info di flatbuffers 25.12.19 e onnxruntime 1.31.1 dichiarano rispettivamente Apache 2.0 e MIT, ma non contengono file di licenza. I testi sono stati acquisiti dai tag ufficiali corrispondenti:
 
 - flatbuffers: https://raw.githubusercontent.com/google/flatbuffers/v25.12.19/LICENSE — SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`.

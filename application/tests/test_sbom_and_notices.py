@@ -147,6 +147,23 @@ def test_notices_include_bundled_expat(tmp_path):
     assert 'Copyright (c) 2001-2025 Expat maintainers' in result
 
 
+def test_notices_include_opencv_itt_and_libtiff_licenses(tmp_path):
+    notices = _load('notices')
+    _dist(tmp_path, 'opencv-python-headless')
+    metadata = tmp_path / 'python/Lib/site-packages/opencv-python-headless-1.0.dist-info/METADATA'
+    metadata.write_text(metadata.read_text(encoding='utf-8').replace('Version: 1.0', 'Version: 5.0.0.93'), encoding='utf-8')
+    (tmp_path / 'python/LICENSE.txt').write_text('Python licence', encoding='utf-8')
+    result = notices.build_notices(tmp_path)
+    assert 'Intel ITT (bundled with OpenCV)' in result
+    assert 'Copyright (c) 2019 Intel Corporation. All rights reserved.' in result
+    assert 'Copyright (C) 2005-2019 Intel Corporation' in result
+    assert 'LibTIFF 4.7.1 (bundled with OpenCV)' in result
+    assert '1988-1997 Sam Leffler' in result
+    metadata.write_text(metadata.read_text(encoding='utf-8').replace('Version: 5.0.0.93', 'Version: 1.0'), encoding='utf-8')
+    with pytest.raises(ValueError, match='OpenCV.*licence inventory'):
+        notices.build_notices(tmp_path)
+
+
 def test_sbom_includes_native_dependencies_for_verified_python_build(tmp_path, monkeypatch):
     sbom = _load('sbom')
     monkeypatch.setattr(sbom, 'MODELS', {})
