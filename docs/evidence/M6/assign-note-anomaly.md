@@ -36,4 +36,17 @@ L'installer, se trova la stessa versione già installata e integra, non la sosti
 
 ## Prova isolata sulla nuova build
 
-Installer di prova `OCR2_TEST` dagli stessi payload, cartella temporanea: installazione 0.6.0 (codice 0), `/LAUNCH` → 0.6.0, Informazioni 0.6.0 / Python 3.13.18 / RapidOCR 3.10.0 / `verificato`, Esci 200, aggiornamento a 0.6.1 (`{"active": "0.6.1", "previous": "0.6.0"}`), disinstallazione con rimozione dati (codice 0). Il flusso completo via HTTP (caricamento → assegnazione della nota → OCR → archivio → originale) **non è ancora stato completato** sulla build installata: il primo tentativo non ha letto la porta del server (uscita bufferizzata), il secondo non è partito. Da ripetere.
+Installer di prova `OCR2_TEST` dagli stessi payload, cartella temporanea e `LOCALAPPDATA` temporaneo, solo dati sintetici:
+
+| Passo | Esito |
+|---|---|
+| Installazione 0.6.0, `/LAUNCH` | codice 0, versione 0.6.0 |
+| Avvio in finestra, Informazioni, Esci | 0.6.0, Python 3.13.18, RapidOCR 3.10.0, `verificato`; Esci 200, processo terminato |
+| `GET /assign-note` (ciò che faceva il vecchio aggiornamento) | 404, come atteso |
+| PDF sintetico: caricamento, «Conferma nota spese» | 200; aggiornamento verso `/ocr/jobs/<id>`, seguito 3 volte fino alla fine dell'OCR |
+| PDF: salvataggio, apertura dall'archivio, documento originale | 200, «Documento in archivio», originale 200 `application/pdf` |
+| PNG sintetico: stesso flusso | aggiornamento seguito 2 volte; salvataggio, apertura, originale 200 `image/png` |
+| Archivio finale | 2 documenti |
+| Aggiornamento a 0.6.1, disinstallazione con rimozione dati | codice 0 e codice 0 |
+
+Il flusso HTTP usa il server della versione installata (console, OCR attivo) e segue l'aggiornamento automatico come un browser. Un tentativo precedente si era fermato sulla pagina di revisione per un errore dello script di prova, non dell'app: cercava il testo «Salva in archivio», mentre nella revisione il pulsante si chiama «Salva modifiche in archivio». Lo script ora cerca il modulo `action="/archive/save/`. Dopo la prova: cartella reale del programma invariata (2.352 file), cartella dati reale e blocco assenti, nessun processo rimasto.
