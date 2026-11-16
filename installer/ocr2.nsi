@@ -1,4 +1,5 @@
-; OCR2 per-user installer. Work in progress: rollback and uninstall pending.
+; OCR2 per-user installer. Work in progress: lifecycle validation pending.
+!include "FileFunc.nsh"
 Unicode true
 RequestExecutionLevel user
 InstallDir "$LOCALAPPDATA\Programs\OCR2"
@@ -31,8 +32,53 @@ Section "OCR2"
     MessageBox MB_ICONSTOP "La verifica della nuova versione è fallita. La versione precedente rimane attiva."
     Abort
   activation_ok:
+  WriteUninstaller "$INSTDIR\Uninstall.exe"
 !ifndef OCR2_TEST
   CreateDirectory "$SMPROGRAMS\OCR2"
   CreateShortcut "$SMPROGRAMS\OCR2\OCR2.lnk" "$INSTDIR\versions\${OCR2_VERSION}\python\pythonw.exe" '-B -m alfa_document_intelligence --app-window --ocr-engine rapidocr-v6'
+  CreateShortcut "$SMPROGRAMS\OCR2\Torna alla versione precedente.lnk" "$INSTDIR\Uninstall.exe" '/ROLLBACK'
+  CreateShortcut "$SMPROGRAMS\OCR2\Disinstalla OCR2.lnk" "$INSTDIR\Uninstall.exe"
 !endif
+SectionEnd
+
+Function un.onInit
+  SetShellVarContext current
+  ${GetParameters} $0
+  ClearErrors
+  ${GetOptions} $0 "/ROLLBACK" $1
+  IfErrors normal_uninstall
+  nsExec::ExecToStack '"$INSTDIR\versions\${OCR2_VERSION}\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" rollback'
+  Pop $0
+  Pop $1
+  StrCmp $0 "0" rollback_ok
+    MessageBox MB_ICONSTOP "Impossibile ripristinare la versione precedente."
+    Quit
+  rollback_ok:
+  StrCpy $1 $1 -2
+!ifndef OCR2_TEST
+  CreateShortcut "$SMPROGRAMS\OCR2\OCR2.lnk" "$INSTDIR\versions\$1\python\pythonw.exe" '-B -m alfa_document_intelligence --app-window --ocr-engine rapidocr-v6'
+!endif
+  Quit
+  normal_uninstall:
+FunctionEnd
+
+Section "Uninstall"
+  SetShellVarContext current
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Vuoi eliminare anche i dati locali OCR2?" /SD IDNO IDYES remove_data
+  Goto keep_data
+  remove_data:
+!ifndef OCR2_TEST
+  RMDir /r "$LOCALAPPDATA\OCR2"
+!endif
+  keep_data:
+!ifndef OCR2_TEST
+  Delete "$SMPROGRAMS\OCR2\OCR2.lnk"
+  Delete "$SMPROGRAMS\OCR2\Torna alla versione precedente.lnk"
+  Delete "$SMPROGRAMS\OCR2\Disinstalla OCR2.lnk"
+  RMDir "$SMPROGRAMS\OCR2"
+!endif
+  RMDir /r "$INSTDIR\versions"
+  Delete "$INSTDIR\active.json"
+  Delete "$INSTDIR\Uninstall.exe"
+  RMDir "$INSTDIR"
 SectionEnd
