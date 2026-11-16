@@ -26,7 +26,7 @@ Capacità richieste:
 - **V3** **Non installare dipendenze, pacchetti, runtime o modelli** che non siano elencati in `docs/dependencies-approved.md`. Se ne serve uno nuovo: aggiungilo a `docs/dependencies-request.md` (nome, versione, licenza, dimensione, motivo, alternative) e fermati (vedi §5).
 - **V4** Non modificare impostazioni, registro, servizi o file di sistema di Windows. Non modificare deployment o risorse Google.
 - **V5** Rispettare le regole **R7** e **R8** come definite nella documentazione di progetto. Se non le trovi o sono ambigue: fermati e chiedi.
-- **V6** **Stop/no-retry**: se un'operazione fallisce per cause esterne (permessi, rete, dipendenza mancante, conflitto con un vincolo), non riprovarla in varianti per aggirarla. Registra il problema e fermati.
+- **V6** **Diagnosi e tentativi reversibili**: se un'operazione fallisce per cause esterne, registra il problema, diagnosticalo e puoi riprovare in modo ragionato e reversibile. Non aggirare limitazioni di sicurezza o autorizzazioni, non modificare Windows (V4), e fermati quando è indispensabile un intervento esterno o una decisione del proprietario. Modifica autorizzata dal proprietario il 2026-11-16.
 - **V7** Preservare i checkout concorrenti: lavora solo nella tua cartella/worktree e sul tuo branch. Mai `git reset --hard`, `git clean`, `push --force`, né modifiche a file fuori dal progetto.
 - **V8** Non dichiarare nulla "completato" senza evidenze (output di test, log, screenshot, report) salvate in `docs/evidence/`.
 - **V9** Prototipo ≠ prodotto. Una milestone completata non significa prodotto completato. Il prodotto è completo solo quando **tutte** le milestone in `docs/plan.md` sono verificate.

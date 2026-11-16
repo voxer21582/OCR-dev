@@ -114,3 +114,16 @@ def test_build_payload_excludes_tests_caches_and_ffmpeg_and_verifies(monkeypatch
     assert not (result / "app" / "alfa_document_intelligence" / "__pycache__").exists()
     assert not list(result.rglob("opencv_videoio_ffmpeg*.dll"))
     assert verify_installation(result, result / "runtime-manifest.json").ok
+
+
+def test_wheel_install_disables_bytecode_compilation(monkeypatch, tmp_path):
+    builder = _builder()
+    commands = []
+    def run(command, check):
+        commands.append(command)
+        class Result:
+            returncode = 0
+        return Result()
+    monkeypatch.setattr(builder.subprocess, "run", run)
+    builder._install_wheels(tmp_path / "wheels", tmp_path / "lock", tmp_path / "target")
+    assert "--no-compile" in commands[0]

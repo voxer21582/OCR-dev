@@ -64,7 +64,7 @@ def _configure_python_path(python_dir: Path) -> None:
 
 def _install_wheels(wheel_dir: Path, lock_path: Path, target: Path) -> None:
     target.mkdir(parents=True, exist_ok=False)
-    command = [sys.executable, "-m", "pip", "install", "--no-index", "--no-deps",
+    command = [sys.executable, "-m", "pip", "install", "--no-index", "--no-deps", "--no-compile",
                "--require-hashes", "--find-links", str(wheel_dir), "--target", str(target),
                "-r", str(lock_path)]
     result = subprocess.run(command, check=False)
