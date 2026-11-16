@@ -401,3 +401,23 @@ def test_closing_right_after_opening_info_still_counts_as_navigation():
         assert presence.should_stop() is False
     finally:
         app.close()
+
+
+def test_downloads_never_carry_the_app_controls(lifetime):
+    # R42: the Esci form holds the session token; a downloaded file must not.
+    from alfa_document_intelligence.local_intake_app import _page
+
+    app_lifetime, _stop = lifetime
+    environ = {"_ocr2_app_lifetime": app_lifetime, "_ocr2_csrf_token": "segreto-di-sessione"}
+    response = {}
+    body = "<!doctype html><html><main><h1>Esportazione</h1></main></html>"
+    payload = b"".join(_page(
+        environ, lambda status, headers: response.update(headers=dict(headers)), "200 OK", body,
+        download_filename="esportazione.html",
+    )).decode("utf-8")
+    assert response["headers"]["Content-Disposition"] == 'attachment; filename="esportazione.html"'
+    assert "/app/exit" not in payload and "segreto-di-sessione" not in payload and "<script" not in payload
+    assert "connect-src" not in response["headers"]["Content-Security-Policy"]
+    # The same page shown (not downloaded) still gets them.
+    shown = b"".join(_page(environ, lambda status, headers: None, "200 OK", body)).decode("utf-8")
+    assert "/app/exit" in shown

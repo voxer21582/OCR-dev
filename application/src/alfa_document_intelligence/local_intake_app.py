@@ -410,6 +410,8 @@ def _page(
     app_controls = (
         environ.get("_ocr2_app_lifetime") is not None
         and content_type.split(";", 1)[0].strip().lower() == "text/html"
+        # A download is a file, not a window page: no Esci form (session token) or script (R42).
+        and download_filename is None
     )
     if app_controls:
         # Before the CSRF field and nonce passes below, so the exit form gets
