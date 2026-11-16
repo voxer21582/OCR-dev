@@ -168,7 +168,7 @@ Archivio più recente: se lo store segnala uno schema superiore a quello support
 
 **Files:** Create `docs/runtime/signing.md`, `installer/sign.ps1`, `installer/verify-signature.ps1`
 
-- [ ] **Stop e domanda al proprietario (Q-004):** quale certificato di firma del codice usa (certificato commerciale o di un'organizzazione; un certificato autofirmato richiede di aggiungerlo all'archivio certificati del PC che verifica, cosa che V4 vieta sul PC di destinazione). Registrare la risposta in `decisions.md`.
+- [x] **Stop e domanda al proprietario (Q-004):** risposta del 2026-11-16: nessun certificato, REQ-105 rinviato (DEC-034). quale certificato di firma del codice usa (certificato commerciale o di un'organizzazione; un certificato autofirmato richiede di aggiungerlo all'archivio certificati del PC che verifica, cosa che V4 vieta sul PC di destinazione). Registrare la risposta in `decisions.md`.
 - [ ] `sign.ps1 -Installer <exe> -Thumbprint <impronta>`: firma installer e disinstallatore (NSIS `!uninstfinalize`) con `Set-AuthenticodeSignature -HashAlgorithm SHA256` e marca temporale indicata dal proprietario; lo esegue il proprietario.
 - [ ] `verify-signature.ps1`: stampa `Status`, soggetto, impronta del certificato e ora della marca temporale; esce con 1 se lo stato non è `Valid`.
 - [ ] Limite dichiarato in `signing.md`: i file `.py` non sono firmabili; la loro integrità è garantita dal manifest dentro l'installer firmato; i binari di Python e delle wheel mantengono le firme dei loro autori, dove presenti.

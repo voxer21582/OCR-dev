@@ -117,7 +117,7 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | REQ-102 | Installer per utente, offline, senza privilegi di amministratore (NSIS + Python embeddable). | MUST | Installazione su PC pulito (DEC-007); elenco documentato dei file e delle voci per utente create. | INS-1 | M6 | `OPEN` |
 | REQ-103 | Il runtime installato è verificato (impronte delle wheel e dei modelli, notice); nessun download. | MUST | Verifica delle impronte all'installazione e all'avvio. | INS-2 | M6 | `OPEN` |
 | REQ-104 | Aggiornamento, recupero da aggiornamento interrotto, ritorno alla versione precedente, disinstallazione; i dati restano se l'utente non li toglie. | MUST | Matrice del ciclo di vita eseguita sull'altro PC. | INS-3 | M6 | `OPEN` |
-| REQ-105 | Installer e binari firmati dal proprietario. | MUST | La firma si verifica; l'evidenza registra chi ha firmato e quando. | INS-4, D1 | M6 | `OPEN` |
+| REQ-105 | Installer e binari firmati dal proprietario. | MUST | La firma si verifica; l'evidenza registra chi ha firmato e quando. | INS-4, D1 | M6 → milestone successiva | rinviato: limite dichiarato (DEC-034); M6 si chiude con installer non firmati e avviso SmartScreen |
 | REQ-106 | Un collegamento nel menu Start per l'utente; versione e identità del runtime visibili nell'app. | MUST | Checklist. | INS-5 | M6 | `OPEN` |
 | REQ-107 | SBOM e notice di licenza nell'installer; decisione su FFmpeg (Q-001). | MUST | SBOM generato dai lock; notice presenti; FFmpeg trattato come deciso. | SEC-5 | M6 | parziale |
 | REQ-108 | Pacchetto diagnostico senza contenuti, esportabile su richiesta. | SHOULD | Revisione del pacchetto. | OPS-1 | M7 | `OPEN` |
