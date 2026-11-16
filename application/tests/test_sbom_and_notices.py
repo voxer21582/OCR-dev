@@ -190,3 +190,32 @@ def test_sbom_includes_native_components_for_verified_pillow_wheel(tmp_path, mon
     lock.write_text('pillow==13.0.0 --hash=sha256:' + 'd'*64 + '\n', encoding='utf-8')
     with pytest.raises(ValueError, match='Pillow.*native inventory'):
         sbom.build_sbom(tmp_path, lock, pins)
+
+
+@pytest.mark.parametrize('package,version,digest,native,native_version', [
+    ('numpy', '2.5.4', '8b4d2fd2d34e5f8c9235ee787de5631a37a28402b15cb80814df973d2be54129', 'OpenBLAS', '0.3.34.106.0'),
+    ('shapely', '2.2.0', '1eaa2cb64cdedaf65d6bc86f2819c9cd7d6d68f969aa3ebfdc93743ab581f437', 'GEOS', '3.14.1'),
+    ('pypdfium2', '5.15.2', '74d1bace34fb01c660d0b64344d5a4b7d276942b7c6623c88ab59ea21c5acfbd', 'PDFium', '159.0.8149.0'),
+    ('opencv-python-headless', '5.0.0.93', '829717b6a95554f273e49e357cee3b3a2a26b6f4842fbc1bed2b45bdd8f87e0e', 'libprotobuf', '3.19.1'),
+], ids=['numpy', 'geos', 'pdfium', 'opencv'])
+def test_sbom_identifies_verified_wheel_native_components(tmp_path, monkeypatch, package, version, digest, native, native_version):
+    sbom = _load('sbom')
+    monkeypatch.setattr(sbom, 'MODELS', {})
+    _dist(tmp_path, package)
+    metadata = tmp_path / f'python/Lib/site-packages/{package}-1.0.dist-info/METADATA'
+    metadata.write_text(f'Name: {package}\nVersion: {version}\n', encoding='utf-8')
+    lock = tmp_path / 'lock'
+    lock.write_text(f'{package}=={version} --hash=sha256:{digest}\n', encoding='utf-8')
+    pins = tmp_path / 'pins.json'
+    pins.write_text(json.dumps({'python': {'sha256': sbom.PYTHON_BUILD_SHA256}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
+    (tmp_path / 'runtime-manifest.json').write_text('{"version":"0.6.0"}', encoding='utf-8')
+    result = sbom.build_sbom(tmp_path, lock, pins)
+    assert any(c['name'] == native and c['version'] == native_version for c in result['components'])
+    if package == 'opencv-python-headless':
+        actual = {(c['name'], c['version']) for c in result['components']}
+        assert {('flatbuffers', '25.9.23'), ('zlib', '1.3.2'), ('libjpeg-turbo', '3.1.2-70'),
+                ('libpng', '1.6.57'), ('LibTIFF', '4.7.1'), ('OpenJPEG', '2.5.3'),
+                ('Intel IPP', '2026.0.0'), ('Intel ITT', '3.25.4')} <= actual
+    lock.write_text(f'{package}=={version} --hash=sha256:' + 'd'*64 + '\n', encoding='utf-8')
+    with pytest.raises(ValueError, match='native inventory'):
+        sbom.build_sbom(tmp_path, lock, pins)

@@ -16,6 +16,19 @@ PILLOW_NATIVE_COMPONENTS = (('FreeType', '2.14.3'), ('libwebp', '1.6.0'),
                             ('OpenJPEG', '2.5.4'), ('zlib-ng', '2.3.3'),
                             ('LibTIFF', '4.7.2'))
 
+# Values observed in the pinned Windows wheels' runtime/build metadata.
+WHEEL_NATIVE_COMPONENTS = {
+    'numpy': ('2.5.4', '8b4d2fd2d34e5f8c9235ee787de5631a37a28402b15cb80814df973d2be54129', (('OpenBLAS', '0.3.34.106.0'),)),
+    'shapely': ('2.2.0', '1eaa2cb64cdedaf65d6bc86f2819c9cd7d6d68f969aa3ebfdc93743ab581f437', (('GEOS', '3.14.1'),)),
+    'pypdfium2': ('5.15.2', '74d1bace34fb01c660d0b64344d5a4b7d276942b7c6623c88ab59ea21c5acfbd', (('PDFium', '159.0.8149.0'),)),
+    'opencv-python-headless': ('5.0.0.93', '829717b6a95554f273e49e357cee3b3a2a26b6f4842fbc1bed2b45bdd8f87e0e',
+                               (('libprotobuf', '3.19.1'), ('flatbuffers', '25.9.23'),
+                                ('zlib', '1.3.2'), ('libjpeg-turbo', '3.1.2-70'),
+                                ('libpng', '1.6.57'), ('LibTIFF', '4.7.1'),
+                                ('OpenJPEG', '2.5.3'), ('Intel IPP', '2026.0.0'),
+                                ('Intel ITT', '3.25.4'))),
+}
+
 MODELS = {
     'PP-OCRv6_det_small.onnx': '090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f',
     'PP-OCRv6_rec_small.onnx': '6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884',
@@ -68,6 +81,15 @@ def build_sbom(payload_root: Path, lock: Path, pins: Path) -> dict:
                            'properties': [{'name': 'ocr2:inventory-source',
                                            'value': 'Pillow wheel runtime features and bundled license'}]}
                           for name, version in PILLOW_NATIVE_COMPONENTS)
+    for package, (version, digest, native) in WHEEL_NATIVE_COMPONENTS.items():
+        if package not in locked:
+            continue
+        if locked[package] != (version, digest):
+            raise ValueError(f'{package}: wheel has no verified native inventory')
+        components.extend({'type': 'library', 'name': name, 'version': native_version,
+                           'properties': [{'name': 'ocr2:inventory-source',
+                                           'value': f'{package} pinned Windows wheel runtime/build metadata'}]}
+                          for name, native_version in native)
     pin_data = json.loads(pins.read_text(encoding='utf-8'))
     pin = pin_data['python']
     if pin['sha256'] != PYTHON_BUILD_SHA256:
