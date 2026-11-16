@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import csv
 import importlib.util
 import json
 from pathlib import Path, PurePosixPath
@@ -27,6 +28,61 @@ LOCAL_RUNTIME_BINARIES = (
 
 class PayloadBuildError(ValueError):
     """An input is unsafe or does not match its approved digest."""
+
+
+_GENERATED_SCRIPTS = frozenset({'f2py.exe', 'idna.exe', 'normalizer.exe', 'numpy-config.exe',
+                                'onnxruntime_test.exe', 'pypdfium2.exe', 'rapidocr.exe', 'tqdm.exe'})
+
+
+def _remove_generated_scripts(site_packages: Path) -> set[str]:
+    from alfa_document_intelligence.runtime_manifest import _linked
+
+    scripts = site_packages / 'bin'
+    if _linked(site_packages) or _linked(scripts):
+        raise PayloadBuildError('Linked generated script directory')
+    if not scripts.exists():
+        return set()
+    if not scripts.is_dir():
+        raise PayloadBuildError('Invalid generated script directory')
+    entries = list(scripts.iterdir())
+    if any(_linked(item) or not item.is_file() or item.name.casefold() not in _GENERATED_SCRIPTS for item in entries):
+        raise PayloadBuildError('Unexpected generated script entry')
+    for item in entries:
+        item.unlink()
+    scripts.rmdir()
+    return {'../../bin/' + item.name for item in entries}
+
+
+def _clean_removed_records(site_packages: Path, removed_scripts: set[str], removed_ffmpeg: set[str]) -> None:
+    from alfa_document_intelligence.runtime_manifest import _linked
+
+    updates = []
+    for record in site_packages.glob('*.dist-info/RECORD'):
+        if _linked(record.parent) or _linked(record) or not record.is_file():
+            raise PayloadBuildError('Invalid package RECORD')
+        with record.open('r', encoding='utf-8', newline='') as stream:
+            rows = list(csv.reader(stream))
+        if any(len(row) != 3 for row in rows):
+            raise PayloadBuildError('Invalid package RECORD row')
+        kept = []
+        for row in rows:
+            name = row[0]
+            generated = name.startswith('../../bin/') and name[len('../../bin/'):].casefold() in _GENERATED_SCRIPTS
+            parts = PurePosixPath(name).parts
+            ffmpeg = (len(parts) >= 2 and all(p not in ('', '.', '..') for p in parts)
+                      and parts[-1].casefold().startswith('opencv_videoio_ffmpeg')
+                      and parts[-1].casefold().endswith('.dll'))
+            if ffmpeg and site_packages.joinpath(*parts).exists():
+                raise PayloadBuildError('FFmpeg file was not removed')
+            if (generated and name not in removed_scripts) or (ffmpeg and name not in removed_ffmpeg):
+                raise PayloadBuildError('RECORD references a file not removed by this build')
+            if not generated and not ffmpeg:
+                kept.append(row)
+        if kept != rows:
+            updates.append((record, kept))
+    for record, rows in updates:
+        with record.open('w', encoding='utf-8', newline='') as stream:
+            csv.writer(stream, lineterminator='\n').writerows(rows)
 
 
 def _extract_embeddable(archive: Path, destination: Path, expected_sha256: str) -> None:
@@ -152,6 +208,8 @@ def build_payload(*, embeddable_zip: Path, wheel_dir: Path, app_src: Path, out_d
     _extract_embeddable(embeddable_zip, result / "python", sha)
     _configure_python_path(result / "python")
     _install_wheels(wheel_dir, lock_path, result / "python" / "Lib" / "site-packages")
+    site_packages = result / "python" / "Lib" / "site-packages"
+    removed_scripts = _remove_generated_scripts(site_packages)
     source = app_src / "alfa_document_intelligence"
     for item in source.rglob("*"):
         if item.is_symlink() or getattr(item, "is_junction", lambda: False)():
@@ -161,10 +219,13 @@ def build_payload(*, embeddable_zip: Path, wheel_dir: Path, app_src: Path, out_d
     initializer = result / 'app' / 'alfa_document_intelligence' / '__init__.py'
     with initializer.open('a', encoding='utf-8') as stream:
         stream.write(f'\n__version__ = "{version}"\n')
-    for dll in (result / "python" / "Lib" / "site-packages").rglob("opencv_videoio_ffmpeg*.dll"):
+    removed_ffmpeg = set()
+    for dll in site_packages.rglob("opencv_videoio_ffmpeg*.dll"):
         if dll.is_symlink() or not dll.is_file():
             raise PayloadBuildError("Invalid FFmpeg payload entry")
+        removed_ffmpeg.add(dll.relative_to(site_packages).as_posix())
         dll.unlink()
+    _clean_removed_records(site_packages, removed_scripts, removed_ffmpeg)
     if local_runtime_signer is not None:
         if sha != LOCAL_BUILD_ARCHIVE_SHA256:
             raise PayloadBuildError("Local signing inventory does not match the Python archive")

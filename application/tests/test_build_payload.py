@@ -106,6 +106,11 @@ def test_build_payload_excludes_tests_caches_and_ffmpeg_and_verifies(monkeypatch
         (target / "cv2").mkdir(parents=True)
         (target / "cv2" / "opencv_videoio_ffmpeg123.dll").write_bytes(b"x")
         (target / "cv2" / "other.pyd").write_bytes(b"y")
+        (target / "bin").mkdir()
+        (target / "bin" / "rapidocr.exe").write_bytes(b"synthetic generated launcher")
+        record = target / "sample-1.0.dist-info" / "RECORD"
+        record.parent.mkdir()
+        record.write_text('../../bin/rapidocr.exe,sha256=synthetic,1\ncv2/opencv_videoio_ffmpeg123.dll,sha256=synthetic,1\ncv2/other.pyd,sha256=synthetic,1\n', encoding='utf-8')
     monkeypatch.setattr(builder, "_install_wheels", install)
     finalized = []
     monkeypatch.setattr(builder, "_finalize", lambda root, lock, pins, version: finalized.append(root))
@@ -116,8 +121,45 @@ def test_build_payload_excludes_tests_caches_and_ffmpeg_and_verifies(monkeypatch
     assert not (result / "app" / "alfa_document_intelligence" / "tests").exists()
     assert not (result / "app" / "alfa_document_intelligence" / "__pycache__").exists()
     assert not list(result.rglob("opencv_videoio_ffmpeg*.dll"))
+    assert not (result / "python/Lib/site-packages/bin").exists()
+    record = (result / "python/Lib/site-packages/sample-1.0.dist-info/RECORD").read_text(encoding='utf-8')
+    assert 'rapidocr.exe' not in record and 'ffmpeg' not in record and 'other.pyd' in record
     assert verify_installation(result, result / "runtime-manifest.json").ok
     assert finalized == [result]
+
+
+def test_generated_script_cleanup_rejects_unexpected_entries_before_removal(tmp_path):
+    builder = _builder()
+    scripts = tmp_path / 'bin'; scripts.mkdir()
+    known = scripts / 'rapidocr.exe'; known.write_bytes(b'synthetic')
+    unexpected = scripts / 'unknown.exe'; unexpected.write_bytes(b'synthetic')
+    with pytest.raises(builder.PayloadBuildError, match='generated script'):
+        builder._remove_generated_scripts(tmp_path)
+    assert known.exists() and unexpected.exists()
+
+
+def test_generated_script_cleanup_rejects_link_before_removing_any_entry(tmp_path, monkeypatch):
+    from alfa_document_intelligence import runtime_manifest
+    builder = _builder()
+    scripts = tmp_path / 'bin'; scripts.mkdir()
+    a = scripts / 'rapidocr.exe'; a.write_bytes(b'synthetic')
+    b = scripts / 'tqdm.exe'; b.write_bytes(b'synthetic')
+    original = runtime_manifest._linked
+    monkeypatch.setattr(runtime_manifest, '_linked', lambda item: item == b or original(item))
+    with pytest.raises(builder.PayloadBuildError, match='generated script'):
+        builder._remove_generated_scripts(tmp_path)
+    assert a.exists() and b.exists()
+
+
+@pytest.mark.parametrize('entry', ['../../bin/rapidocr.exe', 'cv2/opencv_videoio_ffmpeg500_64.dll'])
+def test_record_cleanup_rejects_entries_not_removed_by_this_build(tmp_path, entry):
+    builder = _builder()
+    record = tmp_path / 'sample-1.0.dist-info/RECORD'
+    record.parent.mkdir()
+    record.write_text(entry + ',sha256=synthetic,1\n', encoding='utf-8')
+    with pytest.raises(builder.PayloadBuildError, match='not removed'):
+        builder._clean_removed_records(tmp_path, set(), set())
+    assert entry in record.read_text(encoding='utf-8')
 
 
 def test_wheel_install_disables_bytecode_compilation(monkeypatch, tmp_path):
