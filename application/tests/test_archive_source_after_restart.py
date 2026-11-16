@@ -67,9 +67,12 @@ def _save_in_first_instance(archive_path, app_mode):
 
 
 def _original_link(page: bytes) -> str:
-    match = re.search(rb'<a href="([^"]+)"[^>]*>Apri documento originale</a>', page)
-    assert match is not None, "the archive page must offer the original document"
-    return unescape(match.group(1).decode())
+    end = page.find(b">Apri documento originale</a>")
+    assert end != -1, "the archive page must offer the original document"
+    start = page.rfind(b'<a href="', 0, end)
+    assert start != -1, "the archive page must offer the original document"
+    href = page[start + len(b'<a href="'):end]
+    return unescape(href[: href.index(b'"')].decode())
 
 
 def _open_from_archive_page(app, document_id):
