@@ -11,18 +11,35 @@ import time
 from pathlib import Path
 from typing import Sequence
 
-from . import __version__
-from .app_instance import InstanceLock, acquire, running_instance
-from .app_lifetime import AppInfo, AppLifetime, WindowPresence
-from .app_window import open_window
-from .local_intake_app import serve_expense_report_local
-from .local_document_store import LocalDocumentStore, NewerStoreSchemaError
-from .document_decoder import DecodeLimits
-from .document_family_catalog import DocumentFamilyCatalogError, DocumentFamilyCatalogStore
-from .expense_case_processing import ExpenseCaseProcessingManager
-from .ocr_engine_registry import EngineManifest, EngineRegistryError, discover_engines
-from .ocr_processing import OCRProcessLimits, OCRProcessingManager
-from .runtime_manifest import verify_installation
+def _show_bootstrap_error() -> None:
+    """Make an application import failure visible in window mode without logging data."""
+    if os.name == "nt" and "--app-window" in sys.argv[1:]:
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                None, "Impossibile avviare OCR2. Verifica l’installazione e riprova.",
+                "OCR2 — avvio non riuscito", 0x10,
+            )
+        except Exception:
+            pass  # Preserve the original import failure.
+
+
+try:
+    from . import __version__
+    from .app_instance import InstanceLock, acquire, running_instance
+    from .app_lifetime import AppInfo, AppLifetime, WindowPresence
+    from .app_window import open_window
+    from .local_intake_app import serve_expense_report_local
+    from .local_document_store import LocalDocumentStore, NewerStoreSchemaError
+    from .document_decoder import DecodeLimits
+    from .document_family_catalog import DocumentFamilyCatalogError, DocumentFamilyCatalogStore
+    from .expense_case_processing import ExpenseCaseProcessingManager
+    from .ocr_engine_registry import EngineManifest, EngineRegistryError, discover_engines
+    from .ocr_processing import OCRProcessLimits, OCRProcessingManager
+    from .runtime_manifest import verify_installation
+except Exception:
+    _show_bootstrap_error()
+    raise
 
 
 # The Edge app window and the single-instance lock are Windows features (REQ-100).
@@ -30,6 +47,7 @@ _APP_WINDOW_AVAILABLE = os.name == "nt"
 # Wait for an instance that holds the lock but does not answer: it is still
 # starting, or it is closing after «Esci» (or crashed) and will let go.
 _STARTING_INSTANCE_WAIT_SECONDS = 15.0
+_startup_error_shown = False
 
 
 def _open_app_window(url: str, data_dir: Path) -> None:
@@ -96,11 +114,21 @@ def _is_installed(root: Path) -> bool:
     return Path(__file__).resolve().parent.parent == (root / "app").resolve()
 
 
-def _show_integrity_error(message: str) -> None:
-    """Show a local OS dialog without starting a server on an invalid install."""
+def _show_error_dialog(message: str, title: str) -> None:
+    """Report a local startup error without writing details or starting a server."""
+    global _startup_error_shown
     if os.name == "nt":
         import ctypes
-        ctypes.windll.user32.MessageBoxW(None, message, "OCR2 — installazione non valida", 0x10)
+        ctypes.windll.user32.MessageBoxW(None, message, title, 0x10)
+        _startup_error_shown = True
+
+
+def _show_integrity_error(message: str) -> None:
+    _show_error_dialog(message, "OCR2 — installazione non valida")
+
+
+def _show_startup_error(message: str) -> None:
+    _show_error_dialog(message, "OCR2 — avvio non riuscito")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -195,8 +223,7 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="n
             message = "Questo archivio è stato aggiornato da una versione più recente di OCR2. Reinstalla quella versione."
             print(message, file=sys.stderr)
             if args.app_window:
-                import ctypes
-                ctypes.windll.user32.MessageBoxW(None, message, "OCR2 — archivio non compatibile", 0x10)
+                _show_error_dialog(message, "OCR2 — archivio non compatibile")
             raise SystemExit(2)
         # The user's document-type catalog (REQ-041) lives next to the archive.
         family_catalog_store = DocumentFamilyCatalogStore(Path(local_app_data) / "OCR2" / "family-catalog.json")
@@ -278,5 +305,22 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="n
         server.server_close()
 
 
+def _run_entrypoint(argv: Sequence[str] | None = None) -> None:
+    """Show a generic error for window-mode failures otherwise hidden by pythonw."""
+    global _startup_error_shown
+    _startup_error_shown = False
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    try:
+        main(arguments)
+    except SystemExit as exc:
+        if exc.code not in (None, 0) and "--app-window" in arguments and not _startup_error_shown:
+            _show_startup_error("Impossibile avviare OCR2. Verifica che non sia già in manutenzione e riprova.")
+        raise
+    except Exception:
+        if "--app-window" in arguments and not _startup_error_shown:
+            _show_startup_error("Impossibile avviare OCR2. Verifica che non sia già in manutenzione e riprova.")
+        raise
+
+
 if __name__ == "__main__":
-    main()
+    _run_entrypoint()

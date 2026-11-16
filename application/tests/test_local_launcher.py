@@ -364,3 +364,81 @@ def test_launcher_app_window_gives_up_when_lock_stays_held(monkeypatch, capsys, 
     assert raised.value.code == 1
     assert served == []
     assert "OCR2 è già in avvio ma non risponde" in capsys.readouterr().err
+
+
+def test_window_entrypoint_reports_failed_start_without_console(monkeypatch):
+    messages = []
+    def failed(argv):
+        raise SystemExit(2)
+    monkeypatch.setattr(launcher, 'main', failed)
+    monkeypatch.setattr(launcher, '_show_startup_error', lambda message: messages.append(message))
+    with pytest.raises(SystemExit):
+        launcher._run_entrypoint(['--app-window'])
+    assert len(messages) == 1
+
+
+def test_window_entrypoint_does_not_duplicate_existing_error(monkeypatch):
+    messages = []
+    def failed(argv):
+        launcher._startup_error_shown = True
+        raise SystemExit(2)
+    monkeypatch.setattr(launcher, 'main', failed)
+    monkeypatch.setattr(launcher, '_show_startup_error', lambda message: messages.append(message))
+    with pytest.raises(SystemExit):
+        launcher._run_entrypoint(['--app-window'])
+    assert messages == []
+
+
+def test_console_entrypoint_does_not_show_window_error(monkeypatch):
+    messages = []
+    def failed(argv):
+        raise RuntimeError('synthetic failure')
+    monkeypatch.setattr(launcher, 'main', failed)
+    monkeypatch.setattr(launcher, '_show_startup_error', lambda message: messages.append(message))
+    with pytest.raises(RuntimeError):
+        launcher._run_entrypoint([])
+    assert messages == []
+
+
+def test_window_bootstrap_reports_application_import_failure(monkeypatch):
+    import builtins
+    import os
+    import sys
+    import types
+    source = Path(launcher.__file__).read_text(encoding='utf-8')
+    real_import = builtins.__import__
+    messages = []
+    fake_ctypes = types.SimpleNamespace(windll=types.SimpleNamespace(user32=types.SimpleNamespace(MessageBoxW=lambda *args: messages.append(args))))
+    def intercept(name, *args, **kwargs):
+        if name == 'app_instance':
+            raise ImportError('synthetic missing module')
+        if name == 'ctypes':
+            return fake_ctypes
+        return real_import(name, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(builtins, '__import__', intercept)
+        patch.setattr(os, 'name', 'nt')
+        patch.setattr(sys, 'argv', ['ocr2', '--app-window'])
+        with pytest.raises(ImportError, match='synthetic'):
+            exec(compile(source, launcher.__file__, 'exec'), {'__name__': 'synthetic_bootstrap', '__package__': 'alfa_document_intelligence'})
+    assert len(messages) == 1
+    assert 'synthetic missing module' not in str(messages)
+
+
+def test_window_entrypoint_success_does_not_show_error(monkeypatch):
+    messages = []
+    monkeypatch.setattr(launcher, 'main', lambda argv: None)
+    monkeypatch.setattr(launcher, '_show_startup_error', lambda message: messages.append(message))
+    launcher._run_entrypoint(['--app-window'])
+    assert not messages
+
+
+def test_window_entrypoint_unexpected_error_hides_details(monkeypatch):
+    messages = []
+    def failed(argv):
+        raise RuntimeError('synthetic private content')
+    monkeypatch.setattr(launcher, 'main', failed)
+    monkeypatch.setattr(launcher, '_show_startup_error', lambda message: messages.append(message))
+    with pytest.raises(RuntimeError):
+        launcher._run_entrypoint(['--app-window'])
+    assert len(messages) == 1 and 'synthetic private content' not in messages[0]
