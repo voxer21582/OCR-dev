@@ -2,26 +2,21 @@
 
 Data: 2026-11-16. Comando: `python installer/build_payload.py --version 0.6.0` (wheel e embeddable dalla cache fissata, nessun nuovo download).
 
-## Esito: FERMO, decide il proprietario
+## Esito dopo R25 e R26: contenuto costruito, verifica superata
 
-`build_notices` si e' fermata (codice di uscita 3): due pacchetti del lock non hanno alcun file di testo di licenza
-nella loro cartella `*.dist-info` (ne' `License-File`, ne' `licenses/`, ne' file LICENSE/COPYING/NOTICE nella radice):
+Prima esecuzione: `build_notices` si era fermata (exit 3) per due pacchetti senza testo di licenza in `*.dist-info`:
+flatbuffers 25.12.19 (Apache 2.0, nessun file nella wheel) e onnxruntime 1.31.1 (MIT License). Nessun testo inventato.
 
-| Pacchetto | Licenza dichiarata nei metadati | Nota |
-| --- | --- | --- |
-| flatbuffers 25.12.19 | `License: Apache 2.0` | La wheel non contiene alcun file di licenza (nemmeno nel pacchetto). |
-| onnxruntime 1.31.1 | `License: MIT License` | Fuori da `dist-info` la wheel contiene `onnxruntime/LICENSE` e `onnxruntime/ThirdPartyNotices.txt`. |
+- R25 (onnxruntime): sono accettati i file LICENSE/LICENCE/COPYING/NOTICE/ThirdPartyNotices* installati dalla wheel nella cartella
+  di primo livello del pacchetto, solo se elencati nel `RECORD`. Per onnxruntime: `onnxruntime/LICENSE` e `onnxruntime/ThirdPartyNotices.txt`.
+- R26 (flatbuffers, PROVVISORIO, in attesa di conferma del proprietario): `installer/licenses/flatbuffers-25.12.19.txt` = intestazione
+  italiano/inglese + testo Apache-2.0 copiato byte per byte da `packaging-26.3.dist-info/licenses/LICENSE.APACHE` (testo completo dei termini,
+  senza l'appendice; il LICENSE di rapidocr ha una riga di copyright davanti, quindi non e' stato usato). L'override vale solo per
+  (flatbuffers, 25.12.19); l'SBOM lo registra con la proprieta' `ocr2:licence-text-source`.
 
-Nessun testo e' stato inventato. Gli altri 20 pacchetti, `python/LICENSE.txt` e `MODEL_LICENSES.md` di RapidOCR
-(in `rapidocr-3.10.0.dist-info/licenses/`) sono presenti.
+Rigenerazione `build_payload.py --version 0.6.0` (cache, nessun download): OK, 3744 file, `verify_installation` ok (3744 controllati,
+nessun problema); `sbom.cdx.json` e `THIRD_PARTY_NOTICES.txt` sono nel manifest.
 
-Opzioni per il proprietario (non applicate):
-1. onnxruntime: accettare come testo di licenza i file `onnxruntime/LICENSE` e `onnxruntime/ThirdPartyNotices.txt` del pacchetto installato (estensione della regola di ricerca).
-2. flatbuffers: fornire il testo Apache-2.0 ufficiale del progetto (nessuna fonte nella wheel), oppure scegliere un altro modo di documentarlo.
-
-Fino alla decisione il contenuto `out/0.6.0/` e' incompleto (senza `sbom.cdx.json`, `THIRD_PARTY_NOTICES.txt`, manifest): non usarlo.
-
-## Da registrare dopo la decisione
-Numero di componenti dell'SBOM (previsti 27: 22 pacchetti + CPython + 2 modelli + OCR2 + NSIS escluso), pacchetti con licenza `NOASSERTION`
-(nessuno nei metadati letti: tutti dichiarano una licenza), dimensione di `THIRD_PARTY_NOTICES.txt`, assenza di componenti FFmpeg
-(verificata dal test `test_sbom_has_no_ffmpeg_component`; la DLL `opencv_videoio_ffmpeg500_64.dll` di cv2 viene rimossa dal build, DEC-030).
+Numeri: componenti SBOM 27 (22 pacchetti + CPython + 2 modelli + OCR2 + NSIS escluso); pacchetti con licenza `NOASSERTION`: nessuno;
+`sbom.cdx.json` 13496 byte; `THIRD_PARTY_NOTICES.txt` 1186059 byte (pypdfium2, numpy e onnxruntime ThirdPartyNotices pesano di piu);
+nessun componente FFmpeg (la DLL `opencv_videoio_ffmpeg500_64.dll` di cv2 viene rimossa dal build, DEC-030).

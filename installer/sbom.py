@@ -94,10 +94,10 @@ def _ocr2_component(version: str) -> dict:
     }
 
 
-def build_sbom(payload_root: Path, lock: Path, pins: Path) -> dict:
+def build_sbom(payload_root: Path, lock: Path, pins: Path, overrides: dict | None = None) -> dict:
     payload_root = Path(payload_root)
     pins_data = json.loads(Path(pins).read_text(encoding="utf-8"))
-    installed = {_distinfo.normalise(info.name): info for info in _distinfo.read_all(payload_root)}
+    installed = {_distinfo.normalise(info.name): info for info in _distinfo.read_all(payload_root, overrides)}
     components = []
     rapidocr_version = ""
     for name, version, hashes in parse_lock(lock):
@@ -107,12 +107,15 @@ def build_sbom(payload_root: Path, lock: Path, pins: Path) -> dict:
             raise SbomError(f"{name}=={version} del lock non e' nel contenuto costruito")
         if key == "rapidocr":
             rapidocr_version = version
-        components.append({
+        component = {
             "bom-ref": f"pkg:pypi/{key}@{version}", "type": "library", "name": key, "version": version,
             "purl": f"pkg:pypi/{key}@{version}", "scope": "required",
             "hashes": [_sha(h) for h in sorted(hashes)],
             "licenses": [_licence_entry(info.licence, info.licence_is_expression)],
-        })
+        }
+        if info.override_source:
+            component["properties"] = [{"name": "ocr2:licence-text-source", "value": info.override_source}]
+        components.append(component)
     components.append(_python_component(pins_data))
     components.extend(_model_components(rapidocr_version))
     components.append(_ocr2_component(payload_root.name))

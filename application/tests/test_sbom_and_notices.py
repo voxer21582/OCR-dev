@@ -165,3 +165,67 @@ def test_missing_licence_text_stops_the_build_with_exit_code_3(monkeypatch, caps
     assert build_payload.main(["--version", "0.6.0"]) == 3
     error = capsys.readouterr().err
     assert "flatbuffers 25.12.19" in error and "onnxruntime 1.31.1" in error
+
+
+def _bare_package(root: Path, name: str, version: str, record_lines: list[str], files: dict[str, str]) -> Path:
+    site = root / "python" / "Lib" / "site-packages"
+    folder = _dist_info(site, name, version, "License: MIT\n", {"RECORD": "\n".join(record_lines) + "\n"})
+    for relative, text in files.items():
+        (site / relative).parent.mkdir(parents=True, exist_ok=True)
+        (site / relative).write_text(text, encoding="utf-8")
+    return folder
+
+
+def test_licence_in_package_folder_is_accepted_only_when_listed_in_record(tmp_path):
+    root = tmp_path / "1.0.0"
+    (root / "python").mkdir(parents=True)
+    (root / "python" / "LICENSE.txt").write_text("PSF", encoding="utf-8")
+    _bare_package(
+        root, "listed", "1", ["listed/LICENSE,sha256=x,3", "listed/ThirdPartyNotices.txt,sha256=x,3",
+                              "listed/sub/LICENSE,sha256=x,3"],
+        {"listed/LICENSE": "LISTED TEXT", "listed/ThirdPartyNotices.txt": "TPN", "listed/sub/LICENSE": "DEEP"},
+    )
+    _bare_package(root, "unlisted", "1", ["unlisted/__init__.py,sha256=x,3"], {"unlisted/LICENSE": "NOT LISTED"})
+    with pytest.raises(_distinfo.LicenceTextMissingError) as raised:
+        notices.build_notices(root, overrides={})
+    assert raised.value.packages == ["unlisted 1"]
+    (root / "python" / "Lib" / "site-packages" / "unlisted-1.dist-info" / "RECORD").write_text(
+        "unlisted/LICENSE,sha256=x,3\n", encoding="utf-8")
+    text = notices.build_notices(root, overrides={})
+    assert "LISTED TEXT" in text and "TPN" in text and "NOT LISTED" in text and "DEEP" not in text
+
+
+def test_override_applies_to_the_exact_name_and_version_only(tmp_path):
+    root = tmp_path / "1.0.0"
+    (root / "python").mkdir(parents=True)
+    (root / "python" / "LICENSE.txt").write_text("PSF", encoding="utf-8")
+    text_file = tmp_path / "override.txt"
+    text_file.write_text("OVERRIDE TEXT", encoding="utf-8")
+    overrides = {("flat", "1"): text_file}
+    _bare_package(root, "flat", "1", [], {})
+    assert "OVERRIDE TEXT" in notices.build_notices(root, overrides=overrides)
+    other = tmp_path / "2.0.0"
+    (other / "python").mkdir(parents=True)
+    (other / "python" / "LICENSE.txt").write_text("PSF", encoding="utf-8")
+    _bare_package(other, "flat", "2", [], {})
+    with pytest.raises(_distinfo.LicenceTextMissingError) as raised:
+        notices.build_notices(other, overrides=overrides)
+    assert raised.value.packages == ["flat 2"]
+
+
+def test_flatbuffers_override_is_the_full_apache_text():
+    override = _distinfo.LICENCE_OVERRIDES[("flatbuffers", "25.12.19")]
+    text = override.read_text(encoding="utf-8")
+    assert "flatbuffers 25.12.19" in text.splitlines()[0] and "Apache License" in text
+    assert "END OF TERMS AND CONDITIONS" in text
+
+
+def test_sbom_records_the_licence_text_source_of_an_override(payload):
+    site = payload / "python" / "Lib" / "site-packages"
+    for path in next(site.glob("flatbuffers-*")).rglob("LICENSE"):
+        path.unlink()
+    document = sbom.build_sbom(payload, LOCK, PINS)
+    flat = next(c for c in document["components"] if c["name"] == "flatbuffers")
+    assert flat["properties"] == [{"name": "ocr2:licence-text-source", "value": "installer/licenses/flatbuffers-25.12.19.txt"}]
+    assert "properties" not in next(c for c in document["components"] if c["name"] == "six")
+    assert "Apache License" in notices.build_notices(payload)

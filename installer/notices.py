@@ -12,10 +12,10 @@ def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
 
 
-def build_notices(payload_root: Path) -> str:
+def build_notices(payload_root: Path, overrides: dict | None = None) -> str:
     """Return the notices text; raise ``LicenceTextMissingError`` listing every package without a licence file."""
     payload_root = Path(payload_root)
-    infos = _distinfo.read_all(payload_root)
+    infos = _distinfo.read_all(payload_root, overrides)
     missing = [info.label for info in infos if not info.licence_files]
     python_licence = payload_root / "python" / "LICENSE.txt"
     if not python_licence.is_file():
@@ -30,7 +30,7 @@ def build_notices(payload_root: Path) -> str:
     for info in infos:
         parts += [_RULE, f"{info.name} {info.version} - declared licence: {info.licence}", _RULE, ""]
         for file in info.licence_files:
-            parts += [f"--- {file.relative_to(info.path).as_posix()} ---", "", _text(file), ""]
+            parts += [f"--- {info.display(file)} ---", "", _text(file), ""]
     return "\n".join(parts) + "\n"
 
 
