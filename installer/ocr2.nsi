@@ -39,6 +39,10 @@ Section "OCR2"
   CreateShortcut "$SMPROGRAMS\OCR2\Torna alla versione precedente.lnk" "$INSTDIR\Uninstall.exe" '/ROLLBACK'
   CreateShortcut "$SMPROGRAMS\OCR2\Disinstalla OCR2.lnk" "$INSTDIR\Uninstall.exe"
 !endif
+  ExecWait '"$INSTDIR\versions\${OCR2_VERSION}\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" prune' $0
+  IntCmp $0 0 prune_ok
+    MessageBox MB_ICONEXCLAMATION "Aggiornamento completato, ma alcune vecchie versioni non sono state rimosse." /SD IDOK
+  prune_ok:
 SectionEnd
 
 Function un.onInit

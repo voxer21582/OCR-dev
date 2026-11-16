@@ -25,3 +25,4 @@ def test_installer_provides_rollback_and_optional_data_removal():
     assert 'Disinstalla OCR2.lnk' in script
     assert 'MB_DEFBUTTON2' in script
     assert '/SD IDNO' in script
+    assert 'install_state --base "$INSTDIR" prune' in script
