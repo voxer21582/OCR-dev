@@ -17,6 +17,19 @@ def _required_payload(root):
         (root / "python" / name).write_bytes(b"synthetic")
 
 
+def test_manifest_detects_changed_root_notices(tmp_path):
+    _required_payload(tmp_path)
+    notice = tmp_path / 'THIRD_PARTY_NOTICES.txt'
+    notice.write_text('licences', encoding='utf-8')
+    (tmp_path / 'sbom.json').write_text('{}', encoding='utf-8')
+    manifest = build_manifest(tmp_path, version='1', excluded_globs=())
+    path = tmp_path / 'runtime-manifest.json'
+    path.write_text(json.dumps(manifest), encoding='utf-8')
+    assert verify_installation(tmp_path, path).ok
+    notice.write_text('modified', encoding='utf-8')
+    assert not verify_installation(tmp_path, path).ok
+
+
 def test_manifest_detects_changed_missing_extra_and_forbidden_files(tmp_path):
     _required_payload(tmp_path)
     (tmp_path / "app" / "a.py").write_bytes(b"original")

@@ -50,7 +50,8 @@ def build_sbom(payload_root: Path, lock: Path, pins: Path) -> dict:
         if licence and len(licence) < 200:
             item['licenses'] = [{'license': {'name': licence}}]
         components.append(item)
-    pin = json.loads(pins.read_text(encoding='utf-8'))['python']
+    pin_data = json.loads(pins.read_text(encoding='utf-8'))
+    pin = pin_data['python']
     components.append({'type': 'application', 'name': 'CPython', 'version': '3.13.18',
                        'hashes': [{'alg': 'SHA-256', 'content': pin['sha256']}]})
     for name, expected in sorted(MODELS.items()):
@@ -61,4 +62,9 @@ def build_sbom(payload_root: Path, lock: Path, pins: Path) -> dict:
             raise ValueError(f'{name}: model hash mismatch')
         components.append({'type': 'file', 'name': name,
                            'hashes': [{'alg': 'SHA-256', 'content': digest}]})
+    release_version = json.loads((payload_root / 'runtime-manifest.json').read_text(encoding='utf-8'))['version']
+    components.append({'type': 'application', 'name': 'OCR2', 'version': release_version})
+    nsis = pin_data['nsis']
+    components.append({'type': 'application', 'name': 'NSIS', 'version': nsis['version'], 'scope': 'excluded',
+                       'hashes': [{'alg': 'SHA-256', 'content': nsis['sha256']}]})
     return {'bomFormat': 'CycloneDX', 'specVersion': '1.5', 'version': 1, 'components': components}

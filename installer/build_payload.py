@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -72,6 +73,23 @@ def _install_wheels(wheel_dir: Path, lock_path: Path, target: Path) -> None:
         raise PayloadBuildError("Offline wheel installation failed")
 
 
+def _finalize(root: Path, lock_path: Path, pins_path: Path, version: str) -> None:
+    from alfa_document_intelligence.runtime_manifest import build_manifest
+
+    def load(name):
+        spec = importlib.util.spec_from_file_location('ocr2_installer_' + name, Path(__file__).with_name(name + '.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    sbom = load('sbom').build_sbom(root, lock_path, pins_path)
+    notices = load('notices').build_notices(root)
+    (root / 'sbom.json').write_text(json.dumps(sbom, ensure_ascii=True, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+    (root / 'THIRD_PARTY_NOTICES.txt').write_text(notices, encoding='utf-8')
+    manifest = build_manifest(root, version=version, excluded_globs=())
+    (root / 'runtime-manifest.json').write_text(json.dumps(manifest, ensure_ascii=True, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+
+
 def build_payload(*, embeddable_zip: Path, wheel_dir: Path, app_src: Path, out_dir: Path,
                   version: str, pins_path: Path | None = None, lock_path: Path | None = None) -> Path:
     from alfa_document_intelligence.runtime_manifest import build_manifest
@@ -108,4 +126,5 @@ def build_payload(*, embeddable_zip: Path, wheel_dir: Path, app_src: Path, out_d
         dll.unlink()
     manifest = build_manifest(result, version=version, excluded_globs=())
     (result / "runtime-manifest.json").write_text(json.dumps(manifest, ensure_ascii=True, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    _finalize(result, lock_path, pins_path, version)
     return result

@@ -56,13 +56,16 @@ def test_sbom_records_locked_package_and_is_deterministic(tmp_path, monkeypatch)
     lock = tmp_path / 'lock'
     lock.write_text('sample==1.0 \\\n    --hash=sha256:' + 'a'*64 + '\n', encoding='utf-8')
     pins = tmp_path / 'pins.json'
-    pins.write_text(json.dumps({'python': {'sha256': 'b'*64}}), encoding='utf-8')
+    pins.write_text(json.dumps({'python': {'sha256': 'b'*64}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
+    (tmp_path / 'runtime-manifest.json').write_text('{"version":"0.6.0"}', encoding='utf-8')
     first = sbom.build_sbom(tmp_path, lock, pins)
     assert first == sbom.build_sbom(tmp_path, lock, pins)
     component = next(c for c in first['components'] if c['name'] == 'sample')
     assert component['version'] == '1.0'
     assert component['hashes'][0]['content'] == 'a'*64
     assert component['purl'] == 'pkg:pypi/sample@1.0'
+    assert next(c for c in first['components'] if c['name'] == 'OCR2')['version'] == '0.6.0'
+    assert next(c for c in first['components'] if c['name'] == 'NSIS')['scope'] == 'excluded'
 
 
 def test_sbom_lists_and_checks_ocr_models(tmp_path, monkeypatch):
@@ -74,7 +77,8 @@ def test_sbom_lists_and_checks_ocr_models(tmp_path, monkeypatch):
     (model_dir / 'synthetic.onnx').write_bytes(b'model')
     monkeypatch.setattr(sbom, 'MODELS', {'synthetic.onnx': hashlib.sha256(b'model').hexdigest()}, raising=False)
     lock = tmp_path / 'lock'; lock.write_text('sample==1.0 --hash=sha256:' + 'a'*64 + '\n', encoding='utf-8')
-    pins = tmp_path / 'pins.json'; pins.write_text(json.dumps({'python': {'sha256': 'b'*64}}), encoding='utf-8')
+    pins = tmp_path / 'pins.json'; pins.write_text(json.dumps({'python': {'sha256': 'b'*64}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
+    (tmp_path / 'runtime-manifest.json').write_text('{"version":"0.6.0"}', encoding='utf-8')
     result = sbom.build_sbom(tmp_path, lock, pins)
     assert any(c['name'] == 'synthetic.onnx' for c in result['components'])
     (model_dir / 'synthetic.onnx').write_bytes(b'tampered')

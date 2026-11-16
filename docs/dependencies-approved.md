@@ -39,7 +39,7 @@ Approvati il 2026-11-15 (richieste R-001 e R-002). La versione esatta e l'SHA-25
 | Elemento | Versione / impronta | Licenza dichiarata | Uso |
 |---|---|---|---|
 | R-001 — `python-3.13.x-embed-amd64.zip` (python.org), CPython 3.13 embeddable x64 | Ultima 3.13.x al primo download; SHA-256 da fissare al primo download (Task 6) | PSF License 2.0 (più licenze dei componenti inclusi) | Python portato dall'installer (DEC-010) |
-| R-002 — NSIS 3.x, archivio portabile `nsis-3.x.zip`, usato senza installarlo nel sistema | Ultima 3.x stabile al primo download; SHA-256 da fissare al primo download (Task 6) | zlib/libpng | Costruzione dell'installer per utente, offline, senza amministratore |
+| R-002 — NSIS 3.x, archivio portabile `nsis-3.x.zip`, usato senza installarlo nel sistema | 3.13; SHA-256 `ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8` (SourceForge, verifica 2026-11-16) | zlib/libpng | Costruzione dell'installer per utente, offline, senza amministratore |
 
 ## R-003 — compilazione CPython 3.13.18
 

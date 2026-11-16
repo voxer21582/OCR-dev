@@ -8,6 +8,7 @@ import re
 import time
 
 FORBIDDEN_GLOBS = ("**/opencv_videoio_ffmpeg*.dll",)
+_ROOT_FILES = frozenset({"sbom.json", "THIRD_PARTY_NOTICES.txt"})
 _REQUIRED_FILES = frozenset({"python/python.exe", "python/pythonw.exe", "python/python313.zip",
                              "app/alfa_document_intelligence/__init__.py"})
 
@@ -46,6 +47,16 @@ def _inventory(root: Path, excluded_globs) -> dict:
                         digest.update(chunk)
                         size += len(chunk)
                 result[relative] = {"sha256": digest.hexdigest(), "size": size}
+    for name in _ROOT_FILES:
+        path = root / name
+        if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+            raise ValueError("symbolic links are not allowed")
+        if path.exists():
+            if not path.is_file():
+                raise ValueError("invalid root file")
+            with path.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            result[name] = {"sha256": digest, "size": path.stat().st_size}
     return dict(sorted(result.items()))
 
 
@@ -70,7 +81,7 @@ def verify_installation(root: Path, manifest_path: Path) -> RuntimeVerification:
             raise ValueError("manifest missing required runtime files")
         for name, info in expected.items():
             parts = name.split("/") if isinstance(name, str) else []
-            if (len(parts) < 2 or parts[0] not in {"app", "python"}
+            if ((name not in _ROOT_FILES and (len(parts) < 2 or parts[0] not in {"app", "python"}))
                     or any(part in {"", ".", ".."} or "\\" in part or ":" in part for part in parts)
                     or not isinstance(info, dict) or set(info) != {"sha256", "size"}
                     or not isinstance(info["sha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", info["sha256"])

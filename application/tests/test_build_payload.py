@@ -107,6 +107,8 @@ def test_build_payload_excludes_tests_caches_and_ffmpeg_and_verifies(monkeypatch
         (target / "cv2" / "opencv_videoio_ffmpeg123.dll").write_bytes(b"x")
         (target / "cv2" / "other.pyd").write_bytes(b"y")
     monkeypatch.setattr(builder, "_install_wheels", install)
+    finalized = []
+    monkeypatch.setattr(builder, "_finalize", lambda root, lock, pins, version: finalized.append(root))
     result = builder.build_payload(embeddable_zip=archive, wheel_dir=wheels, app_src=src,
                                    out_dir=tmp_path / "out", version="0.6.0", pins_path=pins, lock_path=lock)
     assert (result / "app" / "alfa_document_intelligence" / "__init__.py").is_file()
@@ -114,6 +116,7 @@ def test_build_payload_excludes_tests_caches_and_ffmpeg_and_verifies(monkeypatch
     assert not (result / "app" / "alfa_document_intelligence" / "__pycache__").exists()
     assert not list(result.rglob("opencv_videoio_ffmpeg*.dll"))
     assert verify_installation(result, result / "runtime-manifest.json").ok
+    assert finalized == [result]
 
 
 def test_wheel_install_disables_bytecode_compilation(monkeypatch, tmp_path):
