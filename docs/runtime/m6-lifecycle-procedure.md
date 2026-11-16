@@ -280,6 +280,6 @@ Select-String -Path "<cartella>\confronto-completo.txt" -Pattern 'OCR2|\tD\tProg
 
 - **L'installazione dice «non è stato installato».** Copia il messaggio. Verifica `active.txt`: deve avere ancora la versione precedente (o non esistere se era la prima installazione). Non provare altre cartelle.
 - **Il percorso è troppo lungo / «File mancante».** Hai usato una cartella diversa dalla predefinita: disinstalla (se installato) e riparti con la cartella predefinita.
-- **L'app non si apre entro 30 secondi.** Annota cosa si vede (finestra bianca, pagina di errore nel browser predefinito). Guarda se in Gestione attività c'è `pythonw.exe` (se sì, `Get-Content "$env:LOCALAPPDATA\OCR2\instance.json"` dà la porta). Poi disinstalla seguendo il passo 14.
+- **L'app non si apre entro 30 secondi.** Annota cosa si vede (finestra bianca, pagina «OCR2 non si avvia» nel browser predefinito). Se OCR2 non riesce ad avviarsi mostra sempre quella pagina, con il motivo in una riga; i dettagli sono nel file `%LOCALAPPDATA%\OCR2\logs\launcher.log` (aprilo con il Blocco note e copia nella matrice l'ultima voce). Guarda se in Gestione attività c'è `pythonw.exe` (se sì, `Get-Content "$env:LOCALAPPDATA\OCR2\instance.json"` dà la porta). Poi disinstalla seguendo il passo 14.
 - **Disinstallazione che sembra non fare nulla.** Il programma di disinstallazione ritorna subito: aspetta 15 secondi e ricontrolla. Se OCR2 è aperto compare «Chiudi OCR2 con Esci e riprova.»
 - **Per fermare la prova a metà.** Esci con «Esci», poi vai al passo 16 e al passo 17 (impronta dopo).

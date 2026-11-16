@@ -388,3 +388,21 @@ def test_runtime_error_page_gives_the_remedies_that_work(monkeypatch, tmp_path):
     assert "Reinstalla" not in page
     assert "Torna alla versione precedente" in page
     assert "disinstalla OCR2 mantenendo i dati" in page and "installalo di nuovo" in page
+
+
+def test_runtime_failure_page_is_shown_once_and_logged(monkeypatch, tmp_path):
+    # R39: the specific page stays the only page; the details also reach launcher.log.
+    _installed_folder(tmp_path, monkeypatch, tamper=True)
+    local = tmp_path / "local"
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.setattr(launcher, "_APP_WINDOW_AVAILABLE", True)
+    opened = []
+    monkeypatch.setattr(launcher.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(launcher, "running_instance", lambda _dir: None)
+    monkeypatch.setattr(launcher, "acquire", lambda _dir: None)
+    monkeypatch.setattr(launcher, "_wait_for_instance_or_lock", lambda _dir: (None, type("L", (), {"release": lambda self: None})()))
+    with pytest.raises(SystemExit) as exit_info:
+        launcher.main(["--app-window"])
+    assert exit_info.value.code == 2 and len(opened) == 1
+    assert "File alterato: app/pkg/main.py" in (local / "OCR2" / "runtime-error.html").read_text(encoding="utf-8")
+    assert "File alterato: app/pkg/main.py" in (local / "OCR2" / "logs" / "launcher.log").read_text(encoding="utf-8")

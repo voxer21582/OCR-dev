@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import re
 import socket
 import subprocess
 import sys
@@ -12,6 +13,14 @@ import pytest
 
 from alfa_document_intelligence import app_instance
 import alfa_document_intelligence.__main__ as launcher
+
+
+@pytest.fixture(autouse=True)
+def _no_real_browser(monkeypatch):
+    """Error pages are recorded, never opened in the real default browser."""
+    opened = []
+    monkeypatch.setattr(launcher.webbrowser, "open", lambda url: opened.append(url) or True)
+    return opened
 
 
 class _FakeServer:
@@ -319,3 +328,102 @@ def test_launcher_app_window_gives_up_when_lock_stays_held(monkeypatch, capsys, 
     assert raised.value.code == 1
     assert served == []
     assert "OCR2 è già in avvio ma non risponde" in capsys.readouterr().err
+
+
+# --- R39: in app-window mode no start-up failure is silent -------------------
+
+
+def _error_page(data_dir):
+    return (data_dir / "runtime-error.html").read_text(encoding="utf-8")
+
+
+def _launch_log(data_dir):
+    return (data_dir / "logs" / "launcher.log").read_text(encoding="utf-8")
+
+
+def test_app_window_argument_error_shows_page_and_log(monkeypatch, _no_real_browser, tmp_path):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(launcher, "_APP_WINDOW_AVAILABLE", False)
+    with pytest.raises(SystemExit) as raised:
+        launcher.main(["--app-window"])
+    assert raised.value.code == 2
+    data_dir = tmp_path / "OCR2"
+    log_path = data_dir / "logs" / "launcher.log"
+    page = _error_page(data_dir)
+    assert "La finestra dell&#x27;app è disponibile solo su Windows" in page
+    assert f"Dettagli nel file {log_path}" in page and "<script" not in page.lower()
+    assert _no_real_browser == [(data_dir / "runtime-error.html").resolve().as_uri()]
+    log = _launch_log(data_dir)
+    assert "La finestra dell'app è disponibile solo su Windows" in log
+    assert "codice di uscita 2" in log
+    assert re.search(r"^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", log, re.MULTILINE)
+
+
+def test_app_window_without_localappdata_reports_in_the_temporary_folder(monkeypatch, _no_real_browser, tmp_path):
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.setattr(launcher, "_APP_WINDOW_AVAILABLE", True)
+    monkeypatch.setattr(launcher.tempfile, "gettempdir", lambda: str(tmp_path))
+    with pytest.raises(SystemExit) as raised:
+        launcher.main(["--app-window"])
+    assert raised.value.code == 2
+    assert "LOCALAPPDATA non è disponibile" in _error_page(tmp_path / "OCR2")
+    assert "LOCALAPPDATA non è disponibile" in _launch_log(tmp_path / "OCR2")
+
+
+def test_app_window_instance_that_never_answers_shows_page_and_log(monkeypatch, _no_real_browser, tmp_path):
+    _app_window_environment(monkeypatch, tmp_path)
+    monkeypatch.setattr(launcher, "_STARTING_INSTANCE_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(launcher, "acquire", lambda _data_dir: None)
+    with pytest.raises(SystemExit) as raised:
+        launcher.main(["--app-window"])
+    assert raised.value.code == 1
+    assert "OCR2 è già in avvio ma non risponde" in _error_page(tmp_path / "OCR2")
+    assert "OCR2 è già in avvio ma non risponde" in _launch_log(tmp_path / "OCR2")
+
+
+def test_app_window_unexpected_exception_shows_page_and_logs_traceback(monkeypatch, _no_real_browser, tmp_path):
+    _app_window_environment(monkeypatch, tmp_path)
+
+    def port_in_use(**_kwargs):
+        raise OSError(10048, "address already in use")
+
+    monkeypatch.setattr(launcher, "serve_expense_report_local", port_in_use)
+    with pytest.raises(OSError):
+        launcher.main(["--app-window"])
+    page = _error_page(tmp_path / "OCR2")
+    assert "OCR2 si è fermato per un errore imprevisto" in page and "Dettagli nel file" in page
+    log = _launch_log(tmp_path / "OCR2")
+    assert "Traceback" in log and "address already in use" in log
+    lock = app_instance.acquire(tmp_path / "OCR2")
+    assert lock is not None, "the instance lock must be released"
+    lock.release()
+
+
+def test_app_window_failure_still_shows_page_when_the_log_cannot_be_written(monkeypatch, _no_real_browser, tmp_path):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(launcher, "_APP_WINDOW_AVAILABLE", False)
+    (tmp_path / "OCR2").mkdir()
+    (tmp_path / "OCR2" / "logs").write_text("not a folder", encoding="utf-8")
+    with pytest.raises(SystemExit) as raised:
+        launcher.main(["--app-window"])
+    assert raised.value.code == 2
+    assert "disponibile solo su Windows" in _error_page(tmp_path / "OCR2")
+    assert len(_no_real_browser) == 1
+
+
+def test_app_window_clean_exit_shows_no_page_and_writes_no_log(monkeypatch, _no_real_browser, tmp_path):
+    _app_window_environment(monkeypatch, tmp_path)
+    server = _FakeServer()
+    server.shutdown = lambda: None
+    monkeypatch.setattr(launcher, "serve_expense_report_local", lambda **_kwargs: server)
+    launcher.main(["--app-window"])
+    assert _no_real_browser == []
+    assert not (tmp_path / "OCR2" / "logs").exists()
+    assert not (tmp_path / "OCR2" / "runtime-error.html").exists()
+
+
+def test_console_mode_errors_show_no_page(monkeypatch, _no_real_browser, tmp_path):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    with pytest.raises(SystemExit):
+        launcher.main(["--port", "not-a-port"])
+    assert _no_real_browser == [] and not (tmp_path / "OCR2").exists()

@@ -9,7 +9,9 @@ import platform
 import re
 import secrets
 import sys
+import tempfile
 import time
+import traceback
 import webbrowser
 from pathlib import Path
 from typing import Sequence
@@ -88,6 +90,92 @@ def _show_runtime_error(problems: Sequence[str], data_dir: Path | None) -> None:
     _show_error_page(_RUNTIME_ERROR_MESSAGE, problems, data_dir)
 
 
+# --- R39: in app-window mode (pythonw, no console) no failed start is silent ---
+
+_UNEXPECTED_ERROR_MESSAGE = "OCR2 si è fermato per un errore imprevisto"
+_LAUNCH_LOG_NAME = "launcher.log"
+_CAPTURED_STDERR_LIMIT = 32 * 1024
+
+
+class _LauncherExit(SystemExit):
+    """A failed start with a one-line Italian summary; ``shown`` = its own page is already open."""
+
+    def __init__(self, code: int, summary: str, *, shown: bool = False) -> None:
+        super().__init__(code)
+        self.summary = summary
+        self.shown = shown
+
+
+class _LauncherParser(argparse.ArgumentParser):
+    """``error`` prints as argparse does (usage, message, exit 2) and keeps the message as the summary."""
+
+    def error(self, message: str):  # type: ignore[override]
+        self.print_usage(sys.stderr)
+        self._print_message(f"{self.prog}: error: {message}\n", sys.stderr)
+        raise _LauncherExit(2, message)
+
+
+class _StderrCapture:
+    """Passes writes through to the real stderr (``None`` under pythonw) and keeps the last part."""
+
+    def __init__(self, original) -> None:
+        self.original = original
+        self._parts: list[str] = []
+        self._size = 0
+
+    def write(self, text: str) -> int:
+        if self.original is not None:
+            try:
+                self.original.write(text)
+            except (OSError, ValueError):
+                pass
+        self._parts.append(text)
+        self._size += len(text)
+        while self._size > _CAPTURED_STDERR_LIMIT and len(self._parts) > 1:
+            self._size -= len(self._parts.pop(0))
+        return len(text)
+
+    def flush(self) -> None:
+        if self.original is not None:
+            try:
+                self.original.flush()
+            except (OSError, ValueError):
+                pass
+
+    def text(self) -> str:
+        return "".join(self._parts)[-_CAPTURED_STDERR_LIMIT:]
+
+
+def _report_data_dir() -> Path:
+    """``<LOCALAPPDATA>/OCR2``; without LOCALAPPDATA the temporary folder, so the failure still shows."""
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    return Path(local_app_data or tempfile.gettempdir()) / "OCR2"
+
+
+def _append_launch_log(log_path: Path, entry: str) -> None:
+    """Append to ``logs/launcher.log``; never fails because logging fails."""
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as stream:
+            stream.write(entry)
+    except Exception:  # noqa: BLE001 - the report must never fail because of the log
+        pass
+
+
+def _report_failed_start(summary: str, details: str, *, page_shown: bool) -> None:
+    data_dir = _report_data_dir()
+    log_path = data_dir / "logs" / _LAUNCH_LOG_NAME
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    _append_launch_log(log_path, f"[{stamp}] OCR2 {__version__}: {summary}\n{details.rstrip()}\n\n")
+    if not page_shown:
+        _show_error_page(summary, (f"Dettagli nel file {log_path}",), data_dir)
+
+
+def _is_app_window_argument(argument: str) -> bool:
+    # argparse accepts unambiguous prefixes such as «--app».
+    return len(argument) >= 5 and "--app-window".startswith(argument)
+
+
 def _archive_schema_version(path: Path) -> int | None:
     """``user_version`` read from the SQLite header (bytes 60-63) without opening a connection."""
     try:
@@ -115,7 +203,7 @@ def _open_archive(path: Path, app_window: bool) -> LocalDocumentStore:
     print(NEWER_ARCHIVE_MESSAGE, file=sys.stderr)
     if app_window:
         _show_error_page(NEWER_ARCHIVE_MESSAGE, (), Path(path).parent)
-    raise SystemExit(2)
+    raise _LauncherExit(2, NEWER_ARCHIVE_MESSAGE, shown=app_window)
 
 
 _INSTALLED_VERSION = re.compile(r"\d+\.\d+\.\d+")
@@ -158,7 +246,7 @@ def _verify_runtime(app_window: bool) -> str:
         if app_window:
             local_app_data = os.environ.get("LOCALAPPDATA")
             _show_runtime_error(problems, Path(local_app_data) / "OCR2" if local_app_data else None)
-        raise SystemExit(2)
+        raise _LauncherExit(2, "I file di OCR2 non sono integri: " + "; ".join(problems), shown=app_window)
     return f"verificato ({result.checked_files} file, {result.seconds:.1f} s)"
 
 
@@ -219,7 +307,40 @@ def _port(value: str) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Start the loopback-only expense document review app.")
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if not any(_is_app_window_argument(argument) for argument in arguments):
+        _main(arguments)
+        return
+    # R39: started by the Start-menu shortcut through pythonw, nobody sees stderr:
+    # every exit other than a clean one shows a page and goes to launcher.log.
+    captured = _StderrCapture(sys.stderr)
+    sys.stderr = captured
+    try:
+        _main(arguments)
+    except KeyboardInterrupt:
+        raise
+    except SystemExit as exc:
+        if exc.code in (None, 0):
+            raise
+        if isinstance(exc, _LauncherExit):
+            summary, page_shown = exc.summary, exc.shown
+        else:
+            summary, page_shown = f"OCR2 si è fermato (codice di uscita {exc.code})", False
+        _report_failed_start(summary, f"codice di uscita {exc.code}\n{captured.text()}", page_shown=page_shown)
+        raise
+    except BaseException as exc:
+        _report_failed_start(
+            f"{_UNEXPECTED_ERROR_MESSAGE} ({type(exc).__name__}).",
+            f"{traceback.format_exc()}\n{captured.text()}",
+            page_shown=False,
+        )
+        raise
+    finally:
+        sys.stderr = captured.original
+
+
+def _main(argv: Sequence[str]) -> None:
+    parser = _LauncherParser(description="Start the loopback-only expense document review app.")
     parser.add_argument("--port", type=_port, default=None, help="loopback TCP port (default: 8000; 0 selects a free port)")
     try:
         engines = {engine_id: manifest for engine_id, manifest in discover_engines().items() if manifest.selectable}
@@ -252,8 +373,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             if instance_lock is None:
                 running_port, instance_lock = _wait_for_instance_or_lock(app_data_dir)
                 if running_port is None and instance_lock is None:
-                    print("OCR2 è già in avvio ma non risponde. Riprova tra qualche secondo.", file=sys.stderr)
-                    raise SystemExit(1)
+                    message = "OCR2 è già in avvio ma non risponde. Riprova tra qualche secondo."
+                    print(message, file=sys.stderr)
+                    raise _LauncherExit(1, message)
         if running_port is not None:
             _open_app_window(f"http://127.0.0.1:{running_port}/", app_data_dir)
             return
