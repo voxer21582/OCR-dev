@@ -5,7 +5,7 @@
 | Installazione 0.6.0 | Riuscita su ac4ba8a, modalità test | Da eseguire |
 | Avvio, informazioni e uscita | Da verificare su build finale | Da eseguire |
 | Aggiornamento 0.6.1 | Riuscito su ac4ba8a, modalità test | Da eseguire |
-| Aggiornamento interrotto | Da eseguire | Da eseguire |
+| Aggiornamento interrotto | Recupero dopo interruzione in staging riuscito su ac4ba8a, modalità test | Da eseguire |
 | Ripristino versione precedente | Riuscito su ac4ba8a, modalità test | Da eseguire |
 | Disinstallazione senza dati | Riuscita su ac4ba8a con dati sintetici conservati, modalità test | Da eseguire |
 | Disinstallazione con dati | Riuscita su ac4ba8a con soli dati sintetici, modalità test | Da eseguire |
