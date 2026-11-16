@@ -200,12 +200,26 @@ def _start_first_instance(tmp_path):
 def _port_is_free(port):
     probe = socket.socket()
     try:
-        probe.bind(("127.0.0.1", port))
+        probe.settimeout(0.5)
+        return probe.connect_ex(("127.0.0.1", port)) != 0
     except OSError:
         return False
     finally:
         probe.close()
-    return True
+
+
+def test_port_check_reports_no_listener_even_when_rebind_is_unavailable(monkeypatch):
+    class Probe:
+        def bind(self, address):
+            raise OSError('synthetic TIME_WAIT')
+        def connect_ex(self, address):
+            return 1
+        def settimeout(self, timeout):
+            pass
+        def close(self):
+            pass
+    monkeypatch.setattr(socket, 'socket', lambda: Probe())
+    assert _port_is_free(12345)
 
 
 def test_launcher_app_window_reuses_running_instance(monkeypatch, tmp_path):

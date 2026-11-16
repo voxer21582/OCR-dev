@@ -269,16 +269,37 @@ def test_info_page_shows_version_python_and_engine(tmp_path):
         plain.close()
 
 
+def _script_start_tags(page):
+    from html.parser import HTMLParser
+
+    class ScriptParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.scripts = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag == 'script':
+                self.scripts.append(self.get_starttag_text())
+
+    parser = ScriptParser()
+    parser.feed(page)
+    return parser.scripts
+
+
 def test_script_respects_csp_nonce(app_mode):
     app = app_mode[0]
     status, headers, page = _invoke(app, "GET", "/")
     csp = headers["Content-Security-Policy"]
     nonce = re.search(r"script-src 'nonce-([^']+)'", csp).group(1)
-    scripts = re.findall(r"<script\b[^>]*>", page)
+    scripts = _script_start_tags(page)
     assert scripts
     assert all(f'nonce="{nonce}"' in tag for tag in scripts)
     assert "__CSP_NONCE__" not in page
     assert "connect-src 'self'" in csp
+
+
+def test_script_tag_parser_handles_uppercase():
+    assert _script_start_tags('<SCRIPT nonce="x"></SCRIPT>') == ['<SCRIPT nonce="x">']
 
 
 class _FakeClock:
