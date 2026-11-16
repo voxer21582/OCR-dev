@@ -8,7 +8,7 @@
 | Aggiornamento interrotto | Da eseguire | Da eseguire |
 | Ripristino versione precedente | Riuscito su ac4ba8a, modalità test | Da eseguire |
 | Disinstallazione senza dati | Riuscita su ac4ba8a con dati sintetici conservati, modalità test | Da eseguire |
-| Disinstallazione con dati | Da eseguire | Da eseguire |
+| Disinstallazione con dati | Riuscita su ac4ba8a con soli dati sintetici, modalità test | Da eseguire |
 | Confronto impronta utente | Da eseguire | Da eseguire |
 
 La modalità test non crea collegamenti nel menu Start e non elimina dati utente. I risultati parziali sono descritti in [installer-dev-pc.md](installer-dev-pc.md).
