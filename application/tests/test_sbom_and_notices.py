@@ -116,3 +116,12 @@ def test_sbom_lists_and_checks_ocr_models(tmp_path, monkeypatch):
     (model_dir / 'synthetic.onnx').write_bytes(b'tampered')
     with pytest.raises(ValueError, match='synthetic.onnx'):
         sbom.build_sbom(tmp_path, lock, pins)
+
+
+def test_notices_include_bundled_python_openssl_license(tmp_path):
+    notices = _load('notices')
+    _dist(tmp_path)
+    (tmp_path / 'python/LICENSE.txt').write_text('Python licence', encoding='utf-8')
+    result = notices.build_notices(tmp_path)
+    assert 'OpenSSL 3.5.9 (bundled with CPython)' in result
+    assert 'Apache License' in result
