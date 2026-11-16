@@ -17,7 +17,7 @@ InstallDir "$LOCALAPPDATA\Programs\OCR2"
   !ifndef OCR2_CERT_THUMBPRINT
     !error "Release builds require the expected signing certificate thumbprint"
   !endif
-  !system 'python -B "verify_payload.py" "${OCR2_PAYLOAD}"' = 0
+  !system 'python -B "verify_payload.py" "${OCR2_PAYLOAD}" "${OCR2_VERSION}"' = 0
   !system 'pwsh.exe -NoProfile -NonInteractive -File "verify-runtime-signatures.ps1" -Payload "${OCR2_PAYLOAD}" -Thumbprint "${OCR2_CERT_THUMBPRINT}"' = 0
 !endif
 !ifdef OCR2_SIGN_COMMAND

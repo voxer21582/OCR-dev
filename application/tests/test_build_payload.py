@@ -248,9 +248,9 @@ def test_release_payload_verifier_rejects_tampering(tmp_path):
     manifest = build_manifest(payload, version='0.6.0', excluded_globs=())
     (payload / 'runtime-manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
     script = Path(__file__).resolve().parents[2] / 'installer/verify_payload.py'
-    assert subprocess.run([sys.executable, '-B', str(script), str(payload)], capture_output=True).returncode == 0
+    assert subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.0'], capture_output=True).returncode == 0
     (payload / 'app/alfa_document_intelligence/__init__.py').write_bytes(b'tampered')
-    assert subprocess.run([sys.executable, '-B', str(script), str(payload)], capture_output=True).returncode != 0
+    assert subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.0'], capture_output=True).returncode != 0
 
 
 def test_runtime_release_gate_checks_signer_timestamp_and_content(tmp_path):
@@ -287,3 +287,16 @@ function Get-AuthenticodeSignature {
     assert check('no_timestamp') != 0
     (payload / 'python/python.exe').write_bytes(b'tampered')
     assert check('valid') != 0
+
+
+def test_release_payload_verifier_rejects_version_mismatch(tmp_path):
+    import subprocess, sys
+    from alfa_document_intelligence.runtime_manifest import build_manifest
+    payload = tmp_path / 'payload'
+    for name in ('python/python.exe', 'python/pythonw.exe', 'python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
+        f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    manifest = build_manifest(payload, version='0.6.0', excluded_globs=())
+    (payload / 'runtime-manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+    script = Path(__file__).resolve().parents[2] / 'installer/verify_payload.py'
+    assert subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.0'], capture_output=True).returncode == 0
+    assert subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.1'], capture_output=True).returncode != 0
