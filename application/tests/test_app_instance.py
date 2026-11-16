@@ -24,6 +24,18 @@ def test_instance_lock_survives_removal_of_data_directory(tmp_path):
     finally:
         lock.release()
 
+
+def test_launcher_refuses_orphaned_installation_child(tmp_path):
+    child_lock = tmp_path / 'Programs/OCR2/.child.lock'
+    child_lock.parent.mkdir(parents=True)
+    with child_lock.open('a+b') as handle:
+        app_instance._lock(handle)
+        try:
+            assert app_instance.acquire(tmp_path / 'OCR2') is None
+            assert not (tmp_path / 'OCR2').exists()
+        finally:
+            app_instance._unlock(handle)
+
 _HOLDER = """
 import sys
 from pathlib import Path

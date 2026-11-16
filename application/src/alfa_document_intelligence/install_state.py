@@ -19,6 +19,34 @@ class InstallStateError(ValueError):
     pass
 
 
+def _open_parent(pid: int):
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.GetProcessTimes.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.FILETIME), ctypes.POINTER(wintypes.FILETIME), ctypes.POINTER(wintypes.FILETIME), ctypes.POINTER(wintypes.FILETIME)]
+    kernel.GetProcessTimes.restype = wintypes.BOOL
+    kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.OpenProcess(0x100000 | 0x1000, False, pid)
+    if not handle:
+        raise InstallStateError('Installer parent process is unavailable')
+    times = [wintypes.FILETIME() for _ in range(4)]
+    if not kernel.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+        kernel.CloseHandle(handle)
+        raise InstallStateError('Installer parent identity unavailable')
+    start = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+    return kernel, handle, start
+
+
+def _process_start(pid: int) -> int:
+    kernel, handle, start = _open_parent(pid)
+    kernel.CloseHandle(handle)
+    return start
+
+
 @contextmanager
 def _file_lock(path: Path):
     if path.is_symlink() or getattr(path, 'is_junction', lambda: False)():
@@ -41,8 +69,25 @@ def _transaction(base: Path):
     base.mkdir(parents=True, exist_ok=True)
     child_lock = base / '.child.lock'
     if os.environ.get('OCR2_INSTALL_LOCK_HELD') == '1':
-        with _file_lock(child_lock):
-            yield
+        if os.name == 'nt':
+            try:
+                pid = int(os.environ['OCR2_INSTALL_PARENT_PID'])
+                expected = int(os.environ['OCR2_INSTALL_PARENT_START'])
+            except (KeyError, ValueError) as exc:
+                raise InstallStateError('Installer parent identity missing') from exc
+            kernel, handle, actual = _open_parent(pid)
+            try:
+                if actual != expected:
+                    raise InstallStateError('Installer parent identity mismatch')
+                with _file_lock(child_lock):
+                    if kernel.WaitForSingleObject(handle, 0) != 0x102:
+                        raise InstallStateError('Installer parent process has stopped')
+                    yield
+            finally:
+                kernel.CloseHandle(handle)
+        else:
+            with _file_lock(child_lock):
+                yield
     else:
         if os.name == 'nt' and os.environ.get('LOCALAPPDATA'):
             path = Path(os.environ['LOCALAPPDATA']) / 'OCR2.instance.lock'

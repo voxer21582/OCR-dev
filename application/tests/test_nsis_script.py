@@ -40,7 +40,7 @@ def test_installer_stages_files_and_shortcut_resolves_active_version():
     assert 'GetTempFileName' in script
     assert 'Rename "$0" "$INSTDIR\\versions\\${OCR2_VERSION}"' in script
     assert '"$INSTDIR\\Uninstall.exe" \'/LAUNCH\'' in script
-    assert 'install_state --base "$INSTDIR" active' in script
+    assert 'Push "active"' in script
 
 
 def test_uninstaller_stops_if_files_cannot_be_removed():
@@ -59,3 +59,19 @@ def test_shortcut_failure_aborts_before_activation():
     script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
     assert 'IfErrors shortcut_failed' in script
     assert script.index('IfErrors shortcut_failed') < script.index('install_state --base "$INSTDIR" activate')
+
+
+def test_uninstaller_can_find_another_verified_runtime_for_cleanup():
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    section = script.split('Section "Uninstall"', 1)[1]
+    assert 'FindFirst' in section and 'FindNext' in section
+    assert 'install_state --base "$INSTDIR" verify "$4"' in section
+    assert 'install_state --base "$INSTDIR" cleanup-debris' in section
+
+
+def test_launch_and_rollback_find_a_verified_runtime():
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    assert 'Function un.RunVersionCommand' in script
+    assert 'Push "active"' in script
+    assert 'Push "rollback"' in script
+    assert script.count('Call un.RunVersionCommand') >= 2

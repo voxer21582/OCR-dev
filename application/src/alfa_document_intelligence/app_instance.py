@@ -101,6 +101,18 @@ def acquire(data_dir: Path) -> InstanceLock | None:
     except OSError:
         handle.close()
         return None
+    child_lock = data_dir.parent / 'Programs' / 'OCR2' / '.child.lock'
+    try:
+        if child_lock.is_symlink() or getattr(child_lock, 'is_junction', lambda: False)():
+            raise OSError('invalid child lock')
+        if child_lock.exists():
+            with child_lock.open('r+b') as child_handle:
+                _lock(child_handle)
+                _unlock(child_handle)
+    except OSError:
+        _unlock(handle)
+        handle.close()
+        return None
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
     except BaseException:

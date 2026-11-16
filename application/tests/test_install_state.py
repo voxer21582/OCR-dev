@@ -110,11 +110,58 @@ def test_activation_is_blocked_while_app_holds_lock(tmp_path):
 
 
 def test_child_transaction_remains_exclusive_when_parent_lock_is_bypassed(tmp_path, monkeypatch):
+    import os
     _version(tmp_path, '0.6.0')
     monkeypatch.setenv('OCR2_INSTALL_LOCK_HELD', '1')
+    if os.name == 'nt':
+        monkeypatch.setenv('OCR2_INSTALL_PARENT_PID', str(os.getpid()))
+        monkeypatch.setenv('OCR2_INSTALL_PARENT_START', str(install_state._process_start(os.getpid())))
     with install_state._transaction(tmp_path):
         with pytest.raises(install_state.InstallStateError, match='in use'):
             install_state.activate(tmp_path, '0.6.0')
+
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='Windows process identity')
+def test_orphan_child_must_not_mutate_state(tmp_path, monkeypatch):
+    _version(tmp_path, '0.6.0')
+    monkeypatch.setenv('OCR2_INSTALL_LOCK_HELD', '1')
+    monkeypatch.setenv('OCR2_INSTALL_PARENT_PID', '99999999')
+    monkeypatch.setenv('OCR2_INSTALL_PARENT_START', '1')
+    with pytest.raises(install_state.InstallStateError, match='parent'):
+        install_state.activate(tmp_path, '0.6.0')
+    assert not (tmp_path / 'active.json').exists()
+
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='Windows process identity')
+def test_child_transaction_blocks_launcher_if_parent_lock_is_lost(tmp_path, monkeypatch):
+    import os
+    from alfa_document_intelligence import app_instance
+    base = tmp_path / 'Programs' / 'OCR2'; base.mkdir(parents=True)
+    monkeypatch.setenv('OCR2_INSTALL_LOCK_HELD', '1')
+    monkeypatch.setenv('OCR2_INSTALL_PARENT_PID', str(os.getpid()))
+    monkeypatch.setenv('OCR2_INSTALL_PARENT_START', str(install_state._process_start(os.getpid())))
+    with install_state._transaction(base):
+        assert app_instance.acquire(tmp_path / 'OCR2') is None
+
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='Windows process identity')
+def test_child_started_by_dead_installer_does_not_mutate(tmp_path):
+    import os
+    import subprocess
+    import sys
+    import time
+    _version(tmp_path, '0.6.0')
+    child = tmp_path / 'child.py'
+    child.write_text('''import sys,time\nfrom pathlib import Path\nfrom alfa_document_intelligence import install_state\nb=Path(sys.argv[1])\nwhile not (b/'go').exists(): time.sleep(.02)\ntry: install_state.activate(b,'0.6.0')\nexcept install_state.InstallStateError: (b/'result').write_text('refused')\nelse: (b/'result').write_text('activated')\n''', encoding='utf-8')
+    parent = tmp_path / 'parent.py'
+    parent.write_text('''import os,subprocess,sys\nfrom alfa_document_intelligence.install_state import _process_start\nenv=os.environ.copy();env['OCR2_INSTALL_LOCK_HELD']='1';env['OCR2_INSTALL_PARENT_PID']=str(os.getpid());env['OCR2_INSTALL_PARENT_START']=str(_process_start(os.getpid()))\nsubprocess.Popen([sys.executable,'-B',sys.argv[1],sys.argv[2]],env=env,creationflags=subprocess.CREATE_NO_WINDOW)\n''', encoding='utf-8')
+    subprocess.run([sys.executable, '-B', str(parent), str(child), str(tmp_path)], check=True, timeout=10)
+    (tmp_path / 'go').write_text('go', encoding='utf-8')
+    deadline = time.monotonic() + 10
+    while not (tmp_path / 'result').exists() and time.monotonic() < deadline:
+        time.sleep(.02)
+    assert (tmp_path / 'result').read_text() == 'refused'
+    assert not (tmp_path / 'active.json').exists()
 
 
 def test_prepare_repairs_unreferenced_damaged_candidate_without_deleting_it(tmp_path):

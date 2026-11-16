@@ -26,6 +26,12 @@ Name "OCR2 ${OCR2_VERSION}"
 OutFile "${OCR2_OUTPUT}"
 ShowInstDetails show
 
+Function .onInit
+!ifndef OCR2_TEST
+  StrCpy $INSTDIR "$LOCALAPPDATA\Programs\OCR2"
+!endif
+FunctionEnd
+
 !macro DefineCoordinationFunctions PREFIX
 Function ${PREFIX}AcquireLock
 !ifdef OCR2_TEST
@@ -47,6 +53,13 @@ Function ${PREFIX}AcquireLock
   System::Call 'kernel32::LockFile(p r7, i 0, i 0, i 1, i 0) i.r0'
   IntCmp $0 0 child_lock_failed
   System::Call 'kernel32::CloseHandle(p r7)'
+  System::Call 'kernel32::GetCurrentProcessId() i.r6'
+  System::Call 'kernel32::GetProcessTimes(p -1, *l .r2, *l .r3, *l .r4, *l .r5) i.r0'
+  IntCmp $0 0 lock_failed
+  System::Call 'kernel32::SetEnvironmentVariableW(w "OCR2_INSTALL_PARENT_PID", w r6) i.r0'
+  IntCmp $0 0 lock_failed
+  System::Call 'kernel32::SetEnvironmentVariableW(w "OCR2_INSTALL_PARENT_START", w r2) i.r0'
+  IntCmp $0 0 lock_failed
   System::Call 'kernel32::SetEnvironmentVariableW(w "OCR2_INSTALL_LOCK_HELD", w "1") i.r0'
   IntCmp $0 0 lock_failed
   Return
@@ -61,6 +74,8 @@ Function ${PREFIX}AcquireLock
 FunctionEnd
 Function ${PREFIX}ReleaseLock
   System::Call 'kernel32::SetEnvironmentVariableW(w "OCR2_INSTALL_LOCK_HELD", p 0) i.r0'
+  System::Call 'kernel32::SetEnvironmentVariableW(w "OCR2_INSTALL_PARENT_PID", p 0) i.r0'
+  System::Call 'kernel32::SetEnvironmentVariableW(w "OCR2_INSTALL_PARENT_START", p 0) i.r0'
   System::Call 'kernel32::CloseHandle(p r9)'
 FunctionEnd
 !macroend
@@ -165,33 +180,70 @@ Section "OCR2"
   Call ReleaseLock
 SectionEnd
 
+Function un.RunVersionCommand
+  Pop $5
+  ClearErrors
+  FindFirst $3 $4 "$INSTDIR\versions\*"
+  IfErrors version_command_failed_no_handle
+  version_command_loop:
+  StrCmp $4 "." version_command_next
+  StrCmp $4 ".." version_command_next
+  IfFileExists "$INSTDIR\versions\$4\python\python.exe" 0 version_command_next
+  nsExec::ExecToStack '"$INSTDIR\versions\$4\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" verify "$4"'
+  Pop $0
+  Pop $1
+  StrCmp $0 "0" 0 version_command_next
+  nsExec::ExecToStack '"$INSTDIR\versions\$4\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" $5'
+  Pop $0
+  Pop $1
+  StrCmp $0 "0" version_command_success
+  version_command_next:
+  ClearErrors
+  FindNext $3 $4
+  IfErrors version_command_failed
+  Goto version_command_loop
+  version_command_success:
+  FindClose $3
+  Push $1
+  Return
+  version_command_failed:
+  FindClose $3
+  version_command_failed_no_handle:
+  Push ""
+FunctionEnd
+
 Function un.onInit
   SetShellVarContext current
   ${GetParameters} $0
   ClearErrors
   ${GetOptions} $0 "/LAUNCH" $1
   IfErrors check_rollback
-  nsExec::ExecToStack '"$INSTDIR\versions\${OCR2_VERSION}\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" active'
-  Pop $0
+  Push "active"
+  Call un.RunVersionCommand
   Pop $1
-  StrCmp $0 "0" launch_ok
+  StrCmp $1 "" 0 launch_ok
     MessageBox MB_OK|MB_ICONSTOP "Impossibile avviare la versione attiva di OCR2." /SD IDOK
     Quit
   launch_ok:
   StrCpy $1 $1 -2
+!ifdef OCR2_TEST
+  FileOpen $3 "$INSTDIR\test-launch-version.txt" w
+  FileWrite $3 "$1"
+  FileClose $3
+!else
   Exec '"$INSTDIR\versions\$1\python\pythonw.exe" -B -m alfa_document_intelligence --app-window --ocr-engine rapidocr-v6'
+!endif
   Quit
   check_rollback:
   ClearErrors
   ${GetOptions} $0 "/ROLLBACK" $1
   IfErrors normal_uninstall
   Call un.AcquireLock
-  nsExec::ExecToStack '"$INSTDIR\versions\${OCR2_VERSION}\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" rollback'
-  Pop $0
-  Pop $1
-  StrCpy $2 $0
+  Push "rollback"
+  Call un.RunVersionCommand
   Call un.ReleaseLock
-  StrCmp $2 "0" rollback_ok
+  Pop $1
+  StrCmp $1 "" 0 rollback_ok
     MessageBox MB_OK|MB_ICONSTOP "Impossibile ripristinare la versione precedente."
     Quit
   rollback_ok:
@@ -203,11 +255,35 @@ Section "Uninstall"
   SetShellVarContext current
   Call un.AcquireLock
   ClearErrors
-  ExecWait '"$INSTDIR\versions\${OCR2_VERSION}\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" cleanup-debris' $0
-  IfErrors uninstall_failed
-  IntCmp $0 0 cleanup_done
-  Goto uninstall_failed
+  FindFirst $3 $4 "$INSTDIR\versions\*"
+  IfErrors cleanup_missing_no_handle
+  cleanup_find:
+  StrCmp $4 "." cleanup_next
+  StrCmp $4 ".." cleanup_next
+  IfFileExists "$INSTDIR\versions\$4\python\python.exe" 0 cleanup_next
+  ClearErrors
+  ExecWait '"$INSTDIR\versions\$4\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" verify "$4"' $0
+  IfErrors cleanup_next
+  IntCmp $0 0 cleanup_try cleanup_next cleanup_next
+  cleanup_try:
+  ClearErrors
+  ExecWait '"$INSTDIR\versions\$4\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" cleanup-debris' $0
+  IfErrors cleanup_next
+  IntCmp $0 0 cleanup_done cleanup_next cleanup_next
+  cleanup_next:
+  ClearErrors
+  FindNext $3 $4
+  IfErrors cleanup_missing
+  Goto cleanup_find
+  cleanup_missing:
+  FindClose $3
+  cleanup_missing_no_handle:
+  Call un.ReleaseLock
+  MessageBox MB_OK|MB_ICONSTOP "Nessuna versione integra disponibile. Reinstalla OCR2, poi riprova la disinstallazione." /SD IDOK
+  SetErrorLevel 1
+  Abort
   cleanup_done:
+  FindClose $3
 !ifdef OCR2_TEST
   ${GetParameters} $0
   ClearErrors
