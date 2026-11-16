@@ -46,4 +46,21 @@ foreach ($name in $names) {
     $sig = Get-AuthenticodeSignature -LiteralPath $file
     if ($sig.Status -ne 'Valid' -or -not $sig.TimeStamperCertificate -or $sig.SignerCertificate.Thumbprint -ne $Thumbprint) { throw "Firma runtime non valida: $name" }
 }
+# Every binary in the payload must match the manifest. Only the local-build list
+# above carries the owner's signature; third-party binaries keep their vendor's
+# signature or none (sign.ps1 never re-signs them): a signature they carry must
+# be Valid, NotSigned is allowed, any other status fails.
+$localBuild = @{}
+foreach ($name in $names) { $localBuild["python/$name"] = $true }
+$items = @(Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction Stop)
+foreach ($item in $items) {
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Collegamento non consentito nel payload.' }
+    if ($item.PSIsContainer -or $item.Extension.ToLowerInvariant() -notin @('.exe', '.dll', '.pyd')) { continue }
+    $relative = $item.FullName.Substring($root.Length + 1).Replace('\', '/')
+    $record = $manifest.files.PSObject.Properties[$relative].Value
+    if (-not $record -or $record.size -ne $item.Length -or $record.sha256 -ne (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash) { throw "Manifest non corrispondente: $relative" }
+    if ($localBuild.ContainsKey($relative)) { continue }
+    $status = [string](Get-AuthenticodeSignature -LiteralPath $item.FullName).Status
+    if ($status -ne 'Valid' -and $status -ne 'NotSigned') { throw "Firma di terze parti non valida ($status): $relative" }
+}
 Write-Output 'Firme runtime verificate.'

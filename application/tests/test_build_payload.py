@@ -298,7 +298,12 @@ def test_release_payload_verifier_rejects_tampering(tmp_path):
 
 
 def test_runtime_release_gate_checks_signer_timestamp_and_content(tmp_path):
-    import shutil, subprocess
+    """Local-build binaries need the owner's signature; every binary must match the manifest.
+
+    Third-party binaries keep their vendor's signature or none (sign.ps1 never
+    re-signs them): a signature they carry must be Valid, NotSigned is allowed.
+    """
+    import os, shutil, subprocess
     from alfa_document_intelligence.runtime_manifest import build_manifest
     pwsh = shutil.which('pwsh')
     if not pwsh:
@@ -309,6 +314,9 @@ def test_runtime_release_gate_checks_signer_timestamp_and_content(tmp_path):
         f = payload / 'python' / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
     for name in ('python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
         f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    third_party = payload / 'python/Lib/site-packages/synthetic/sample.pyd'
+    third_party.parent.mkdir(parents=True)
+    third_party.write_bytes(b'synthetic')
     manifest = build_manifest(payload, version='0.6.0', excluded_globs=())
     (payload / 'runtime-manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
     gate = Path(__file__).resolve().parents[2] / 'installer/verify-runtime-signatures.ps1'
@@ -316,21 +324,59 @@ def test_runtime_release_gate_checks_signer_timestamp_and_content(tmp_path):
     wrapper.write_text("""param($Gate, $Payload, $Case)
 function Get-AuthenticodeSignature {
     param($LiteralPath)
-    $thumb = if ($Case -eq 'wrong') { 'B' * 40 } else { 'A' * 40 }
-    $stamp = if ($Case -eq 'no_timestamp') { $null } else { [pscustomobject]@{Subject='synthetic'} }
-    $status = if ($Case -eq 'unsigned') { 'NotSigned' } else { 'Valid' }
-    [pscustomobject]@{Status=$status; SignerCertificate=[pscustomobject]@{Thumbprint=$thumb}; TimeStamperCertificate=$stamp}
+    $third = $LiteralPath -like '*sample.pyd'
+    $owner = [pscustomobject]@{Status='Valid'; SignerCertificate=[pscustomobject]@{Thumbprint=('A' * 40)}; TimeStamperCertificate=[pscustomobject]@{Subject='synthetic'}}
+    if (-not $third) {
+        if ($Case -eq 'wrong') { $owner.SignerCertificate.Thumbprint = 'B' * 40 }
+        if ($Case -eq 'unsigned') { $owner.Status = 'NotSigned' }
+        if ($Case -eq 'no_timestamp') { $owner.TimeStamperCertificate = $null }
+        return $owner
+    }
+    switch ($Case) {
+        'third_unsigned' { return [pscustomobject]@{Status='NotSigned'; SignerCertificate=$null; TimeStamperCertificate=$null} }
+        'third_vendor' { return [pscustomobject]@{Status='Valid'; SignerCertificate=[pscustomobject]@{Thumbprint=('C' * 40)}; TimeStamperCertificate=$null} }
+        'third_hash_mismatch' { return [pscustomobject]@{Status='HashMismatch'; SignerCertificate=[pscustomobject]@{Thumbprint=('C' * 40)}; TimeStamperCertificate=$null} }
+        'third_not_trusted' { return [pscustomobject]@{Status='NotTrusted'; SignerCertificate=[pscustomobject]@{Thumbprint=('C' * 40)}; TimeStamperCertificate=$null} }
+        default { return [pscustomobject]@{Status='NotSigned'; SignerCertificate=$null; TimeStamperCertificate=$null} }
+    }
 }
 & $Gate -Payload $Payload -Thumbprint ('A' * 40)
 """, encoding='utf-8')
     def check(case):
         return subprocess.run([pwsh, '-NoProfile', '-NonInteractive', '-File', str(wrapper), str(gate), str(payload), case], capture_output=True).returncode
     assert check('valid') == 0
+    # Local-build list: Valid, owner's thumbprint, timestamp.
     assert check('wrong') != 0
     assert check('unsigned') != 0
     assert check('no_timestamp') != 0
+    # Third-party binaries: unsigned or vendor-signed pass; a broken signature fails.
+    assert check('third_unsigned') == 0
+    assert check('third_vendor') == 0
+    assert check('third_hash_mismatch') != 0
+    assert check('third_not_trusted') != 0
+    # Content must match the manifest for every binary.
     (payload / 'python/python.exe').write_bytes(b'tampered')
     assert check('valid') != 0
+    (payload / 'python/python.exe').write_bytes(b'synthetic')
+    third_party.write_bytes(b'tampered')
+    assert check('third_unsigned') != 0
+    third_party.write_bytes(b'synthetic')
+    assert check('third_unsigned') == 0
+    extra = payload / 'python/Lib/site-packages/synthetic/extra.dll'
+    extra.write_bytes(b'synthetic')
+    assert check('third_unsigned') != 0, 'a binary outside the manifest must fail'
+    extra.unlink()
+    if os.name == 'nt':
+        import _winapi
+        target = tmp_path / 'outside'
+        target.mkdir()
+        link = payload / 'python/Lib/site-packages/linked'
+        _winapi.CreateJunction(str(target), str(link))
+        try:
+            assert check('third_unsigned') != 0, 'a reparse point in the payload must fail'
+        finally:
+            os.rmdir(link)
+    assert check('third_unsigned') == 0
 
 
 def test_release_payload_verifier_rejects_version_mismatch(tmp_path):

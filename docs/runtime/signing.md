@@ -8,6 +8,14 @@ Il manifest interno può rilevare variazioni accidentali, ma non è una radice d
 
 La procedura non è ancora completa per REQ-105: i binari Python compilati localmente non sono ancora firmati. `sign.ps1` accetta ora `.exe`, `.dll` e `.pyd`. Il costruttore del payload accetta un callback `local_runtime_signer` e l’impronta `local_runtime_thumbprint`: quando specificati, controlla che l’archivio Python corrisponda alla build approvata, verifica l’elenco dei binari locali, invoca il callback su ciascuno, verifica indipendentemente che la firma sia valida, marcata temporalmente e associata all’impronta prevista, e genera il manifest solo dopo. Non modifica le DLL dei fornitori fuori da tale elenco. Il firmatario rifiuta file già firmati. Il callback deve eseguire `sign.ps1 -Installer <file> -Thumbprint <impronta> -TimestampUrl <url>` e sollevare un errore se il processo fallisce, ad esempio usando `subprocess.run([...], check=True)` senza shell. Per le build di rilascio NSIS richiede `OCR2_CERT_THUMBPRINT` e, prima di compilare, verifica l’intero manifest e le firme dei binari locali con l’impronta richiesta. Il controllo usa Python di build e PowerShell 7 (`pwsh.exe`); la modalità `OCR2_TEST` lo salta. Il callback di firma resta un passaggio esplicito: i ganci NSIS da soli non firmano il runtime. Il flusso con un certificato reale, l’insieme esatto dei binari di terze parti e la firma indipendente del manifest restano da verificare prima del rilascio.
 
+**Regola dei binari nel controllo di rilascio** (`verify-runtime-signatures.ps1`, 2026-11-16):
+
+- ogni `.exe`, `.dll` e `.pyd` del payload deve corrispondere al manifest per dimensione e SHA-256 e non può essere un collegamento (reparse point); un binario assente dal manifest fa fallire la build;
+- i binari dell’elenco della build locale devono avere firma `Valid`, l’impronta del proprietario e la marca temporale;
+- gli altri binari (terze parti: wheel, OpenSSL, runtime VC e simili) conservano la firma del fornitore oppure nessuna: se firmati lo stato deve essere `Valid`, `NotSigned` è accettato, qualsiasi altro stato (`HashMismatch`, `NotTrusted`, …) fa fallire la build. Per questi binari l’impronta del proprietario non è richiesta.
+
+I binari di terze parti non vengono mai firmati di nuovo: `sign.ps1` rifiuta di sovrascrivere una firma esistente e il costruttore firma solo l’elenco della build locale. La loro integrità viene dal manifest, non dalla firma; il manifest a sua volta non è una radice di fiducia indipendente. Sul payload di prova `0.6.2` (lettura Authenticode reale per le terze parti, firma del proprietario simulata per l’elenco locale) il controllo passa con 40 binari di terze parti `NotSigned` e 10 `Valid`.
+
 Esempio di callback da passare al costruttore, in una sessione del proprietario con certificato e servizio temporale già disponibili:
 
 ```python
