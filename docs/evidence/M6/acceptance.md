@@ -12,3 +12,21 @@
 | REQ-107 | Distinta e avvisi generati, FFmpeg escluso e OCR sintetico riuscito; la completezza degli avvisi e delle licenze resta da verificare. | Aperto |
 
 La [revisione](review.md), le [prove locali](installer-dev-pc.md) e la [matrice](lifecycle-matrix.md) riportano i limiti. Nessuna evidenza qui dichiara completata la milestone.
+
+## Limiti dichiarati
+
+Ripresi dal confronto con la PR #151 e verificati su questo ramo; nessuno chiude un requisito. Restano tutti aperti finché il collaudo sull'altro PC non li conferma.
+
+| Limite | Stato |
+|---|---|
+| Dopo la chiusura, l'avvio rapido di Edge può lasciare un processo `msedge.exe` con `--no-startup-window` sul profilo normale di Edge; `--disable-background-mode` non lo impedisce e OCR2 non cambia le impostazioni di Edge ([app-window.md](app-window.md), 4c). | Aperto |
+| Una finestra chiusa con la X entro 2 s da un'altra richiesta conta come navigazione e tiene acceso OCR2 fino a 180 s. Succede facilmente durante un'elaborazione, perché quelle pagine si aggiornano ogni 2 s. Intanto installer e disinstallatore rifiutano con «Chiudi OCR2 e gli altri installer prima di continuare.». | Aperto |
+| La sospensione del PC è tollerata; una finestra chiusa durante la sospensione può tenere acceso OCR2 fino a 180 s dopo il risveglio. | Aperto |
+| Con i percorsi lunghi di Windows disattivati, `%LOCALAPPDATA%` deve restare entro circa 95 caratteri: il file più lungo del contenuto di prova ha 125 caratteri dentro la cartella della versione. Limite calcolato, non provato. | Aperto |
+| Codici di uscita dell'installer: `0` anche per una versione già installata e integra, `1` con OCR2 o un altro installer aperto o con percorso non sicuro, `2` per gli altri errori. Con `/S` i messaggi non compaiono. Il disinstallatore ritorna subito e continua da solo. | Aperto |
+| Il ripristino dal menu Start, se riesce, non mostra messaggi: la versione si controlla in «Informazioni». | Aperto |
+| Dopo la disinstallazione possono restare `%LOCALAPPDATA%\OCR2.instance.lock` (DEC-033) e una cartella `%LOCALAPPDATA%\Programs` vuota, se prima non esisteva. | Aperto |
+| La verifica di integrità copre `app`, `python`, distinta e avvisi della versione, non `Uninstall.exe` (che fa anche da avviatore), `active.json` né il manifest stesso; rileva la corruzione, non la manomissione. | Aperto |
+| I messaggi di avvio non riuscito sono generici e senza dettagli, per scelta; non si scrive alcun file di log. I dettagli si leggono avviando la stessa versione con `python.exe` dalla console ([procedura](../../runtime/m6-lifecycle-procedure.md)). Errori dell'interprete prima degli import applicativi non mostrano nulla sotto `pythonw`. | Aperto |
+| «Esci» e «Informazioni» stanno in fondo al contenuto di ogni pagina. | Aperto |
+| Il confronto dell'impronta rileva solo nomi aggiunti o rimossi, non contenuti o valori di registro. | Aperto |
