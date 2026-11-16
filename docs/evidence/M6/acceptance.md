@@ -24,6 +24,7 @@ Ripresi dal confronto con la PR #151 e verificati su questo ramo; nessuno chiude
 | La sospensione del PC è tollerata; una finestra chiusa durante la sospensione può tenere acceso OCR2 fino a 180 s dopo il risveglio. | Aperto |
 | Con i percorsi lunghi di Windows disattivati, `%LOCALAPPDATA%` deve restare entro circa 95 caratteri: il file più lungo del contenuto di prova ha 125 caratteri dentro la cartella della versione. Limite calcolato, non provato. | Aperto |
 | Codici di uscita dell'installer: `0` anche per una versione già installata e integra, `1` con OCR2 o un altro installer aperto o con percorso non sicuro, `2` per gli altri errori. Con `/S` i messaggi non compaiono. Il disinstallatore ritorna subito e continua da solo. | Aperto |
+| Un installer della stessa versione di quella installata e integra non sostituisce i file (codice `0`): una nuova build con lo stesso numero, per esempio una correzione di 0.6.0, si applica solo dopo la disinstallazione (verificato in prova isolata il 2026-11-16). | Aperto |
 | Il ripristino dal menu Start, se riesce, non mostra messaggi: la versione si controlla in «Informazioni». | Aperto |
 | Dopo la disinstallazione possono restare `%LOCALAPPDATA%\OCR2.instance.lock` (DEC-033) e una cartella `%LOCALAPPDATA%\Programs` vuota, se prima non esisteva. | Aperto |
 | La verifica di integrità copre `app`, `python`, distinta e avvisi della versione, non `Uninstall.exe` (che fa anche da avviatore), `active.json` né il manifest stesso; rileva la corruzione, non la manomissione. | Aperto |
