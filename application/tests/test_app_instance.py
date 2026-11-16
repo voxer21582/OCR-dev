@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -10,6 +11,18 @@ from wsgiref.simple_server import WSGIRequestHandler, make_server
 from alfa_document_intelligence import app_instance
 
 _SRC = Path(__file__).resolve().parents[1] / "src"
+
+
+def test_instance_lock_survives_removal_of_data_directory(tmp_path):
+    data = tmp_path / 'OCR2'
+    lock = app_instance.acquire(data)
+    assert lock is not None
+    try:
+        shutil.rmtree(data)
+        assert app_instance.acquire(data) is None
+        assert not data.exists()
+    finally:
+        lock.release()
 
 _HOLDER = """
 import sys

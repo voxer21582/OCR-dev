@@ -26,3 +26,36 @@ def test_installer_provides_rollback_and_optional_data_removal():
     assert 'MB_DEFBUTTON2' in script
     assert '/SD IDNO' in script
     assert 'install_state --base "$INSTDIR" prune' in script
+
+
+def test_release_installer_requires_signing_both_executables():
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    assert '!uninstfinalize' in script
+    assert '!finalize' in script
+    assert '!error "Release builds require signing"' in script
+
+
+def test_installer_stages_files_and_shortcut_resolves_active_version():
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    assert 'GetTempFileName' in script
+    assert 'Rename "$0" "$INSTDIR\\versions\\${OCR2_VERSION}"' in script
+    assert '"$INSTDIR\\Uninstall.exe" \'/LAUNCH\'' in script
+    assert 'install_state --base "$INSTDIR" active' in script
+
+
+def test_uninstaller_stops_if_files_cannot_be_removed():
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    uninstall = script.split('Section "Uninstall"', 1)[1]
+    assert 'IfErrors uninstall_failed' in uninstall
+    assert uninstall.index('RMDir /r "$INSTDIR\\versions"') < uninstall.index('Delete "$INSTDIR\\active.json"')
+    assert 'Call un.AcquireLock' in uninstall
+    assert 'kernel32::LockFile' in script
+    assert 'CloseHandle' in script
+    assert 'install_state --base "$INSTDIR" cleanup-debris' in uninstall
+    assert '"$INSTDIR\\.child.lock"' in script
+
+
+def test_shortcut_failure_aborts_before_activation():
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    assert 'IfErrors shortcut_failed' in script
+    assert script.index('IfErrors shortcut_failed') < script.index('install_state --base "$INSTDIR" activate')

@@ -155,6 +155,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         if running_port is not None:
             _open_app_window(f"http://127.0.0.1:{running_port}/", app_data_dir)
             return
+    elif os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data:
+            parser.error("LOCALAPPDATA non è disponibile: archivio locale non inizializzabile")
+        instance_lock = acquire(Path(local_app_data) / "OCR2")
+        if instance_lock is None:
+            print("OCR2 è già in uso o in manutenzione. Chiudilo e riprova.", file=sys.stderr)
+            raise SystemExit(1)
     try:
         _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status)
     finally:

@@ -47,6 +47,19 @@ def test_newer_archive_stops_with_clear_message_and_without_writing(tmp_path, mo
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == before
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='Windows launcher archive')
+def test_headless_launcher_refuses_running_instance(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))
+    held = app_instance.acquire(tmp_path / 'OCR2')
+    assert held is not None
+    monkeypatch.setattr(launcher, 'serve_expense_report_local', lambda **kwargs: pytest.fail('server must not start'))
+    try:
+        with pytest.raises(SystemExit):
+            launcher.main(['--port', '0'])
+    finally:
+        held.release()
+
+
 def test_launcher_serves_on_configured_port_and_closes_cleanly(monkeypatch, capsys, tmp_path):
     # Keep the Windows archive inside a temporary folder, never the real profile.
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))

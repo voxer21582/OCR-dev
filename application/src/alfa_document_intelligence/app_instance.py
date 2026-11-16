@@ -1,7 +1,7 @@
 """Single running instance per user (REQ-100).
 
 The first ``--app-window`` launcher takes an exclusive lock on
-``<data dir>/instance.lock`` and publishes its loopback port and a random
+``<data dir>.instance.lock`` beside the data directory and publishes its loopback port and a random
 instance id in ``<data dir>/instance.json``.  A later launcher finds that
 instance with ``running_instance``: the file alone is never trusted, the server
 on the port must answer ``/app/info`` with the same id
@@ -93,13 +93,20 @@ class InstanceLock:
 def acquire(data_dir: Path) -> InstanceLock | None:
     """Take the exclusive instance lock; ``None`` when another process holds it."""
     data_dir = Path(data_dir)
-    data_dir.mkdir(parents=True, exist_ok=True)
-    handle = open(data_dir / LOCK_NAME, "a+b")
+    data_dir.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = data_dir.parent / (data_dir.name + ".instance.lock")
+    handle = open(lock_path, "a+b")
     try:
         _lock(handle)
     except OSError:
         handle.close()
         return None
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+    except BaseException:
+        _unlock(handle)
+        handle.close()
+        raise
     return InstanceLock(data_dir, handle)
 
 
