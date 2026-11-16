@@ -138,19 +138,27 @@ def test_failed_cleanup_after_activation_keeps_the_new_version():
         assert undo not in failure
 
 
-def _preprocess(defines):
+def _preprocess(defines, output='OCR2-0.6.0-setup-non-firmato.exe'):
     """Evaluate the conditional directives of ocr2.nsi for a set of /D defines.
 
     Returns the first active ``!error`` message (or None) and the active lines.
-    Only ``!ifdef``/``!ifndef``/``!else``/``!endif`` are interpreted; everything
-    else is returned as written, so two configurations can be compared line by line.
+    Only ``!ifdef``/``!ifndef``/``!else``/``!endif`` and ``!searchparse`` on
+    ``${OCR2_OUTPUT}`` (the /D value ``output``) are interpreted; everything else
+    is returned as written, so two configurations can be compared line by line.
     """
     script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig')
+    defines = set(defines)
     stack = []
     active = []
     for raw in script.splitlines():
         line = raw.strip()
         enabled = all(stack)
+        search = re.fullmatch(r'!searchparse\s+/ignorecase\s+/noerrors\s+"\$\{OCR2_OUTPUT\}"\s+"([^"]+)"\s+(\w+)', line)
+        if search:
+            if enabled and search.group(1).casefold() in output.casefold():
+                defines.add(search.group(2))
+            continue
+        assert not line.startswith('!searchparse'), line
         match = re.fullmatch(r'!(ifdef|ifndef)\s+(\S+)', line)
         if match:
             defined = match.group(2) in defines
@@ -256,3 +264,16 @@ def test_installer_scripts_with_non_ascii_text_have_a_utf8_bom():
         raw = path.read_bytes()
         if any(byte > 0x7F for byte in raw):
             assert raw.startswith(b'\xef\xbb\xbf'), path.name
+
+
+def test_unsigned_release_output_name_says_it_is_unsigned():
+    for name in ('OCR2-0.6.0-setup-non-firmato.exe', 'OCR2-0.6.1-SETUP-NON-FIRMATO.exe', 'OCR2-0.6.0-unsigned.exe'):
+        error, _ = _preprocess(_UNSIGNED, output='C:/out/' + name)
+        assert error is None, name
+    for name in ('OCR2-0.6.0-setup.exe', 'OCR2-0.6.0-firmato.exe'):
+        error, lines = _preprocess(_UNSIGNED, output='C:/out/' + name)
+        assert error is not None and 'non-firmato' in error, name
+        assert not any(line.startswith('!system') for line in lines), name
+    # A signed release keeps any name.
+    error, _ = _preprocess(_SIGNED, output='C:/out/OCR2-0.6.0-setup.exe')
+    assert error is None

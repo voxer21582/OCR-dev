@@ -24,6 +24,14 @@ InstallDir "$LOCALAPPDATA\Programs\OCR2"
   !ifdef OCR2_SIGN_COMMAND
     !error "OCR2_UNSIGNED_RELEASE cannot be combined with OCR2_SIGN_COMMAND"
   !endif
+  ; The file name must say it is unsigned.
+  !searchparse /ignorecase /noerrors "${OCR2_OUTPUT}" "non-firmato" OCR2_OUTPUT_NON_FIRMATO
+  !searchparse /ignorecase /noerrors "${OCR2_OUTPUT}" "unsigned" OCR2_OUTPUT_UNSIGNED
+  !ifndef OCR2_OUTPUT_NON_FIRMATO
+    !ifndef OCR2_OUTPUT_UNSIGNED
+      !error "OCR2_UNSIGNED_RELEASE requires an OCR2_OUTPUT name containing non-firmato or unsigned"
+    !endif
+  !endif
 !endif
 !ifndef OCR2_TEST
   !ifndef OCR2_UNSIGNED_RELEASE

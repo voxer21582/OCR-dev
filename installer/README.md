@@ -28,12 +28,12 @@ Il contenuto di destinazione deve essere nuovo. Il generatore installa le wheel 
 
 NSIS viene usato dall'archivio portabile verificato, senza installarlo nel sistema. `ocr2.nsi` richiede `OCR2_VERSION`, `OCR2_PAYLOAD` e `OCR2_OUTPUT`; `OCR2_TEST` crea una variante per sole prove locali e non crea collegamenti Start. Le build di rilascio richiedono inoltre `OCR2_CERT_THUMBPRINT` e `OCR2_SIGN_COMMAND`: la procedura e i limiti sono in [signing.md](../docs/runtime/signing.md). Non distribuire una build di prova.
 
-Senza certificato (DEC-034) si compila un rilascio **non firmato** con l'opzione esplicita `OCR2_UNSIGNED_RELEASE`. Salta solo le verifiche Authenticode; tutti gli altri controlli di rilascio e il comportamento del rilascio (collegamenti Start, domanda sui dati, cartella di installazione) restano invariati. Non si combina con `OCR2_CERT_THUMBPRINT`, `OCR2_SIGN_COMMAND` o `OCR2_TEST`. I controlli `!system` usano percorsi relativi: `makensis` va eseguito dalla cartella `installer`, con `python` e `pwsh.exe` nel `PATH`.
+Senza certificato (DEC-034) si compila un rilascio **non firmato** con l'opzione esplicita `OCR2_UNSIGNED_RELEASE`. Salta solo le verifiche Authenticode; tutti gli altri controlli di rilascio e il comportamento del rilascio (collegamenti Start, domanda sui dati, cartella di installazione) restano invariati. Non si combina con `OCR2_CERT_THUMBPRINT`, `OCR2_SIGN_COMMAND` o `OCR2_TEST`, e il nome in `OCR2_OUTPUT` deve contenere «non-firmato» (o «unsigned»): altrimenti la compilazione si ferma. I controlli `!system` usano percorsi relativi: `makensis` va eseguito dalla cartella `installer`, con `python` nel `PATH`. `pwsh.exe` (PowerShell 7) serve solo per le build firmate: controllo delle firme del runtime e verifica della firma dopo gli agganci.
 
 ```powershell
 Set-Location installer
 & .cache\nsis\nsis-3.13\makensis.exe /DOCR2_UNSIGNED_RELEASE /DOCR2_VERSION=0.6.0 `
-  /DOCR2_PAYLOAD=<cartella-payload>\0.6.0 /DOCR2_OUTPUT=<cartella-uscita>\OCR2-0.6.0-setup.exe ocr2.nsi
+  /DOCR2_PAYLOAD=<cartella-payload>\0.6.0 /DOCR2_OUTPUT=<cartella-uscita>\OCR2-0.6.0-setup-non-firmato.exe ocr2.nsi
 ```
 
 Il testo in basso nelle finestre dell'installer e del disinstallatore riporta «OCR2 <versione> — non firmato».
