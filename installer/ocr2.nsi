@@ -136,7 +136,7 @@ Section "OCR2" SecMain
   ; R7: versions\${VERSION} is not the active version here, so it is a leftover of an interrupted install.
   RMDir /r "$INSTDIR\versions\${VERSION}"
   ${If} ${FileExists} "$INSTDIR\versions\${VERSION}\*.*"
-    MessageBox MB_ICONSTOP "Impossibile sostituire i file della versione ${VERSION}. Chiudi OCR2 con Esci e riprova." /SD IDOK
+    MessageBox MB_ICONSTOP "Impossibile sostituire i file della versione ${VERSION}. Chiudi la finestra di OCR2 (o usa Esci), attendi qualche secondo e riprova." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}

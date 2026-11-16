@@ -11,6 +11,7 @@ import functools
 import hashlib
 import os
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 
@@ -166,13 +167,14 @@ def test_prune_uninstall_and_activate_refuse_while_running(monkeypatch, tmp_path
     seen = []
     monkeypatch.setattr(install_state, "running_instance", lambda data_dir: seen.append(data_dir) or 51234)
     before = _state(base)
-    with pytest.raises(InstallStateError, match="Chiudi OCR2 con Esci e riprova."):
+    running = "Chiudi la finestra di OCR2 (o usa Esci), attendi qualche secondo e riprova."  # R42
+    with pytest.raises(InstallStateError, match=re.escape(running)):
         install_state.prune(base)
-    with pytest.raises(InstallStateError, match="Chiudi OCR2 con Esci e riprova."):
+    with pytest.raises(InstallStateError, match=re.escape(running)):
         install_state.activate(base, "0.6.0")
     assert (base / "versions" / "0.6.0").is_dir() and _state(base) == before
     assert install_state.main(["uninstall", "--remove-data", "--base", str(base)]) != 0
-    assert "Chiudi OCR2 con Esci e riprova." in capsys.readouterr().err
+    assert running in capsys.readouterr().err
     assert (data / "document-archive.sqlite3").is_file()
     assert seen and all(path == data for path in seen)
 

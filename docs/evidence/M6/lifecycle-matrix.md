@@ -25,11 +25,11 @@ Modello da compilare dal proprietario dopo aver eseguito [`docs/runtime/m6-lifec
 | 7 | Edge dopo «Esci» (R18) | dopo aver chiuso la finestra: processo `msedge.exe --no-startup-window` presente sì/no (limite di Edge, non di OCR2); nessun processo con `OCR2\edge-profile` | | |
 | 8 | Chiusura finestra e porta libera | porta letta da `instance.json`; secondi alla porta libera (soglia unica ≤ 190 s; nessuna riga `LISTENING`, `TIME_WAIT` normale) | | |
 | 9 | Aggiornamento interrotto (0.6.0 attiva) | `active.txt` ancora `0.6.0`; l'app parte e mostra 0.6.0; documento presente | | |
-| 10 | OCR2 aperto durante l'aggiornamento (R8) | messaggio «Chiudi OCR2 con Esci e riprova.»; 0.6.0 resta attiva | | |
+| 10 | OCR2 aperto durante l'aggiornamento (R8) | messaggio «Chiudi la finestra di OCR2 (o usa Esci), attendi qualche secondo e riprova.»; 0.6.0 resta attiva | | |
 | 11 | Aggiornamento a 0.6.1 | `active.txt` = `0.6.1` / `0.6.0`; due versioni; «Informazioni» 0.6.1; documento presente | | |
 | 12 | Versione già attiva (R7, R29, R38) | «Questa versione di OCR2 è già installata.» seguito dai rimedi («Torna alla versione precedente», oppure disinstallare mantenendo i dati e installare di nuovo); in silenzioso codice 2, nessun messaggio | | |
 | 13 | Ritorno alla 0.6.0 (solo «Torna alla versione precedente») | «Versione attiva: 0.6.0»; `active.txt` = `0.6.0` / `0.6.1`; documento presente | | |
-| 14a | Disinstallazione con OCR2 aperto (R8) | rifiutata con «Chiudi OCR2 con Esci e riprova.»; programma e dati presenti | | |
+| 14a | Disinstallazione con OCR2 aperto (R8) | rifiutata con «Chiudi la finestra di OCR2 (o usa Esci), attendi qualche secondo e riprova.»; programma e dati presenti | | |
 | 14b | Disinstallazione senza dati | `Programs\OCR2` e cartella menu Start eliminate; `%LOCALAPPDATA%\OCR2` presente | | |
 | 15 | Reinstallazione 0.6.1 | documento ritrovato; «Informazioni» 0.6.1 | | |
 | 16 | Disinstallazione con dati | `Programs\OCR2`, `%LOCALAPPDATA%\OCR2`, menu Start eliminati; nessun processo OCR2 | | |

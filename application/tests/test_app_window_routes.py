@@ -360,3 +360,44 @@ def test_every_request_counts_as_activity(app_mode):
     assert presence._last_activity is None
     _invoke(app, "GET", "/")
     assert presence._last_activity is not None
+
+
+def test_info_probe_does_not_revive_a_just_closed_window():
+    # R42: install_state's running check (GET /app/info) is not window activity.
+    clock = _FakeClock()
+    presence = WindowPresence(clock)
+    app = create_expense_report_app(app_lifetime=AppLifetime(presence, _StopRecorder()))
+    try:
+        _, _, page = _invoke(app, "GET", "/")
+        token = _token(page)
+        _invoke(app, "GET", "/app/heartbeat", query="w=finestra")
+        clock.now += 3  # past the navigation window after GET /
+        _invoke(app, "POST", "/app/closing", body=urlencode({"w": "finestra", "_ocr2_csrf": token}).encode())
+        activity_before = presence._last_activity
+        clock.now += 2
+        status, _, _ = _invoke(app, "GET", "/app/info")
+        assert status.startswith("200")
+        assert presence._last_activity == activity_before
+        clock.now += 8
+        assert presence.should_stop() is True
+    finally:
+        app.close()
+
+
+def test_closing_right_after_opening_info_still_counts_as_navigation():
+    # Pressing «Informazioni» in the window: the old page's closing follows GET /app/info.
+    clock = _FakeClock()
+    presence = WindowPresence(clock)
+    app = create_expense_report_app(app_lifetime=AppLifetime(presence, _StopRecorder()))
+    try:
+        _, _, page = _invoke(app, "GET", "/")
+        token = _token(page)
+        _invoke(app, "GET", "/app/heartbeat", query="w=finestra")
+        clock.now += 30
+        _invoke(app, "GET", "/app/info")
+        clock.now += 1
+        _invoke(app, "POST", "/app/closing", body=urlencode({"w": "finestra", "_ocr2_csrf": token}).encode())
+        clock.now += 30
+        assert presence.should_stop() is False
+    finally:
+        app.close()

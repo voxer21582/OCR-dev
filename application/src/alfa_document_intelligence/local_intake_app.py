@@ -2044,7 +2044,11 @@ def create_expense_report_app(
         environ["_ocr2_csrf_token"] = csrf_token
         if _loopback_host_parts(environ.get("HTTP_HOST", "")) is None:
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
-        if app_lifetime is not None and environ.get("PATH_INFO", "") not in {"/app/heartbeat", "/app/closing"}:
+        if app_lifetime is not None and environ.get("PATH_INFO", "") == "/app/info":
+            # Also the probe of install_state's running check: it must not revive
+            # a window closed just before (R42); it only marks a navigation.
+            app_lifetime.presence.navigation_request()
+        elif app_lifetime is not None and environ.get("PATH_INFO", "") not in {"/app/heartbeat", "/app/closing"}:
             # The window routes record their own signal; a closing beacon must
             # not count as the request that restores the window it closes.
             app_lifetime.presence.activity()

@@ -41,7 +41,8 @@ DATA_DIR_NAME = "OCR2"
 _VERSION = re.compile(r"\d+\.\d+\.\d+")
 _MAX_STATE_BYTES = 256
 _MAX_SHOWN_PROBLEMS = 5
-_RUNNING = "Chiudi OCR2 con Esci e riprova."
+# R42: closing the window is enough; the server stops a few seconds later.
+_RUNNING = "Chiudi la finestra di OCR2 (o usa Esci), attendi qualche secondo e riprova."
 
 
 class InstallStateError(RuntimeError):

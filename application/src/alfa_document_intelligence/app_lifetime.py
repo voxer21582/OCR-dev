@@ -135,6 +135,16 @@ class WindowPresence:
             if restored:
                 self._last_beat_any = now
 
+    def navigation_request(self) -> None:
+        """A request that is not window activity (the running check's GET /app/info, R42).
+
+        It neither restores a closed window nor extends the quiet period; it only
+        lets a closing that follows within 2 s count as a navigation, as when
+        «Informazioni» is pressed in the window.
+        """
+        with self._lock:
+            self._last_request = self._clock()
+
     def should_stop(self) -> bool:
         with self._lock:
             now = self._clock()

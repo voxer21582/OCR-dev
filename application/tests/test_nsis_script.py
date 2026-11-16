@@ -90,6 +90,16 @@ def test_reinstall_refusal_gives_the_remedies_that_work():
     assert "disinstalla OCR2 mantenendo i dati" in line and "installalo di nuovo" in line
 
 
+def test_installer_echoes_the_running_refusal_of_install_state():
+    # R42: the installer's own «OCR2 is open» message matches install_state's.
+    from alfa_document_intelligence import install_state
+
+    text = _text("ocr2.nsi")
+    assert install_state._RUNNING == "Chiudi la finestra di OCR2 (o usa Esci), attendi qualche secondo e riprova."
+    assert install_state._RUNNING in text
+    assert "Chiudi OCR2 con Esci e riprova." not in text
+
+
 def test_failed_activation_never_deletes_the_version_active_txt_names():
     lines = _code_lines("ocr2.nsi")
     activate = next(i for i, line in enumerate(lines) if "install_state activate ${VERSION}" in line)

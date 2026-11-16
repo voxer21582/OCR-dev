@@ -30,7 +30,7 @@ Limiti già noti (non sono errori, annotali se li vedi):
 - Se una finestra di OCR2 viene chiusa con la X proprio mentre si apre una pagina (entro 2 secondi da un clic), il programma può restare acceso fino a 30 minuti (il tempo di inattività della sessione) prima di fermarsi da solo.
 - Dopo «Esci» Edge può lasciare un suo processo in secondo piano (avvio rapido di Edge): è un comportamento di Edge, OCR2 non cambia le sue impostazioni (passo 7).
 - Il programma di disinstallazione si avvia e «ritorna subito»: la disinstallazione continua per qualche secondo dopo il suo avvio. Aspetta 15 secondi prima di controllare. Per **aspettare** davvero la fine (utile per vedere un rifiuto), da PowerShell: `& "$env:LOCALAPPDATA\Programs\OCR2\uninstall.exe" _?="$env:LOCALAPPDATA\Programs\OCR2"` (con `_?=` la cartella di installazione non viene cancellata a fine corsa: è normale).
-- Costruendo l'installer, `makensis` segnala l'avviso 9000 sul nome «setup» (Windows applica regole di compatibilità ai file con questo nome): è atteso. Con `/S` (silenzioso) i messaggi (per esempio «già installata» o «Chiudi OCR2 con Esci e riprova.») non si vedono: contano il codice di uscita (2) e lo stato delle cartelle.
+- Costruendo l'installer, `makensis` segnala l'avviso 9000 sul nome «setup» (Windows applica regole di compatibilità ai file con questo nome): è atteso. Con `/S` (silenzioso) i messaggi (per esempio «già installata» o «Chiudi la finestra di OCR2 (o usa Esci), attendi qualche secondo e riprova.») non si vedono: contano il codice di uscita (2) e lo stato delle cartelle.
 
 ---
 
@@ -176,7 +176,7 @@ Esito: ☐ OK (0.6.0 resta attiva e funziona) ☐ NO — Note: _________________
 
 **Cosa fare.** Avvia OCR2 (resta aperto). Doppio clic su `OCR2-0.6.1-setup.exe` e aspetta la fine.
 
-**Cosa si deve vedere.** Un messaggio che finisce con «**Chiudi OCR2 con Esci e riprova.**» («OCR2 0.6.1 non è stato installato. Resta attiva la versione precedente»). `active.txt` ha ancora `0.6.0`. Poi premi **Esci** in OCR2.
+**Cosa si deve vedere.** Un messaggio che finisce con «**Chiudi la finestra di OCR2 (o usa Esci), attendi qualche secondo e riprova.**» («OCR2 0.6.1 non è stato installato. Resta attiva la versione precedente»). `active.txt` ha ancora `0.6.0`. Poi premi **Esci** in OCR2.
 
 Esito: ☐ OK (messaggio visto, 0.6.0 attiva) ☐ NO — Testo del messaggio: ____________________
 
@@ -219,7 +219,7 @@ Esito: ☐ OK ☐ NO — Note: ____________________
 
 ## Passo 14. Disinstallazione con OCR2 aperto, poi senza dati
 
-**14a.** Avvia OCR2 (resta aperto). Menu Start → OCR2 → «Disinstalla OCR2». Se chiede di eliminare anche i dati, rispondi **No**. Atteso: la disinstallazione si rifiuta con «**Chiudi OCR2 con Esci e riprova.**»; il programma e i dati restano. Poi premi **Esci** in OCR2.
+**14a.** Avvia OCR2 (resta aperto). Menu Start → OCR2 → «Disinstalla OCR2». Se chiede di eliminare anche i dati, rispondi **No**. Atteso: la disinstallazione si rifiuta con «**Chiudi la finestra di OCR2 (o usa Esci), attendi qualche secondo e riprova.**»; il programma e i dati restano. Poi premi **Esci** in OCR2.
 
 **14b.** Con OCR2 chiuso: «Disinstalla OCR2» → conferma. Alla domanda «Eliminare anche i dati di OCR2 (archivio e catalogo)?» premi **No**. Aspetta 15 secondi dopo che la finestra scompare.
 
@@ -290,5 +290,5 @@ Select-String -Path "<cartella>\confronto-completo.txt" -Pattern 'OCR2|\tD\tProg
 - **L'installazione dice «non è stato installato».** Copia il messaggio. Verifica `active.txt`: deve avere ancora la versione precedente (o non esistere se era la prima installazione). Non provare altre cartelle.
 - **Il percorso è troppo lungo / «File mancante».** Hai usato una cartella diversa dalla predefinita: disinstalla (se installato) e riparti con la cartella predefinita.
 - **L'app non si apre entro 30 secondi.** Annota cosa si vede (finestra bianca, pagina «OCR2 non si avvia» nel browser predefinito). Se OCR2 non riesce ad avviarsi mostra quella pagina, con il motivo in una riga; i dettagli sono nel file `%LOCALAPPDATA%\OCR2\logs\launcher.log` (aprilo con il Blocco note e copia nella matrice l'ultima voce). Guarda se in Gestione attività c'è `pythonw.exe` (se sì, `Get-Content "$env:LOCALAPPDATA\OCR2\instance.json"` dà la porta). Poi disinstalla seguendo il passo 14.
-- **Disinstallazione che sembra non fare nulla.** Il programma di disinstallazione ritorna subito: aspetta 15 secondi e ricontrolla. Se OCR2 è aperto compare «Chiudi OCR2 con Esci e riprova.»
+- **Disinstallazione che sembra non fare nulla.** Il programma di disinstallazione ritorna subito: aspetta 15 secondi e ricontrolla. Se OCR2 è aperto compare «Chiudi la finestra di OCR2 (o usa Esci), attendi qualche secondo e riprova.»
 - **Per fermare la prova a metà.** Esci con «Esci», poi vai al passo 16 e al passo 17 (impronta dopo).
