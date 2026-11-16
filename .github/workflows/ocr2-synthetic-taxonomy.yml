@@ -74,6 +74,7 @@ jobs:
           tests/test_app_window_routes.py
           tests/test_archive_backup.py
           tests/test_attached_currency_amounts.py
+          tests/test_build_payload.py
           tests/test_case_benchmark_fixtures.py
           tests/test_case_benchmark_score.py
           tests/test_case_export_reader.py
@@ -204,6 +205,7 @@ jobs:
           tests/test_app_window_routes.py
           tests/test_archive_backup.py
           tests/test_attached_currency_amounts.py
+          tests/test_build_payload.py
           tests/test_case_benchmark_fixtures.py
           tests/test_case_benchmark_score.py
           tests/test_case_export_reader.py
