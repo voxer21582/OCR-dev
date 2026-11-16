@@ -5,6 +5,8 @@ Layout of ``<out_dir>/<version>/``::
     python/                      CPython embeddable, python313._pth enables site and ..\\app
     python/Lib/site-packages/    wheels of the runtime lock (pip --target --no-deps --no-index --require-hashes)
     app/alfa_document_intelligence/   application sources only (no tests, no __pycache__)
+    sbom.cdx.json                CycloneDX 1.5 SBOM (installer/sbom.py)
+    THIRD_PARTY_NOTICES.txt      licence texts of every package (installer/notices.py)
     runtime-manifest.json        SHA-256 of every file, checked by the launcher at start-up
 
 The embeddable and the NSIS zip are pinned in ``installer/pins.json`` and fetched
@@ -48,6 +50,13 @@ try:
 except ImportError:  # run as a script from the repository
     sys.path.insert(0, str(REPOSITORY / "application" / "src"))
     from alfa_document_intelligence import runtime_manifest
+
+import _distinfo
+import notices
+import sbom
+
+SBOM_NAME = "sbom.cdx.json"
+NOTICES_NAME = "THIRD_PARTY_NOTICES.txt"
 
 FFMPEG_DLL_GLOB = "opencv_videoio_ffmpeg*.dll"
 _APP_IGNORED_DIRS = {"__pycache__", "tests"}
@@ -218,6 +227,7 @@ def build_payload(
     out_dir: Path,
     version: str,
     lock: Path = DEFAULT_LOCK,
+    pins: Path = DEFAULT_PINS,
 ) -> Path:
     """Assemble ``out_dir/<version>/`` and its runtime manifest; return that folder."""
     if not isinstance(version, str) or not _VERSION.fullmatch(version):
@@ -235,6 +245,11 @@ def build_payload(
         print(f"Rimosso (DEC-030): {removed}")
     copy_app(Path(app_src), target / "app" / Path(app_src).name)
     stamp_version(target / "app" / Path(app_src).name / "__init__.py", version)
+    try:
+        sbom.write_sbom(sbom.build_sbom(target, Path(lock), Path(pins)), target / SBOM_NAME)
+    except sbom.SbomError as exc:
+        raise BuildError(f"SBOM non costruibile: {exc}") from exc
+    notices.write_notices(notices.build_notices(target), target / NOTICES_NAME)  # LicenceTextMissingError: exit 3
     # No exclusions: a leftover FFmpeg DLL makes build_manifest raise.
     try:
         manifest = runtime_manifest.build_manifest(target, version=version, excluded_globs=())
@@ -279,7 +294,7 @@ def run(
     wheel_dir = Path(cache_dir) / "wheels"
     download_wheels(Path(lock), wheel_dir)
     return build_payload(
-        embeddable_zip=embeddable, wheel_dir=wheel_dir, app_src=app_src, out_dir=out_dir, version=version, lock=lock,
+        embeddable_zip=embeddable, wheel_dir=wheel_dir, app_src=app_src, out_dir=out_dir, version=version, lock=lock, pins=pins_path,
     )
 
 
@@ -293,6 +308,11 @@ def main(argv: list[str] | None = None) -> int:
         target = run(version=args.version, out_dir=args.out_dir, cache_dir=args.cache_dir)
     except PinMismatchError as exc:
         print(f"BLOCCATO: {exc}", file=sys.stderr)
+        return 3
+    except _distinfo.LicenceTextMissingError as exc:
+        print("BLOCCATO: pacchetti senza testo di licenza (decide il proprietario):", file=sys.stderr)
+        for package in exc.packages:
+            print(f"  - {package}", file=sys.stderr)
         return 3
     except BuildError as exc:
         print(f"Errore: {exc}", file=sys.stderr)

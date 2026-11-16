@@ -143,6 +143,7 @@ jobs:
           tests/test_review_ledger.py
           tests/test_review_ui.py
           tests/test_runtime_manifest.py
+          tests/test_sbom_and_notices.py
           tests/test_security_gate.py
           tests/test_semantic_failure_warning.py
           tests/test_semantic_proposals.py
@@ -274,6 +275,7 @@ jobs:
           tests/test_review_ledger.py
           tests/test_review_ui.py
           tests/test_runtime_manifest.py
+          tests/test_sbom_and_notices.py
           tests/test_security_gate.py
           tests/test_semantic_failure_warning.py
           tests/test_semantic_proposals.py

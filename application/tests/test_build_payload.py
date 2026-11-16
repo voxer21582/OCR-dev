@@ -35,6 +35,7 @@ def _embeddable(folder: Path) -> Path:
         archive.writestr("python313.dll", b"synthetic dll")
         archive.writestr("python313.zip", b"PK synthetic stdlib")
         archive.writestr("python313._pth", _ORIGINAL_PTH)
+        archive.writestr("LICENSE.txt", "PSF synthetic licence\n")
     return path
 
 
@@ -45,7 +46,8 @@ def _wheel(folder: Path) -> Path:
         "fakecv/__init__.py": b"VALUE = 1\n",
         "fakecv/opencv_videoio_ffmpeg4110_64.dll": b"ffmpeg",
         "fakecv/OPENCV_VIDEOIO_FFMPEG_UPPER.DLL": b"ffmpeg upper",
-        "fakecv-1.0.dist-info/METADATA": b"Metadata-Version: 2.1\nName: fakecv\nVersion: 1.0\n",
+        "fakecv-1.0.dist-info/METADATA": b"Metadata-Version: 2.1\nName: fakecv\nVersion: 1.0\nLicense: MIT\nLicense-File: LICENSE\n",
+        "fakecv-1.0.dist-info/licenses/LICENSE": b"Synthetic MIT text\n",
         "fakecv-1.0.dist-info/WHEEL": b"Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
         "fakecv-1.0.dist-info/entry_points.txt": b"[console_scripts]\nfakecv-tool = fakecv:VALUE\n",
     }
@@ -164,6 +166,15 @@ def test_tests_and_pycache_are_not_copied(built):
 def test_ffmpeg_dll_is_removed(built):
     names = [name.lower() for name in _files(built)]
     assert not [name for name in names if "opencv_videoio_ffmpeg" in name]
+
+
+def test_sbom_and_notices_are_in_the_version_folder_and_manifest(built):
+    manifest = json.loads((built / MANIFEST_NAME).read_text(encoding="utf-8"))
+    for name in ("sbom.cdx.json", "THIRD_PARTY_NOTICES.txt"):
+        assert (built / name).is_file() and name in manifest["files"]
+    assert "Synthetic MIT text" in (built / "THIRD_PARTY_NOTICES.txt").read_text(encoding="utf-8")
+    components = json.loads((built / "sbom.cdx.json").read_text(encoding="utf-8"))["components"]
+    assert any(c["name"] == "fakecv" for c in components)
 
 
 def test_manifest_matches_payload(built):
