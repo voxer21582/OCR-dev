@@ -427,3 +427,15 @@ def test_console_mode_errors_show_no_page(monkeypatch, _no_real_browser, tmp_pat
     with pytest.raises(SystemExit):
         launcher.main(["--port", "not-a-port"])
     assert _no_real_browser == [] and not (tmp_path / "OCR2").exists()
+
+
+def test_app_window_presence_uses_the_session_idle_time_for_restored_windows(monkeypatch, tmp_path):
+    # R41: the 30-minute session idle constant is reused, not duplicated.
+    from alfa_document_intelligence import local_intake_app
+
+    _opened, lifetimes, _served = _app_window_environment(monkeypatch, tmp_path)
+    server = _FakeServer()
+    server.shutdown = lambda: None
+    monkeypatch.setattr(launcher, "serve_expense_report_local", lambda **_kwargs: server)
+    launcher.main(["--app-window"])
+    assert lifetimes[0].presence._navigation_expiry == local_intake_app._SESSION_IDLE_SECONDS == 1800

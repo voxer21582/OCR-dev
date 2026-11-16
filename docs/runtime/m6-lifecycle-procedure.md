@@ -27,6 +27,7 @@ Limiti già noti (non sono errori, annotali se li vedi):
 
 - All'avvio OCR2 controlla tutti i suoi file: costa circa 4 secondi (a volte fino a 10). Lo trovi in «Informazioni» come `S s`.
 - I file non firmati fanno comparire l'avviso di Windows SmartScreen (vedi passo 2).
+- Se una finestra di OCR2 viene chiusa con la X proprio mentre si apre una pagina (entro 2 secondi da un clic), il programma può restare acceso fino a 30 minuti (il tempo di inattività della sessione) prima di fermarsi da solo.
 - Dopo «Esci» Edge può lasciare un suo processo in secondo piano (avvio rapido di Edge): è un comportamento di Edge, OCR2 non cambia le sue impostazioni (passo 7).
 - Il programma di disinstallazione si avvia e «ritorna subito»: la disinstallazione continua per qualche secondo dopo il suo avvio. Aspetta 15 secondi prima di controllare. Per **aspettare** davvero la fine (utile per vedere un rifiuto), da PowerShell: `& "$env:LOCALAPPDATA\Programs\OCR2\uninstall.exe" _?="$env:LOCALAPPDATA\Programs\OCR2"` (con `_?=` la cartella di installazione non viene cancellata a fine corsa: è normale).
 - Costruendo l'installer, `makensis` segnala l'avviso 9000 sul nome «setup» (Windows applica regole di compatibilità ai file con questo nome): è atteso. Con `/S` (silenzioso) i messaggi (per esempio «già installata» o «Chiudi OCR2 con Esci e riprova.») non si vedono: contano il codice di uscita (2) e lo stato delle cartelle.
@@ -116,9 +117,17 @@ Esito: ☐ OK ☐ NO — Versione: ______ Python: ______ N: ______ S: ______ s
 2. Aspetta **30 secondi** senza fare altro.
 3. Premi **Indietro** (Alt + freccia a sinistra).
 
-Si deve vedere la pagina dell'archivio che si ricarica e continua a rispondere (per esempio premi «Informazioni» e poi di nuovo Archivio). L'app **non deve essersi chiusa**. (Limite noto: restare più di 180 secondi sull'immagine può fermare l'app; qui non lo si fa.)
+Si deve vedere la pagina dell'archivio che si ricarica e continua a rispondere (per esempio premi «Informazioni» e poi di nuovo Archivio). L'app **non deve essersi chiusa**. (Sull'immagine si può restare fino a 30 minuti, il tempo di inattività della sessione; oltre, l'app può fermarsi.)
 
 Esito fascicolo/archivio: ☐ OK ☐ NO   Esito R14: ☐ app viva ☐ app chiusa — Note: ____________________
+
+## Passo 5b. Sospensione del PC con OCR2 aperto (R40)
+
+**Cosa fare.** Con la finestra di OCR2 aperta (pagina dell'archivio), metti il PC in sospensione: menu Start → Arresta → **Sospendi**. Aspetta **5 minuti**, poi riattiva il PC (tasto di accensione o un tasto della tastiera) e sblocca la sessione. Nella finestra di OCR2 premi un collegamento (per esempio «Informazioni», poi «Torna all'acquisizione temporanea»).
+
+**Cosa si deve vedere.** Le pagine si aprono: l'app **risponde** e non si è chiusa durante la sospensione. Se il PC non ha «Sospendi» (o va in ibernazione), annota cosa hai usato.
+
+Esito: ☐ app viva ☐ app chiusa — Durata della sospensione: ______ min. Note: ____________________
 
 ## Passo 6. «Esci»
 
@@ -280,6 +289,6 @@ Select-String -Path "<cartella>\confronto-completo.txt" -Pattern 'OCR2|\tD\tProg
 
 - **L'installazione dice «non è stato installato».** Copia il messaggio. Verifica `active.txt`: deve avere ancora la versione precedente (o non esistere se era la prima installazione). Non provare altre cartelle.
 - **Il percorso è troppo lungo / «File mancante».** Hai usato una cartella diversa dalla predefinita: disinstalla (se installato) e riparti con la cartella predefinita.
-- **L'app non si apre entro 30 secondi.** Annota cosa si vede (finestra bianca, pagina «OCR2 non si avvia» nel browser predefinito). Se OCR2 non riesce ad avviarsi mostra sempre quella pagina, con il motivo in una riga; i dettagli sono nel file `%LOCALAPPDATA%\OCR2\logs\launcher.log` (aprilo con il Blocco note e copia nella matrice l'ultima voce). Guarda se in Gestione attività c'è `pythonw.exe` (se sì, `Get-Content "$env:LOCALAPPDATA\OCR2\instance.json"` dà la porta). Poi disinstalla seguendo il passo 14.
+- **L'app non si apre entro 30 secondi.** Annota cosa si vede (finestra bianca, pagina «OCR2 non si avvia» nel browser predefinito). Se OCR2 non riesce ad avviarsi mostra quella pagina, con il motivo in una riga; i dettagli sono nel file `%LOCALAPPDATA%\OCR2\logs\launcher.log` (aprilo con il Blocco note e copia nella matrice l'ultima voce). Guarda se in Gestione attività c'è `pythonw.exe` (se sì, `Get-Content "$env:LOCALAPPDATA\OCR2\instance.json"` dà la porta). Poi disinstalla seguendo il passo 14.
 - **Disinstallazione che sembra non fare nulla.** Il programma di disinstallazione ritorna subito: aspetta 15 secondi e ricontrolla. Se OCR2 è aperto compare «Chiudi OCR2 con Esci e riprova.»
 - **Per fermare la prova a metà.** Esci con «Esci», poi vai al passo 16 e al passo 17 (impronta dopo).

@@ -21,7 +21,7 @@ from . import runtime_manifest
 from .app_instance import InstanceLock, acquire, running_instance
 from .app_lifetime import AppInfo, AppLifetime, WindowPresence
 from .app_window import open_window
-from .local_intake_app import serve_expense_report_local
+from .local_intake_app import _SESSION_IDLE_SECONDS, serve_expense_report_local
 from .local_document_store import LocalDocumentStore, StoreSchemaError
 from .local_document_store import _SCHEMA_VERSION as _SUPPORTED_ARCHIVE_SCHEMA
 from .document_decoder import DecodeLimits
@@ -433,7 +433,10 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status) -
     if args.app_window:
         server_holder = []
         # The guard thread stops the server; it starts only after the server exists.
-        app_lifetime = AppLifetime(WindowPresence(), lambda: server_holder[0].shutdown())
+        # R41: a window restored by navigation (e.g. the raw view of an original
+        # document) lives as long as the session idle time, not 180 s.
+        presence = WindowPresence(navigation_expiry_seconds=_SESSION_IDLE_SECONDS)
+        app_lifetime = AppLifetime(presence, lambda: server_holder[0].shutdown())
         instance_id = secrets.token_urlsafe(16)
         app_services = {
             "app_lifetime": app_lifetime,

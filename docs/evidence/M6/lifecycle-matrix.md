@@ -19,7 +19,8 @@ Modello da compilare dal proprietario dopo aver eseguito [`docs/runtime/m6-lifec
 | 2 | Firma | `verify-signature.ps1` sul setup: `Valid`, oppure «non firmato» + SmartScreen | | |
 | 3 | Installazione 0.6.0 | nessuna richiesta di amministratore; menu Start con 3 voci; `versions\0.6.0`, `active.txt` = `0.6.0`; nessun `opencv_videoio_ffmpeg*`; se firmato: `verify-signature.ps1` su `OCR2.exe` e `uninstall.exe` | | |
 | 4 | Avvio e «Informazioni» | finestra senza barra indirizzi; Versione 0.6.0, Python, Motore OCR, «verificato (N file, S s)» — N e S | | |
-| 5 | Fascicolo sintetico e Archivio | documento in archivio; R14: «Apri documento originale», 30 s, Indietro: app viva | | |
+| 5 | Fascicolo sintetico e Archivio | documento in archivio; R14: «Apri documento originale», 30 s, Indietro: app viva (limite: fino a 30 minuti sull'immagine, R41) | | |
+| 5b | Sospensione del PC (R40) | finestra aperta, PC in sospensione 5 minuti, riattivazione, clic su un collegamento: l'app risponde | | |
 | 6 | «Esci» | pagina «OCR2 si è chiuso»; finestra chiusa a mano con la X; `instance.json` assente entro ~15 s; nessun `pythonw.exe` | | |
 | 7 | Edge dopo «Esci» (R18) | dopo aver chiuso la finestra: processo `msedge.exe --no-startup-window` presente sì/no (limite di Edge, non di OCR2); nessun processo con `OCR2\edge-profile` | | |
 | 8 | Chiusura finestra e porta libera | porta letta da `instance.json`; secondi alla porta libera (soglia unica ≤ 190 s; nessuna riga `LISTENING`, `TIME_WAIT` normale) | | |

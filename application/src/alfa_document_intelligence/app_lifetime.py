@@ -11,11 +11,16 @@ orders of a navigation are treated as such: a closing that arrives at most
 ``navigation_window_seconds`` (2 s) after another request, and any other
 request that arrives within the closing grace after a closing, keep that window
 alive as if it had just sent a heartbeat.  So navigating to a page without the
-heartbeat script does not stop the server.  Limit: such a page (for example the
-raw view of an original document) keeps the server alive for at most the
-heartbeat expiry (180 s) after the navigation; the server then stops unless
-another window beats.  A window really closed within 2 s of a request likewise
-keeps the server alive for up to 180 s.
+heartbeat script does not stop the server.  A window kept alive this way expires
+only after ``navigation_expiry_seconds`` (the launcher passes the 30-minute
+session idle time, R41) until its next heartbeat brings it back to the normal
+180 s, so a page without the script (for example the raw view of an original
+document) can stay open as long as the session.  Limit: a window really closed
+within 2 s of a request likewise keeps the server alive for up to 30 minutes.
+
+The monotonic clock keeps counting while Windows sleeps or hibernates.  The
+guard thread treats one poll interval that took far longer than its period as
+a suspend and gives every window one more expiry period from the wake-up (R40).
 """
 from __future__ import annotations
 
@@ -61,9 +66,12 @@ class WindowPresence:
         closing_grace_seconds: float = 10.0,
         startup_grace_seconds: float = 120.0,
         navigation_window_seconds: float = 2.0,
+        navigation_expiry_seconds: float | None = None,
     ) -> None:
         self._clock = clock
         self._expiry = heartbeat_expiry_seconds
+        # R41: expiry of a window restored by a navigation, until its next heartbeat.
+        self._navigation_expiry = heartbeat_expiry_seconds if navigation_expiry_seconds is None else navigation_expiry_seconds
         self._closing_grace = closing_grace_seconds
         self._startup_grace = startup_grace_seconds
         self._navigation_window = navigation_window_seconds
@@ -76,12 +84,17 @@ class WindowPresence:
         self._last_activity: float | None = None
         self._pending_closing: dict[str, float] = {}
         self._last_request: float | None = None  # last activity(), not heartbeat/closing
+        self._restored: set[str] = set()  # windows restored by navigation (R41)
+
+    def now(self) -> float:
+        return self._clock()
 
     def heartbeat(self, window_id: str) -> None:
         _check_window_id(window_id)
         with self._lock:
             now = self._clock()
             self._pending_closing.pop(window_id, None)
+            self._restored.discard(window_id)
             self._last_beat[window_id] = now
             self._ever_seen = True
             self._last_beat_any = now
@@ -95,11 +108,13 @@ class WindowPresence:
                 # The next page was requested just before this pagehide: a navigation.
                 self._pending_closing.pop(window_id, None)
                 self._last_beat[window_id] = now
+                self._restored.add(window_id)
                 self._ever_seen = True
                 self._last_beat_any = now
                 self._last_activity = now
                 return
             self._last_beat.pop(window_id, None)
+            self._restored.discard(window_id)
             self._pending_closing[window_id] = now
             self._last_closing = now
             self._last_activity = now
@@ -115,6 +130,7 @@ class WindowPresence:
                 del self._pending_closing[window_id]
                 if 0 <= now - closed_at < self._closing_grace:
                     self._last_beat[window_id] = now
+                    self._restored.add(window_id)
                     restored = True
             if restored:
                 self._last_beat_any = now
@@ -122,7 +138,10 @@ class WindowPresence:
     def should_stop(self) -> bool:
         with self._lock:
             now = self._clock()
-            if any(now - beat < self._expiry for beat in self._last_beat.values()):
+            if any(
+                now - beat < (self._navigation_expiry if window_id in self._restored else self._expiry)
+                for window_id, beat in self._last_beat.items()
+            ):
                 return False
             if not self._ever_seen:
                 return now - self._started >= self._startup_grace
@@ -132,6 +151,28 @@ class WindowPresence:
                 return now - quiet_since >= self._closing_grace
             # All remaining windows went silent without closing.
             return True
+
+    def resume_after_suspend(self) -> None:
+        """After a sleep or hibernation: every window gets one more expiry period from now (R40).
+
+        Beats, pending closings and the quiet period restart from now; before any
+        window was seen, the startup grace does.
+        """
+        with self._lock:
+            now = self._clock()
+            for window_id in self._last_beat:
+                self._last_beat[window_id] = now
+            for window_id in self._pending_closing:
+                self._pending_closing[window_id] = now
+            # Keep which came last, a closing or a beat (should_stop decides on it).
+            if self._last_closing is not None and self._last_closing >= self._last_beat_any:
+                self._last_closing = now
+            elif self._ever_seen:
+                self._last_beat_any = now
+            if self._last_activity is not None:
+                self._last_activity = now
+            if not self._ever_seen:
+                self._started = now
 
 
 class AppLifetime:
@@ -147,6 +188,9 @@ class AppLifetime:
         self._presence = presence
         self._stop_server = stop_server
         self._poll = poll_seconds
+        # R40: one poll that took this long means the PC was suspended.
+        self._suspend_gap = max(30.0, 10 * poll_seconds)
+        self._last_poll = presence.now()
         self._exit = threading.Event()
         self._start_lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -160,6 +204,7 @@ class AppLifetime:
         with self._start_lock:
             if self._thread is not None:
                 return
+            self._last_poll = self._presence.now()
             self._thread = threading.Thread(target=self._guard, name="ocr2-app-lifetime", daemon=True)
             self._thread.start()
 
@@ -168,9 +213,17 @@ class AppLifetime:
         # server thread and shutdown() would deadlock.
         self._exit.set()
 
+    def _tick(self) -> bool:
+        """One guard poll: True when the server must stop."""
+        now = self._presence.now()
+        if now - self._last_poll > self._suspend_gap:
+            self._presence.resume_after_suspend()
+        self._last_poll = now
+        return self._presence.should_stop()
+
     def _guard(self) -> None:
         while not self._exit.wait(self._poll):
-            if self._presence.should_stop():
+            if self._tick():
                 break
         try:
             self._stop_server()

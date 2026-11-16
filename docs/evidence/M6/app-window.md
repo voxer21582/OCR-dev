@@ -121,8 +121,11 @@ Istruzioni:
    (il server non si è fermato). Ripetere premendo «Esci» alla fine: la
    finestra si chiude e il processo termina entro 15 s.
 
-Limite noto (R12/R14): restando sulla pagina del documento originale per più
-di 180 s il server può fermarsi.
+Limite noto (R12/R14, aggiornato da R41): una finestra ripristinata da una
+navigazione scade dopo il tempo di inattività della sessione (30 minuti) fino
+al suo heartbeat successivo; restando sulla pagina del documento originale per
+più di 30 minuti il server può fermarsi. Una finestra chiusa davvero entro 2 s
+da una richiesta può tenere acceso il server fino a 30 minuti.
 
 ## Pulizia
 
