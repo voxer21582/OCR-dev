@@ -164,6 +164,21 @@ def test_notices_include_opencv_itt_and_libtiff_licenses(tmp_path):
         notices.build_notices(tmp_path)
 
 
+def test_notices_include_clipper_attribution(tmp_path):
+    notices = _load('notices')
+    _dist(tmp_path, 'pyclipper')
+    metadata = tmp_path / 'python/Lib/site-packages/pyclipper-1.0.dist-info/METADATA'
+    metadata.write_text(metadata.read_text(encoding='utf-8').replace('Version: 1.0', 'Version: 1.4.0'), encoding='utf-8')
+    (tmp_path / 'python/LICENSE.txt').write_text('Python licence', encoding='utf-8')
+    result = notices.build_notices(tmp_path)
+    assert 'Clipper 6.4.2 (bundled with pyclipper)' in result
+    assert 'Angus Johnson 2010-2017' in result
+    assert 'Boost Software License - Version 1.0' in result
+    metadata.write_text(metadata.read_text(encoding='utf-8').replace('Version: 1.4.0', 'Version: 1.0'), encoding='utf-8')
+    with pytest.raises(ValueError, match='pyclipper.*licence inventory'):
+        notices.build_notices(tmp_path)
+
+
 def test_sbom_includes_native_dependencies_for_verified_python_build(tmp_path, monkeypatch):
     sbom = _load('sbom')
     monkeypatch.setattr(sbom, 'MODELS', {})
@@ -214,7 +229,8 @@ def test_sbom_includes_native_components_for_verified_pillow_wheel(tmp_path, mon
     ('shapely', '2.2.0', '1eaa2cb64cdedaf65d6bc86f2819c9cd7d6d68f969aa3ebfdc93743ab581f437', 'GEOS', '3.14.1'),
     ('pypdfium2', '5.15.2', '74d1bace34fb01c660d0b64344d5a4b7d276942b7c6623c88ab59ea21c5acfbd', 'PDFium', '159.0.8149.0'),
     ('opencv-python-headless', '5.0.0.93', '829717b6a95554f273e49e357cee3b3a2a26b6f4842fbc1bed2b45bdd8f87e0e', 'libprotobuf', '3.19.1'),
-], ids=['numpy', 'geos', 'pdfium', 'opencv'])
+    ('pyclipper', '1.4.0', 'd4b2d7c41086f1927d14947c563dfc7beed2f6c0d9af13c42fe3dcdc20d35832', 'Clipper', '6.4.2'),
+], ids=['numpy', 'geos', 'pdfium', 'opencv', 'clipper'])
 def test_sbom_identifies_verified_wheel_native_components(tmp_path, monkeypatch, package, version, digest, native, native_version):
     sbom = _load('sbom')
     monkeypatch.setattr(sbom, 'MODELS', {})

@@ -30,6 +30,14 @@ def build_notices(payload_root: Path) -> str:
     for dist in sorted(package_dir.glob('*.dist-info')):
         metadata = Parser().parsestr((dist / 'METADATA').read_text(encoding='utf-8'))
         name, version = metadata['Name'], metadata['Version']
+        if name.lower().replace('_', '-') == 'pyclipper':
+            if version != '1.4.0':
+                raise ValueError('pyclipper: unverified licence inventory')
+            licence = Path(__file__).parent / 'licenses' / 'clipper-boost-1.0.txt'
+            if not licence.is_file():
+                raise ValueError('Missing Clipper licence')
+            blocks.append('Clipper 6.4.2 (bundled with pyclipper)\n\n'
+                          'Copyright: Angus Johnson 2010-2017\n\n' + _text(licence))
         if name.lower().replace('_', '-') == 'opencv-python-headless':
             if version != '5.0.0.93':
                 raise ValueError('OpenCV: unverified licence inventory')
