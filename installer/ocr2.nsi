@@ -13,9 +13,21 @@ InstallDir "$LOCALAPPDATA\Programs\OCR2"
 !ifndef OCR2_OUTPUT
   !error "OCR2_OUTPUT must be supplied"
 !endif
+!ifndef OCR2_TEST
+  !ifndef OCR2_CERT_THUMBPRINT
+    !error "Release builds require the expected signing certificate thumbprint"
+  !endif
+  !system 'python -B "verify_payload.py" "${OCR2_PAYLOAD}"' = 0
+  !system 'pwsh.exe -NoProfile -NonInteractive -File "verify-runtime-signatures.ps1" -Payload "${OCR2_PAYLOAD}" -Thumbprint "${OCR2_CERT_THUMBPRINT}"' = 0
+!endif
 !ifdef OCR2_SIGN_COMMAND
-  !uninstfinalize '${OCR2_SIGN_COMMAND} "%1"' = 0
-  !finalize '${OCR2_SIGN_COMMAND} "%1"' = 0
+  !ifdef OCR2_TEST
+    !uninstfinalize '${OCR2_SIGN_COMMAND} "%1"' = 0
+    !finalize '${OCR2_SIGN_COMMAND} "%1"' = 0
+  !else
+    !uninstfinalize '${OCR2_SIGN_COMMAND} "%1" && pwsh.exe -NoProfile -NonInteractive -File "verify-signature.ps1" -Installer "%1" -ExpectedThumbprint "${OCR2_CERT_THUMBPRINT}"' = 0
+    !finalize '${OCR2_SIGN_COMMAND} "%1" && pwsh.exe -NoProfile -NonInteractive -File "verify-signature.ps1" -Installer "%1" -ExpectedThumbprint "${OCR2_CERT_THUMBPRINT}"' = 0
+  !endif
 !else
   !ifndef OCR2_TEST
     !error "Release builds require signing"

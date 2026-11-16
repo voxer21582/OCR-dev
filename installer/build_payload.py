@@ -88,7 +88,7 @@ def _install_wheels(wheel_dir: Path, lock_path: Path, target: Path) -> None:
 def _verify_runtime_signature(path: Path, thumbprint: str) -> None:
     """Independently reject absent, invalid or untimestamped Authenticode signatures."""
     verifier = Path(__file__).with_name("verify-signature.ps1")
-    result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-File",
+    result = subprocess.run(["pwsh.exe", "-NoProfile", "-NonInteractive", "-File",
                              str(verifier), "-Installer", str(path), "-ExpectedThumbprint", thumbprint], check=False)
     if result.returncode:
         raise PayloadBuildError("Runtime signature verification failed")

@@ -229,3 +229,25 @@ def test_runtime_signature_verifier_checks_expected_thumbprint_and_fails_closed(
     with pytest.raises(builder.PayloadBuildError, match='signature verification'):
         builder._verify_runtime_signature(tmp_path / 'python.exe', 'a'*40)
     assert calls[0][-2:] == ['-ExpectedThumbprint', 'a'*40]
+
+
+def test_release_signature_gate_uses_the_same_local_binary_inventory():
+    import re
+    builder = _builder()
+    gate = (Path(__file__).resolve().parents[2] / 'installer/verify-runtime-signatures.ps1').read_text(encoding='utf-8')
+    array = gate.split('$names = @(', 1)[1].split(')', 1)[0]
+    assert set(re.findall(r"'([^']+)'", array)) == set(builder.LOCAL_RUNTIME_BINARIES)
+
+
+def test_release_payload_verifier_rejects_tampering(tmp_path):
+    import subprocess, sys
+    from alfa_document_intelligence.runtime_manifest import build_manifest
+    payload = tmp_path / 'payload'
+    for name in ('python/python.exe', 'python/pythonw.exe', 'python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
+        f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'original')
+    manifest = build_manifest(payload, version='0.6.0', excluded_globs=())
+    (payload / 'runtime-manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+    script = Path(__file__).resolve().parents[2] / 'installer/verify_payload.py'
+    assert subprocess.run([sys.executable, '-B', str(script), str(payload)], capture_output=True).returncode == 0
+    (payload / 'app/alfa_document_intelligence/__init__.py').write_bytes(b'tampered')
+    assert subprocess.run([sys.executable, '-B', str(script), str(payload)], capture_output=True).returncode != 0

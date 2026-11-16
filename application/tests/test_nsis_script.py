@@ -75,3 +75,10 @@ def test_launch_and_rollback_find_a_verified_runtime():
     assert 'Push "active"' in script
     assert 'Push "rollback"' in script
     assert script.count('Call un.RunVersionCommand') >= 2
+
+
+def test_release_installer_requires_runtime_signature_gate():
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    assert '!ifndef OCR2_CERT_THUMBPRINT' in script
+    assert 'verify-runtime-signatures.ps1' in script
+    assert '!system' in script
