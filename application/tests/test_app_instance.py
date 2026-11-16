@@ -36,6 +36,20 @@ def test_launcher_refuses_orphaned_installation_child(tmp_path):
         finally:
             app_instance._unlock(handle)
 
+
+def test_acquire_rejects_reparse_lock_file(tmp_path, monkeypatch):
+    import stat
+    from types import SimpleNamespace
+    lock_path = tmp_path / 'OCR2.instance.lock'
+    lock_path.write_bytes(b'')
+    original = Path.lstat
+    def fake_lstat(path):
+        if path == lock_path:
+            return SimpleNamespace(st_mode=stat.S_IFREG, st_file_attributes=0x400)
+        return original(path)
+    monkeypatch.setattr(Path, 'lstat', fake_lstat)
+    assert app_instance.acquire(tmp_path / 'OCR2') is None
+
 _HOLDER = """
 import sys
 from pathlib import Path

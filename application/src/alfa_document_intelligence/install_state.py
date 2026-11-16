@@ -11,7 +11,7 @@ import secrets
 import shutil
 import tempfile
 
-from .runtime_manifest import verify_installation
+from .runtime_manifest import _linked, verify_installation
 from .app_instance import _lock, _unlock
 
 
@@ -49,7 +49,7 @@ def _process_start(pid: int) -> int:
 
 @contextmanager
 def _file_lock(path: Path):
-    if path.is_symlink() or getattr(path, 'is_junction', lambda: False)():
+    if _linked(path):
         raise InstallStateError('Linked lock is not allowed')
     with path.open('a+b') as handle:
         try:
@@ -64,7 +64,7 @@ def _file_lock(path: Path):
 
 @contextmanager
 def _transaction(base: Path):
-    if base.is_symlink() or getattr(base, 'is_junction', lambda: False)():
+    if _linked(base):
         raise InstallStateError('Linked installation directory is not allowed')
     base.mkdir(parents=True, exist_ok=True)
     child_lock = base / '.child.lock'
@@ -125,7 +125,7 @@ def _check(base: Path, version: str) -> None:
     version = _version(version)
     versions = base / 'versions'
     root = versions / version
-    if any(p.is_symlink() or getattr(p, 'is_junction', lambda: False)() for p in (base, versions, root)):
+    if any(_linked(p) for p in (base, versions, root)):
         raise InstallStateError('Linked installation directories are not allowed')
     _check_root(root, version)
 
@@ -144,14 +144,14 @@ def _check_root(root: Path, version: str) -> None:
 
 def _check_stage(base: Path, version: str, staged: Path) -> None:
     staging, versions, quarantine = base / 'staging', base / 'versions', base / 'quarantine'
-    if any(p.is_symlink() or getattr(p, 'is_junction', lambda: False)() for p in (base, staging, staged, versions, quarantine)):
+    if any(_linked(p) for p in (base, staging, staged, versions, quarantine)):
         raise InstallStateError('Linked installation directories are not allowed')
     if staged.resolve().parent != staging.resolve() or not staged.is_dir():
         raise InstallStateError('Invalid staging directory')
     _check_root(staged, version)
     state = _read(base)
     target = versions / version
-    if target.is_symlink() or getattr(target, 'is_junction', lambda: False)():
+    if _linked(target):
         raise InstallStateError('Linked candidate is not allowed')
     if target.exists() and version in (state['active'], state['previous']):
         try:
@@ -232,13 +232,13 @@ def _prune_locked(base: Path) -> list[str]:
     if state['active'] is None:
         raise InstallStateError('No active version')
     versions = base / 'versions'
-    if any(p.is_symlink() or getattr(p, 'is_junction', lambda: False)() for p in (base, versions)):
+    if any(_linked(p) for p in (base, versions)):
         raise InstallStateError('Linked installation directories are not allowed')
     keep = {state['active'], state['previous']}
     entries = sorted(versions.iterdir())
     for entry in entries:
         _version(entry.name)
-        if entry.is_symlink() or getattr(entry, 'is_junction', lambda: False)() or not entry.is_dir():
+        if _linked(entry) or not entry.is_dir():
             raise InstallStateError('Invalid version directory')
     removed = []
     for entry in entries:
@@ -253,7 +253,7 @@ def cleanup_debris(base: Path) -> None:
     with _transaction(base):
         roots = [base / 'staging', base / 'quarantine']
         for root in [base, *roots]:
-            if root.is_symlink() or getattr(root, 'is_junction', lambda: False)():
+            if _linked(root):
                 raise InstallStateError('Linked cleanup directory is not allowed')
         def fail(error):
             raise error
@@ -265,7 +265,7 @@ def cleanup_debris(base: Path) -> None:
             for current, dirs, files in os.walk(root, followlinks=False, onerror=fail):
                 for name in dirs + files:
                     entry = Path(current) / name
-                    if entry.is_symlink() or getattr(entry, 'is_junction', lambda: False)():
+                    if _linked(entry):
                         raise InstallStateError('Linked cleanup entry is not allowed')
         for root in roots:
             if root.exists():

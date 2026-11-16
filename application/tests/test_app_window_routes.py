@@ -302,6 +302,93 @@ def test_script_tag_parser_handles_uppercase():
     assert _script_start_tags('<SCRIPT nonce="x"></SCRIPT>') == ['<SCRIPT nonce="x">']
 
 
+def test_downloaded_html_does_not_include_session_controls_or_token(lifetime):
+    from alfa_document_intelligence.local_intake_app import _page
+    app_lifetime, _ = lifetime
+    environ = {'_ocr2_app_lifetime': app_lifetime, '_ocr2_csrf_token': 'synthetic-session-token'}
+    body = '<html><main><form method="post"></form></main></html>'
+    headers = {}
+    payload = b''.join(_page(environ, lambda status, fields: headers.update(dict(fields)), '200 OK', body,
+                             download_filename='export.html')).decode('utf-8')
+    assert payload == body
+    assert 'synthetic-session-token' not in payload
+    assert '/app/exit' not in payload
+    assert headers['Content-Disposition'] == 'attachment; filename="export.html"'
+
+
+def test_info_probe_does_not_revive_closed_window():
+    clock = _FakeClock()
+    presence = WindowPresence(clock)
+    app = create_expense_report_app(app_lifetime=AppLifetime(presence, _StopRecorder()))
+    try:
+        _, _, page = _invoke(app, 'GET', '/')
+        _invoke(app, 'GET', '/app/heartbeat', query='w=finestra')
+        clock.now += 3
+        _invoke(app, 'POST', '/app/closing', body=urlencode({'w': 'finestra', '_ocr2_csrf': _token(page)}).encode())
+        before = presence._last_activity
+        clock.now += 2
+        _invoke(app, 'GET', '/app/info', query='probe=1')
+        assert presence._last_activity == before
+        clock.now += 8
+        assert presence.should_stop()
+    finally:
+        app.close()
+
+
+def test_info_probe_before_closing_does_not_look_like_navigation():
+    clock = _FakeClock()
+    presence = WindowPresence(clock)
+    app = create_expense_report_app(app_lifetime=AppLifetime(presence, _StopRecorder()))
+    try:
+        _, _, page = _invoke(app, 'GET', '/')
+        _invoke(app, 'GET', '/app/heartbeat', query='w=finestra')
+        clock.now += 30
+        _invoke(app, 'GET', '/app/info', query='probe=1')
+        clock.now += 1
+        _invoke(app, 'POST', '/app/closing', body=urlencode({'w': 'finestra', '_ocr2_csrf': _token(page)}).encode())
+        clock.now += 10
+        assert presence.should_stop()
+    finally:
+        app.close()
+
+
+def test_navigating_to_info_keeps_window_alive():
+    clock = _FakeClock()
+    presence = WindowPresence(clock)
+    app = create_expense_report_app(app_lifetime=AppLifetime(presence, _StopRecorder()))
+    try:
+        _, _, page = _invoke(app, 'GET', '/')
+        _invoke(app, 'GET', '/app/heartbeat', query='w=finestra')
+        clock.now += 30
+        _invoke(app, 'GET', '/app/info')
+        clock.now += 1
+        _invoke(app, 'POST', '/app/closing', body=urlencode({'w': 'finestra', '_ocr2_csrf': _token(page)}).encode())
+        clock.now += 30
+        assert not presence.should_stop()
+    finally:
+        app.close()
+
+
+def test_original_document_in_app_mode_keeps_heartbeat_and_raw_response(app_mode):
+    from test_local_intake_app import NOTE, _multipart, _zip_bytes
+    app, _, _ = app_mode
+    body, content_type = _multipart('synthetic.zip', _zip_bytes())
+    status, _, _ = _invoke(app, 'POST', '/upload', body=body, content_type=content_type)
+    assert status.startswith('200')
+    status, _, _ = _invoke(app, 'POST', '/assign-note', body=urlencode({'note_document_id': 'doc-001'}).encode())
+    assert status.startswith('200')
+    status, headers, page = _invoke(app, 'GET', '/reviews/doc-001/source')
+    assert status.startswith('200')
+    assert '<iframe' in page and '/reviews/doc-001/source?raw=1' in page
+    assert 'width: 100%' in page and 'height: 75vh' in page
+    assert '/app/heartbeat' in page
+    assert "frame-src 'self'" in headers['Content-Security-Policy']
+    status, headers, raw = _invoke(app, 'GET', '/reviews/doc-001/source', query='raw=1')
+    assert status.startswith('200') and headers['Content-Type'] == 'application/pdf'
+    assert raw.encode() == NOTE
+    assert "sandbox" in headers['Content-Security-Policy']
+
+
 class _FakeClock:
     def __init__(self) -> None:
         self.now = 1000.0

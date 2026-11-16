@@ -20,20 +20,31 @@ class RuntimeVerification:
     seconds: float
 
 
+def _linked(path: Path) -> bool:
+    if path.is_symlink() or getattr(path, 'is_junction', lambda: False)():
+        return True
+    try:
+        return bool(getattr(path.lstat(), 'st_file_attributes', 0) & 0x400)
+    except FileNotFoundError:
+        return False
+
+
 def _inventory(root: Path, excluded_globs) -> dict:
     result = {}
+    if _linked(root):
+        raise ValueError('symbolic links or reparse points are not allowed')
     def fail(error):
         raise error
     for directory in ("app", "python"):
         base = root / directory
-        if base.is_symlink() or getattr(base, "is_junction", lambda: False)():
+        if _linked(base):
             raise ValueError("symbolic links are not allowed")
         if not base.is_dir():
             raise ValueError("payload directory missing")
         for current, dirs, files in os.walk(base, followlinks=False, onerror=fail):
             for name in dirs + files:
                 path = Path(current) / name
-                if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+                if _linked(path):
                     raise ValueError("symbolic links are not allowed")
             for name in files:
                 path = Path(current) / name
@@ -49,7 +60,7 @@ def _inventory(root: Path, excluded_globs) -> dict:
                 result[relative] = {"sha256": digest.hexdigest(), "size": size}
     for name in _ROOT_FILES:
         path = root / name
-        if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+        if _linked(path):
             raise ValueError("symbolic links are not allowed")
         if path.exists():
             if not path.is_file():
@@ -71,6 +82,8 @@ def verify_installation(root: Path, manifest_path: Path) -> RuntimeVerification:
     start = time.monotonic()
     problems = []
     try:
+        if _linked(Path(root)) or _linked(Path(manifest_path)):
+            raise ValueError('symbolic links or reparse points are not allowed')
         manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
         if (not isinstance(manifest, dict) or manifest.get("format") != 1
                 or not isinstance(manifest.get("version"), str) or not manifest["version"]

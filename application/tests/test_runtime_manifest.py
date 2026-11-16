@@ -30,6 +30,40 @@ def test_manifest_detects_changed_root_notices(tmp_path):
     assert not verify_installation(tmp_path, path).ok
 
 
+def test_manifest_rejects_other_windows_reparse_points(tmp_path, monkeypatch):
+    import stat
+    from types import SimpleNamespace
+    _required_payload(tmp_path)
+    entry = tmp_path / 'python' / 'python.exe'
+    original = Path.lstat
+    def fake_lstat(path):
+        if path == entry:
+            return SimpleNamespace(st_mode=stat.S_IFREG, st_file_attributes=0x400)
+        return original(path)
+    monkeypatch.setattr(Path, 'lstat', fake_lstat)
+    with pytest.raises(ValueError, match='links|reparse'):
+        build_manifest(tmp_path, version='1', excluded_globs=())
+
+
+@pytest.mark.parametrize('target_name', ['root', 'manifest'])
+def test_verification_rejects_reparse_root_and_manifest(tmp_path, monkeypatch, target_name):
+    import stat
+    from types import SimpleNamespace
+    _required_payload(tmp_path)
+    manifest = build_manifest(tmp_path, version='1', excluded_globs=())
+    path = tmp_path / 'runtime-manifest.json'
+    path.write_text(json.dumps(manifest), encoding='utf-8')
+    target = tmp_path if target_name == 'root' else path
+    original = Path.lstat
+    def fake_lstat(item):
+        if item == target:
+            mode = stat.S_IFDIR if target_name == 'root' else stat.S_IFREG
+            return SimpleNamespace(st_mode=mode, st_file_attributes=0x400)
+        return original(item)
+    monkeypatch.setattr(Path, 'lstat', fake_lstat)
+    assert not verify_installation(tmp_path, path).ok
+
+
 def test_manifest_detects_changed_missing_extra_and_forbidden_files(tmp_path):
     _required_payload(tmp_path)
     (tmp_path / "app" / "a.py").write_bytes(b"original")

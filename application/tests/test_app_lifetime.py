@@ -24,6 +24,28 @@ def _presence():
     return clock, WindowPresence(clock)
 
 
+def test_guard_preserves_window_after_long_suspend():
+    clock, presence = _presence()
+    presence.heartbeat('window')
+    lifetime = AppLifetime(presence, lambda: None, poll_seconds=1)
+    clock.advance(600)
+    assert not lifetime._tick()
+    clock.advance(60)
+    assert not lifetime._tick()
+
+
+def test_guard_still_stops_after_normal_closing_grace():
+    clock, presence = _presence()
+    presence.heartbeat('window')
+    presence.closing('window')
+    lifetime = AppLifetime(presence, lambda: None, poll_seconds=1)
+    for _ in range(9):
+        clock.advance(1)
+        assert not lifetime._tick()
+    clock.advance(1)
+    assert lifetime._tick()
+
+
 def test_no_window_ever_stops_after_startup_grace():
     clock, presence = _presence()
     clock.advance(119)
@@ -196,12 +218,13 @@ def test_request_exit_stops_once():
 
 
 def test_guard_thread_stops_server_when_presence_says_so():
-    clock, presence = _presence()
+    clock = _Clock()
+    presence = WindowPresence(clock, startup_grace_seconds=1)
     calls = []
     lifetime = AppLifetime(presence, lambda: calls.append(1), poll_seconds=0.01)
     lifetime.start()
     assert not lifetime.stopped.wait(0.1)
-    clock.advance(500)
+    clock.advance(2)
     assert lifetime.stopped.wait(2.0)
     assert calls == [1]
 

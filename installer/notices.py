@@ -1,6 +1,7 @@
 """Collect attribution texts from installed package metadata."""
 from email.parser import Parser
-from pathlib import Path
+import csv
+from pathlib import Path, PurePosixPath
 
 
 def _text(path: Path) -> str:
@@ -30,6 +31,32 @@ def build_notices(payload_root: Path) -> str:
             paths.append(candidate)
         if not paths:
             paths = sorted(p for p in dist.rglob('*') if p.is_file() and p.name.upper().startswith(('LICENSE', 'LICENCE', 'COPYING')))
+        record = dist / 'RECORD'
+        if record.is_file():
+            with record.open(encoding='utf-8', newline='') as stream:
+                for row in csv.reader(stream):
+                    if not row:
+                        continue
+                    raw = row[0]
+                    name_part = PurePosixPath(raw).name.lower()
+                    suffix = PurePosixPath(raw).suffix.lower()
+                    if not any(word in name_part for word in ('license', 'licence', 'notice', 'copying')) or suffix not in ('', '.txt', '.md', '.rst', '.ijg'):
+                        continue
+                    parts = PurePosixPath(raw).parts
+                    if not parts or raw.startswith('/') or '\\' in raw or ':' in raw or any(p in ('.', '..') for p in parts):
+                        raise ValueError(f'{name}: unsafe licence path')
+                    candidate = package_dir.joinpath(*parts)
+                    if not candidate.resolve().is_relative_to(package_dir.resolve()) or not candidate.is_file():
+                        raise ValueError(f'{name}: unsafe or missing licence path')
+                    paths.append(candidate)
+        if name.lower().replace('_', '-') == 'rapidocr':
+            model_candidates = (dist / 'licenses' / 'MODEL_LICENSES.md', dist / 'MODEL_LICENSES.md',
+                                package_dir / 'rapidocr' / 'MODEL_LICENSES.md')
+            model = next((p for p in model_candidates if p.is_file() and p.resolve().is_relative_to(package_dir.resolve())), None)
+            if model is None:
+                raise ValueError('rapidocr: missing model licence text')
+            paths.append(model)
+        paths = sorted(set(paths))
         if not paths:
             fallback = Path(__file__).parent / 'licenses' / f'{name.lower()}-{version}.txt'
             if fallback.is_file():

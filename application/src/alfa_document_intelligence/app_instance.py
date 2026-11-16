@@ -20,6 +20,8 @@ import time
 from typing import BinaryIO
 from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
 
+from .runtime_manifest import _linked
+
 LOCK_NAME = "instance.lock"
 INSTANCE_NAME = "instance.json"
 _MAX_INSTANCE_FILE_BYTES = 4096
@@ -95,6 +97,8 @@ def acquire(data_dir: Path) -> InstanceLock | None:
     data_dir = Path(data_dir)
     data_dir.parent.mkdir(parents=True, exist_ok=True)
     lock_path = data_dir.parent / (data_dir.name + ".instance.lock")
+    if _linked(lock_path):
+        return None
     handle = open(lock_path, "a+b")
     try:
         _lock(handle)
@@ -103,7 +107,7 @@ def acquire(data_dir: Path) -> InstanceLock | None:
         return None
     child_lock = data_dir.parent / 'Programs' / 'OCR2' / '.child.lock'
     try:
-        if child_lock.is_symlink() or getattr(child_lock, 'is_junction', lambda: False)():
+        if _linked(child_lock):
             raise OSError('invalid child lock')
         if child_lock.exists():
             with child_lock.open('r+b') as child_handle:
@@ -158,7 +162,7 @@ def running_instance(data_dir: Path, timeout: float = 2.0) -> int | None:
     # follow a redirect: only the published port itself can confirm the id.
     opener = build_opener(ProxyHandler({}), _NoRedirect())
     try:
-        with opener.open(f"http://127.0.0.1:{port}/app/info", timeout=timeout) as response:
+        with opener.open(f"http://127.0.0.1:{port}/app/info?probe=1", timeout=timeout) as response:
             if response.status != 200:
                 return None
             body = response.read(_MAX_INFO_BYTES)

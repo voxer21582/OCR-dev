@@ -119,6 +119,31 @@ class WindowPresence:
             if restored:
                 self._last_beat_any = now
 
+    def navigation_request(self) -> None:
+        """Mark a possible navigation without reviving a closing window."""
+        with self._lock:
+            self._last_request = self._clock()
+
+    def now(self) -> float:
+        return self._clock()
+
+    def resume_after_suspend(self) -> None:
+        """Restart grace periods after the guard has been suspended."""
+        with self._lock:
+            now = self._clock()
+            for window_id in self._last_beat:
+                self._last_beat[window_id] = now
+            for window_id in self._pending_closing:
+                self._pending_closing[window_id] = now
+            if self._last_closing is not None and self._last_closing >= self._last_beat_any:
+                self._last_closing = now
+            elif self._ever_seen:
+                self._last_beat_any = now
+            if self._last_activity is not None:
+                self._last_activity = now
+            if not self._ever_seen:
+                self._started = now
+
     def should_stop(self) -> bool:
         with self._lock:
             now = self._clock()
@@ -147,6 +172,8 @@ class AppLifetime:
         self._presence = presence
         self._stop_server = stop_server
         self._poll = poll_seconds
+        self._suspend_gap = max(30.0, 10 * poll_seconds)
+        self._last_poll = presence.now()
         self._exit = threading.Event()
         self._start_lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -160,6 +187,7 @@ class AppLifetime:
         with self._start_lock:
             if self._thread is not None:
                 return
+            self._last_poll = self._presence.now()
             self._thread = threading.Thread(target=self._guard, name="ocr2-app-lifetime", daemon=True)
             self._thread.start()
 
@@ -168,9 +196,16 @@ class AppLifetime:
         # server thread and shutdown() would deadlock.
         self._exit.set()
 
+    def _tick(self) -> bool:
+        now = self._presence.now()
+        if now - self._last_poll > self._suspend_gap:
+            self._presence.resume_after_suspend()
+        self._last_poll = now
+        return self._presence.should_stop()
+
     def _guard(self) -> None:
         while not self._exit.wait(self._poll):
-            if self._presence.should_stop():
+            if self._tick():
                 break
         try:
             self._stop_server()

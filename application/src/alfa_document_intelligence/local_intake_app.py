@@ -405,11 +405,13 @@ def _app_window_form(environ: dict[str, Any], csrf_token: str) -> dict[str, list
 def _page(
     environ: dict[str, Any], start_response: Callable, status: str, body: str,
     content_type: str = "text/html; charset=utf-8", *, download_filename: str | None = None,
+    allow_source_frame: bool = False,
 ) -> list[bytes]:
     nonce = secrets.token_urlsafe(18)
     app_controls = (
         environ.get("_ocr2_app_lifetime") is not None
         and content_type.split(";", 1)[0].strip().lower() == "text/html"
+        and download_filename is None
     )
     if app_controls:
         # Before the CSRF field and nonce passes below, so the exit form gets
@@ -418,24 +420,27 @@ def _page(
         body = body + _APP_CONTROLS if marker < 0 else body[:marker] + _APP_CONTROLS + body[marker:]
     token = str(environ.get("_ocr2_csrf_token", ""))
     csrf_field = f'<input type="hidden" name="_ocr2_csrf" value="{escape(token, quote=True)}">'
-    body = re.sub(
-        r'(<form\b(?=[^>]*\bmethod\s*=\s*["\']?post\b)[^>]*>)',
-        lambda match: match.group(1) + csrf_field,
-        body,
-        flags=re.IGNORECASE,
-    )
-    payload = body.replace('nonce="__CSP_NONCE__"', f'nonce="{nonce}"').encode("utf-8")
+    if download_filename is None:
+        body = re.sub(
+            r'(<form\b(?=[^>]*\bmethod\s*=\s*["\']?post\b)[^>]*>)',
+            lambda match: match.group(1) + csrf_field,
+            body,
+            flags=re.IGNORECASE,
+        )
+    rendered = body.replace('nonce="__CSP_NONCE__"', f'nonce="{nonce}"') if download_filename is None else body
+    payload = rendered.encode("utf-8")
     has_region_editor = 'data-region-image' in body
     inline_style_nonce = '<style nonce="__CSP_NONCE__">' in body
     style_policy = f"style-src 'self' 'nonce-{nonce}'; " if inline_style_nonce else "style-src 'self'; "
     image_policy = "img-src 'self'; " if has_region_editor else ""
     connect_policy = "connect-src 'self'; " if app_controls else ""
+    frame_policy = "frame-src 'self'; " if allow_source_frame else ""
     headers = [
         ("Content-Type", content_type),
         ("Content-Length", str(len(payload))),
         ("Cache-Control", "no-store"),
         ("X-Content-Type-Options", "nosniff"),
-        ("Content-Security-Policy", f"default-src 'none'; {style_policy}{image_policy}{connect_policy}script-src 'nonce-{nonce}'; base-uri 'none'; frame-ancestors 'none'"),
+        ("Content-Security-Policy", f"default-src 'none'; {style_policy}{image_policy}{connect_policy}{frame_policy}script-src 'nonce-{nonce}'; base-uri 'none'; frame-ancestors 'none'"),
         ("Referrer-Policy", "no-referrer"),
     ]
     if download_filename is not None:
@@ -2044,7 +2049,11 @@ def create_expense_report_app(
         environ["_ocr2_csrf_token"] = csrf_token
         if _loopback_host_parts(environ.get("HTTP_HOST", "")) is None:
             return _page(environ, start_response, "403 Forbidden", "Richiesta locale non valida")
-        if app_lifetime is not None and environ.get("PATH_INFO", "") not in {"/app/heartbeat", "/app/closing"}:
+        if app_lifetime is not None and environ.get("PATH_INFO", "") == "/app/info" and environ.get("QUERY_STRING", "") == "probe=1":
+            pass
+        elif app_lifetime is not None and environ.get("PATH_INFO", "") == "/app/info":
+            app_lifetime.presence.navigation_request()
+        elif app_lifetime is not None and environ.get("PATH_INFO", "") not in {"/app/heartbeat", "/app/closing"}:
             # The window routes record their own signal; a closing beacon must
             # not count as the request that restores the window it closes.
             app_lifetime.presence.activity()
@@ -3169,6 +3178,19 @@ def create_expense_report_app(
                         or session.intake.documents.get(document_id) is not record
                         or session.intake.source_bytes.get(document_id) != source_bytes):
                     return _page(environ, start_response, "409 Conflict", "Documento o sessione modificati")
+                if (app_lifetime is not None and environ.get('QUERY_STRING', '') != 'raw=1'
+                        and captured['status'].startswith('200')):
+                    safe_id = escape(quote(document_id, safe=''), quote=True)
+                    wrapper = ('<!doctype html><html lang="it"><meta charset="utf-8">'
+                               '<title>Documento originale</title>'
+                               '<style nonce="__CSP_NONCE__">iframe { width: 100%; height: 75vh; border: 0; }</style>'
+                               '<main><h1>Documento originale</h1>'
+                               f'<iframe title="Documento originale" src="/reviews/{safe_id}/source?raw=1"></iframe>'
+                               '</main></html>')
+                    close_response = getattr(response, 'close', None)
+                    if callable(close_response):
+                        close_response()
+                    return _page(environ, start_response, '200 OK', wrapper, allow_source_frame=True)
                 start_response(captured["status"], captured["headers"])
                 return response
         if method == "GET" and path.startswith("/reviews/") and state is not None and state.intake is not None:

@@ -53,6 +53,21 @@ def test_rejects_unsafe_version(tmp_path):
         install_state.activate(tmp_path, '../outside')
 
 
+def test_rejects_non_symlink_reparse_install_root(tmp_path, monkeypatch):
+    import stat
+    from pathlib import Path
+    from types import SimpleNamespace
+    _version(tmp_path, '0.6.0')
+    original = Path.lstat
+    def fake_lstat(path):
+        if path == tmp_path:
+            return SimpleNamespace(st_mode=stat.S_IFDIR, st_file_attributes=0x400)
+        return original(path)
+    monkeypatch.setattr(Path, 'lstat', fake_lstat)
+    with pytest.raises(install_state.InstallStateError, match='Linked'):
+        install_state.activate(tmp_path, '0.6.0')
+
+
 def test_prune_preserves_active_and_previous(tmp_path):
     for version in ('0.5.0', '0.6.0', '0.6.1'):
         _version(tmp_path, version)

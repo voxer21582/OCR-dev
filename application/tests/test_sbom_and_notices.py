@@ -49,6 +49,38 @@ def test_notices_reads_windows_legacy_license_text(tmp_path):
     assert 'Copyright ©' in notices.build_notices(tmp_path)
 
 
+def test_notices_include_package_level_third_party_notices(tmp_path):
+    notices = _load('notices')
+    _dist(tmp_path)
+    site = tmp_path / 'python/Lib/site-packages'
+    (site / 'sample').mkdir()
+    (site / 'sample/ThirdPartyNotices.txt').write_text('Synthetic third-party notice', encoding='utf-8')
+    (site / 'sample-1.0.dist-info/RECORD').write_text('sample/ThirdPartyNotices.txt,,\n', encoding='utf-8')
+    (tmp_path / 'python/LICENSE.txt').write_text('Python licence', encoding='utf-8')
+    assert 'Synthetic third-party notice' in notices.build_notices(tmp_path)
+
+
+def test_notices_reject_record_paths_outside_site_packages(tmp_path):
+    notices = _load('notices')
+    _dist(tmp_path)
+    dist = tmp_path / 'python/Lib/site-packages/sample-1.0.dist-info'
+    (dist / 'RECORD').write_text('../secret/LICENSE.txt,,\n', encoding='utf-8')
+    (tmp_path / 'python/LICENSE.txt').write_text('Python licence', encoding='utf-8')
+    with pytest.raises(ValueError, match='unsafe'):
+        notices.build_notices(tmp_path)
+
+
+def test_rapidocr_model_licence_is_required_even_if_record_omits_it(tmp_path):
+    notices = _load('notices')
+    _dist(tmp_path, 'rapidocr')
+    (tmp_path / 'python/LICENSE.txt').write_text('Python licence', encoding='utf-8')
+    with pytest.raises(ValueError, match='model'):
+        notices.build_notices(tmp_path)
+    model = tmp_path / 'python/Lib/site-packages/rapidocr-1.0.dist-info/licenses/MODEL_LICENSES.md'
+    model.write_text('Synthetic model licence', encoding='utf-8')
+    assert 'Synthetic model licence' in notices.build_notices(tmp_path)
+
+
 def test_sbom_records_locked_package_and_is_deterministic(tmp_path, monkeypatch):
     sbom = _load('sbom')
     monkeypatch.setattr(sbom, 'MODELS', {}, raising=False)
