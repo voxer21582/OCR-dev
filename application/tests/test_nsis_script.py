@@ -33,6 +33,7 @@ def test_release_installer_requires_signing_both_executables():
     assert '!uninstfinalize' in script
     assert '!finalize' in script
     assert '!error "Release builds require signing"' in script
+    assert '"verify_release_inventory.py" "${OCR2_PAYLOAD}"' in script
 
 
 def test_installer_stages_files_and_shortcut_resolves_active_version():
