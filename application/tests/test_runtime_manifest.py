@@ -9,6 +9,12 @@ import pytest
 from alfa_document_intelligence.runtime_manifest import build_manifest, verify_installation
 
 
+@pytest.fixture(autouse=True)
+def _isolated_local_app_data(tmp_path_factory, monkeypatch):
+    """Failures in window mode write a launch log: keep it out of the real profile."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path_factory.mktemp("LocalAppData")))
+
+
 def _required_payload(root):
     (root / "app" / "alfa_document_intelligence").mkdir(parents=True, exist_ok=True)
     (root / "app" / "alfa_document_intelligence" / "__init__.py").write_bytes(b"synthetic")

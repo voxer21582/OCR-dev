@@ -8,6 +8,7 @@ import platform
 import secrets
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Sequence
 
@@ -23,13 +24,76 @@ _START_FAILURE_MESSAGE = (
 )
 
 
+# The dialogs stay generic; the details go to the launch log in the data folder
+# (owner decision 2026-11-16). The variable is shown as written, not expanded.
+_LAUNCH_LOG_HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher.log"
+_LAUNCH_LOG_LIMIT_BYTES = 256 * 1024
+_LAUNCH_LOG_ENTRY_BYTES = 64 * 1024
+
+
+def _write_launch_log(kind: str, message: str = "", error: BaseException | None = None) -> None:
+    """Append a start-up failure to launcher.log; never raise.
+
+    Only window-mode failures call this. Paths with the user name may appear
+    (accepted by the owner). Above the limit the log moves to launcher.log.1,
+    replacing the previous backup, so at most two small files exist.
+    """
+    try:
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data or not os.path.isabs(local_app_data):
+            return
+        lines = [f"=== {time.strftime('%Y-%m-%dT%H:%M:%S%z')} · {kind} ==="]
+        if message:
+            lines.append(message.rstrip())
+        if error is not None:
+            lines.append("".join(traceback.format_exception(type(error), error, error.__traceback__)).rstrip())
+        data = ("\n".join(lines) + "\n\n").encode("utf-8", "replace")
+        if len(data) > _LAUNCH_LOG_ENTRY_BYTES:
+            data = (data[:_LAUNCH_LOG_ENTRY_BYTES].decode("utf-8", "ignore") + "\n[…troncato]\n\n").encode("utf-8")
+        folder = os.path.join(local_app_data, "OCR2", "logs")
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "launcher.log")
+        try:
+            if os.path.getsize(path) + len(data) > _LAUNCH_LOG_LIMIT_BYTES:
+                os.replace(path, path + ".1")
+        except OSError:
+            pass  # No log yet, or the backup cannot be replaced: append anyway.
+        with open(path, "ab") as log:
+            log.write(data)
+    except Exception:
+        pass  # The log is a help; the dialog and the original error come first.
+
+
+class _StderrTail:
+    """Forward stderr (absent under pythonw) and keep its end for the launch log."""
+
+    def __init__(self, target, limit: int = 16 * 1024) -> None:
+        self.target = target
+        self.limit = limit
+        self.text = ""
+
+    def write(self, text):
+        try:
+            self.text = (self.text + str(text))[-self.limit:]
+        except Exception:
+            pass
+        if self.target is None:
+            return len(text)
+        return self.target.write(text)
+
+    def flush(self) -> None:
+        if self.target is not None:
+            self.target.flush()
+
+
 def _show_bootstrap_error() -> None:
-    """Make an application import failure visible in window mode without logging data."""
+    """Make an application import failure visible in window mode; details go to the launch log."""
     if os.name == "nt" and "--app-window" in sys.argv[1:]:
+        _write_launch_log("import", error=sys.exc_info()[1])
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(
-                None, "Impossibile avviare OCR2. " + _REPAIR_ADVICE,
+                None, "Impossibile avviare OCR2. " + _REPAIR_ADVICE + "\n\n" + _LAUNCH_LOG_HINT,
                 "OCR2 — avvio non riuscito", 0x10,
             )
         except Exception:
@@ -127,11 +191,11 @@ def _is_installed(root: Path) -> bool:
 
 
 def _show_error_dialog(message: str, title: str) -> None:
-    """Report a local startup error without writing details or starting a server."""
+    """Report a local startup error without starting a server; the details are in the launch log."""
     global _startup_error_shown
     if os.name == "nt":
         import ctypes
-        ctypes.windll.user32.MessageBoxW(None, message, title, 0x10)
+        ctypes.windll.user32.MessageBoxW(None, message + "\n\n" + _LAUNCH_LOG_HINT, title, 0x10)
         _startup_error_shown = True
 
 
@@ -171,6 +235,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             message = "Installazione non valida: " + "; ".join(verification.problems) + ". " + _REPAIR_ADVICE
             print(message, file=sys.stderr)
             if args.app_window:
+                _write_launch_log("integrità", message)
                 _show_integrity_error(message)
             raise SystemExit(2)
         runtime_status = "verificato"
@@ -235,6 +300,7 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="n
             message = "Questo archivio è stato aggiornato da una versione più recente di OCR2. Reinstalla quella versione."
             print(message, file=sys.stderr)
             if args.app_window:
+                _write_launch_log("archivio più recente", message)
                 _show_error_dialog(message, "OCR2 — archivio non compatibile")
             raise SystemExit(2)
         # The user's document-type catalog (REQ-041) lives next to the archive.
@@ -318,20 +384,33 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="n
 
 
 def _run_entrypoint(argv: Sequence[str] | None = None) -> None:
-    """Show a generic error for window-mode failures otherwise hidden by pythonw."""
+    """Show a generic error for window-mode failures otherwise hidden by pythonw, and log the details."""
     global _startup_error_shown
     _startup_error_shown = False
     arguments = list(sys.argv[1:] if argv is None else argv)
+    window = "--app-window" in arguments
+    stderr_tail = None
+    if window:
+        # parser.error() and the launcher's own messages go to stderr, which
+        # pythonw discards: keep their end for the log.
+        stderr_tail = _StderrTail(sys.stderr)
+        sys.stderr = stderr_tail
     try:
         main(arguments)
     except SystemExit as exc:
-        if exc.code not in (None, 0) and "--app-window" in arguments and not _startup_error_shown:
+        if exc.code not in (None, 0) and window and not _startup_error_shown:
+            _write_launch_log("uscita anomala", f"Codice di uscita: {exc.code!r}\n{stderr_tail.text}", exc)
             _show_startup_error(_START_FAILURE_MESSAGE)
         raise
-    except Exception:
-        if "--app-window" in arguments and not _startup_error_shown:
-            _show_startup_error(_START_FAILURE_MESSAGE)
+    except Exception as exc:
+        if window:
+            _write_launch_log("eccezione", stderr_tail.text, exc)
+            if not _startup_error_shown:
+                _show_startup_error(_START_FAILURE_MESSAGE)
         raise
+    finally:
+        if stderr_tail is not None and sys.stderr is stderr_tail:
+            sys.stderr = stderr_tail.target
 
 
 if __name__ == "__main__":

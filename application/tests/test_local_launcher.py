@@ -14,6 +14,12 @@ from alfa_document_intelligence import app_instance
 import alfa_document_intelligence.__main__ as launcher
 
 
+@pytest.fixture(autouse=True)
+def _isolated_local_app_data(tmp_path_factory, monkeypatch):
+    """Failures in window mode write a launch log: keep it out of the real profile."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path_factory.mktemp("LocalAppData")))
+
+
 class _FakeServer:
     server_address = ("127.0.0.1", 8765)
 
