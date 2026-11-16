@@ -18,10 +18,14 @@ def build_notices(payload_root: Path) -> str:
     if not python_license.is_file():
         raise ValueError('Missing Python licence')
     blocks.append('Python\n\n' + python_license.read_text(encoding='utf-8'))
-    openssl_license = Path(__file__).parent / 'licenses' / 'openssl-3.5.9.txt'
-    if not openssl_license.is_file():
-        raise ValueError('Missing bundled OpenSSL licence')
-    blocks.append('OpenSSL 3.5.9 (bundled with CPython)\n\n' + _text(openssl_license))
+    for component, filename in (('OpenSSL 3.5.9', 'openssl-3.5.9.txt'),
+                                ('mpdecimal 4.0.0', 'mpdecimal-4.0.0.txt'),
+                                ('zlib 1.3.1', 'zlib-1.3.1.txt'),
+                                ('XZ Utils 5.2.5', 'xz-5.2.5.txt')):
+        licence = Path(__file__).parent / 'licenses' / filename
+        if not licence.is_file():
+            raise ValueError(f'Missing bundled {component} licence')
+        blocks.append(f'{component} (bundled with CPython)\n\n' + _text(licence))
     for dist in sorted(package_dir.glob('*.dist-info')):
         metadata = Parser().parsestr((dist / 'METADATA').read_text(encoding='utf-8'))
         name, version = metadata['Name'], metadata['Version']

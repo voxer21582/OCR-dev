@@ -125,3 +125,14 @@ def test_notices_include_bundled_python_openssl_license(tmp_path):
     result = notices.build_notices(tmp_path)
     assert 'OpenSSL 3.5.9 (bundled with CPython)' in result
     assert 'Apache License' in result
+
+
+def test_notices_identify_python_native_components(tmp_path):
+    notices = _load('notices')
+    _dist(tmp_path)
+    (tmp_path / 'python/LICENSE.txt').write_text('Python licence', encoding='utf-8')
+    result = notices.build_notices(tmp_path)
+    assert 'mpdecimal 4.0.0 (bundled with CPython)' in result
+    assert 'Copyright (c) 2008-2024 Stefan Krah' in result
+    assert 'zlib 1.3.1 (bundled with CPython)' in result
+    assert 'XZ Utils 5.2.5 (bundled with CPython)' in result
