@@ -28,7 +28,8 @@ Limiti già noti (non sono errori, annotali se li vedi):
 - All'avvio OCR2 controlla tutti i suoi file: costa circa 4 secondi (a volte fino a 10). Lo trovi in «Informazioni» come `S s`.
 - I file non firmati fanno comparire l'avviso di Windows SmartScreen (vedi passo 2).
 - Dopo «Esci» Edge può lasciare un suo processo in secondo piano (avvio rapido di Edge): è un comportamento di Edge, OCR2 non cambia le sue impostazioni (passo 7).
-- Il programma di disinstallazione si avvia e «ritorna subito»: la disinstallazione continua per qualche secondo dopo la scomparsa della finestra del prompt. Aspetta 15 secondi prima di controllare.
+- Il programma di disinstallazione si avvia e «ritorna subito»: la disinstallazione continua per qualche secondo dopo il suo avvio. Aspetta 15 secondi prima di controllare. Per **aspettare** davvero la fine (utile per vedere un rifiuto), da PowerShell: `& "$env:LOCALAPPDATA\Programs\OCR2\uninstall.exe" _?="$env:LOCALAPPDATA\Programs\OCR2"` (con `_?=` la cartella di installazione non viene cancellata a fine corsa: è normale).
+- Costruendo l'installer, `makensis` segnala l'avviso 9000 sul nome «setup» (Windows applica regole di compatibilità ai file con questo nome): è atteso. Con `/S` (silenzioso) i messaggi (per esempio «già installata» o «Chiudi OCR2 con Esci e riprova.») non si vedono: contano il codice di uscita (2) e lo stato delle cartelle.
 
 ---
 
@@ -60,7 +61,7 @@ Esito: ☐ firmato (Valid) ☐ non firmato, SmartScreen comparso ☐ altro: ____
 
 ## Passo 3. Installazione della 0.6.0
 
-**Cosa fare.** Doppio clic su `OCR2-0.6.0-setup.exe`. Non serve cliccare altro: si apre una finestra con l'avanzamento («Extracting…»); aspetta che finisca (circa 1 minuto). Se compare «OCR2 0.6.0 non è stato installato», fermati e vai a «Se qualcosa non va».
+**Cosa fare.** Doppio clic su `OCR2-0.6.0-setup.exe`. Non serve cliccare altro: si apre una finestra con l'avanzamento («Estrazione di: …»); aspetta che finisca (circa 1 minuto). Se compare «OCR2 0.6.0 non è stato installato», fermati e vai a «Se qualcosa non va».
 
 **Cosa si deve vedere.**
 
@@ -123,13 +124,13 @@ Esito fascicolo/archivio: ☐ OK ☐ NO   Esito R14: ☐ app viva ☐ app chiusa
 
 **Cosa fare.** Nella finestra premi **Esci**.
 
-**Cosa si deve vedere.** Compare «OCR2 si è chiuso. Puoi chiudere questa finestra.» e la finestra si chiude entro circa 15 secondi. In `%LOCALAPPDATA%\OCR2` il file `instance.json` non c'è più. In Gestione attività (Ctrl + Maiusc + Esc → scheda «Dettagli») non c'è più `pythonw.exe` con OCR2.
+**Cosa si deve vedere.** Compare «OCR2 si è chiuso. Puoi chiudere questa finestra.». La finestra **non si chiude da sola**: chiudila tu con la **X**. Il controllo riguarda il programma, non la finestra: entro circa 15 secondi dall'«Esci» in `%LOCALAPPDATA%\OCR2` il file `instance.json` non c'è più. In Gestione attività (Ctrl + Maiusc + Esc → scheda «Dettagli») non c'è più `pythonw.exe` con OCR2.
 
-Esito: ☐ OK ☐ NO — Secondi dall'«Esci» alla chiusura: ______
+Esito: ☐ OK ☐ NO — Secondi dall'«Esci» a `instance.json` assente: ______
 
 ## Passo 7. Processo di Edge dopo «Esci»
 
-**Cosa fare.** In Gestione attività, scheda «Dettagli», cerca `msedge.exe` e guarda la colonna «Riga di comando» (clic destro sulle intestazioni → «Seleziona colonne» → «Riga di comando»).
+**Cosa fare.** Prima chiudi la finestra con la X (passo 6). Poi in Gestione attività, scheda «Dettagli», cerca `msedge.exe` e guarda la colonna «Riga di comando» (clic destro sulle intestazioni → «Seleziona colonne» → «Riga di comando»).
 
 **Cosa si deve vedere / annotare.** Può esserci un `msedge.exe` con `--no-startup-window` (avvio rapido di Edge sul profilo normale di Edge). **Non è un errore di OCR2** (è un limite dichiarato di Edge: «Avvio rapido» è un'impostazione tua e OCR2 non la cambia). Nessun `msedge.exe` deve avere `OCR2\edge-profile` nella riga di comando (guarda dopo 15 secondi: Edge chiude i suoi processi con qualche secondo di ritardo).
 
@@ -141,19 +142,19 @@ Esito: ☐ nessun processo Edge residuo ☐ presente un processo Edge «--no-sta
 
 1. Avvia di nuovo OCR2 dal menu Start e aspetta la finestra.
 2. In PowerShell leggi la porta: `Get-Content "$env:LOCALAPPDATA\OCR2\instance.json"` (mostra `"port": <numero>`). Annota il numero.
-3. Controlla che sia in ascolto (deve rispondere con una riga `Listen`, indirizzo `127.0.0.1`):
-   `Get-NetTCPConnection -LocalPort <porta> -State Listen`
-   (in alternativa: `netstat -ano | findstr :<porta>`; l'ultimo numero della riga è il PID del processo).
+3. Controlla che sia in ascolto (deve stampare una riga con indirizzo `127.0.0.1` e quella porta):
+   `Get-NetTCPConnection -LocalPort <porta> -State Listen -ErrorAction SilentlyContinue`
+   (in alternativa: `netstat -ano | findstr :<porta>`; cerca la riga con `LISTENING`; l'ultimo numero è il PID del processo).
 4. Chiudi la finestra con la **X** in alto a destra (non «Esci»).
-5. Aspetta. Il programma si ferma di solito dopo circa 10 secondi; se Windows non ha consegnato il segnale di chiusura, entro **180 secondi** (limite massimo dichiarato: 190 s). Ogni 15 secondi ripeti il comando del punto 3.
+5. Aspetta. Il programma si ferma di solito dopo circa 10 secondi; se Windows non ha consegnato il segnale di chiusura, entro la scadenza del battito (180 secondi). Soglia unica di questa prova: **≤ 190 secondi**. Ogni 15 secondi ripeti il comando del punto 3.
 
-**Cosa si deve vedere.** Alla fine il comando del punto 3 dice che non ci sono connessioni (`Get-NetTCPConnection` segnala «nessuna istanza»; `netstat` non stampa nulla) e `instance.json` non esiste più. Annota dopo quanti secondi.
+**Cosa si deve vedere.** Alla fine il comando del punto 3 non stampa **nulla** (porta libera; con `-ErrorAction SilentlyContinue` non compare nessun errore rosso). Con `netstat` porta libera significa **nessuna riga con `LISTENING`**: righe `TIME_WAIT` possono restare anche per qualche minuto, sono normali. Inoltre `instance.json` non esiste più. Annota dopo quanti secondi (superato se ≤ 190 s).
 
 Esito: ☐ OK ☐ NO — Secondi alla porta libera: ______
 
 ## Passo 9. Aggiornamento interrotto (con la 0.6.0 attiva)
 
-**Cosa fare.** Con OCR2 chiuso: doppio clic su `OCR2-0.6.1-setup.exe`. Mentre scorre «Extracting…» (la parte lunga dura circa un minuto), apri Gestione attività → «Dettagli», seleziona `OCR2-0.6.1-setup.exe` e premi **Termina operazione** (conferma). Poi:
+**Cosa fare.** Con OCR2 chiuso: doppio clic su `OCR2-0.6.1-setup.exe`. Mentre scorre «Estrazione di: …» (la parte lunga dura circa un minuto), apri Gestione attività → «Dettagli», seleziona `OCR2-0.6.1-setup.exe` e premi **Termina attività** (conferma). Poi:
 
 1. Apri `%LOCALAPPDATA%\Programs\OCR2\active.txt`: deve avere ancora la riga 1 `0.6.0`.
 2. Avvia OCR2 dal menu Start → «Informazioni»: **Versione 0.6.0** e il documento di prova ancora in archivio. Poi «Esci».
@@ -231,7 +232,7 @@ Esito: ☐ OK ☐ NO — Note: ____________________
 
 ## Passo 16. Disinstallazione con dati
 
-**Cosa fare.** OCR2 chiuso. Menu Start → «Disinstalla OCR2». Alla domanda «Eliminare anche i dati di OCR2 (archivio e catalogo)?» premi **Sì**. Aspetta 15 secondi.
+**Cosa fare.** Ricorda: **solo dati di prova su questo PC** (il documento inventato del passo 5). OCR2 chiuso. Menu Start → «Disinstalla OCR2». Alla domanda «Eliminare anche i dati di OCR2 (archivio e catalogo)?» premi **Sì**. Aspetta 15 secondi.
 
 **Cosa si deve vedere.** Non esistono più `%LOCALAPPDATA%\Programs\OCR2`, `%LOCALAPPDATA%\OCR2` e la cartella OCR2 del menu Start. In Gestione attività non c'è alcun processo con OCR2 (`pythonw.exe` da `Programs\OCR2`, `msedge.exe` con `OCR2\edge-profile`).
 

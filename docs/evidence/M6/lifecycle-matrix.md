@@ -20,9 +20,9 @@ Modello da compilare dal proprietario dopo aver eseguito [`docs/runtime/m6-lifec
 | 3 | Installazione 0.6.0 | nessuna richiesta di amministratore; menu Start con 3 voci; `versions\0.6.0`, `active.txt` = `0.6.0`; nessun `opencv_videoio_ffmpeg*`; se firmato: `verify-signature.ps1` su `OCR2.exe` e `uninstall.exe` | | |
 | 4 | Avvio e «Informazioni» | finestra senza barra indirizzi; Versione 0.6.0, Python, Motore OCR, «verificato (N file, S s)» — N e S | | |
 | 5 | Fascicolo sintetico e Archivio | documento in archivio; R14: «Apri documento originale», 30 s, Indietro: app viva | | |
-| 6 | «Esci» | finestra chiusa entro ~15 s; `instance.json` assente; nessun `pythonw.exe` | | |
-| 7 | Edge dopo «Esci» (R18) | processo `msedge.exe --no-startup-window` presente sì/no (limite di Edge, non di OCR2); nessun processo con `OCR2\edge-profile` | | |
-| 8 | Chiusura finestra e porta libera | porta letta da `instance.json`; secondi alla porta libera (limite 180 s, massimo 190 s) | | |
+| 6 | «Esci» | pagina «OCR2 si è chiuso»; finestra chiusa a mano con la X; `instance.json` assente entro ~15 s; nessun `pythonw.exe` | | |
+| 7 | Edge dopo «Esci» (R18) | dopo aver chiuso la finestra: processo `msedge.exe --no-startup-window` presente sì/no (limite di Edge, non di OCR2); nessun processo con `OCR2\edge-profile` | | |
+| 8 | Chiusura finestra e porta libera | porta letta da `instance.json`; secondi alla porta libera (soglia unica ≤ 190 s; nessuna riga `LISTENING`, `TIME_WAIT` normale) | | |
 | 9 | Aggiornamento interrotto (0.6.0 attiva) | `active.txt` ancora `0.6.0`; l'app parte e mostra 0.6.0; documento presente | | |
 | 10 | OCR2 aperto durante l'aggiornamento (R8) | messaggio «Chiudi OCR2 con Esci e riprova.»; 0.6.0 resta attiva | | |
 | 11 | Aggiornamento a 0.6.1 | `active.txt` = `0.6.1` / `0.6.0`; due versioni; «Informazioni» 0.6.1; documento presente | | |
