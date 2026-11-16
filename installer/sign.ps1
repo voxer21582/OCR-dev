@@ -17,7 +17,7 @@ param(
     [string]$FailureMarker = ''
 )
 $ErrorActionPreference = 'Stop'
-# makensis tratta un !finalize che fallisce come un semplice avviso: build_installer.py passa
+# Il marcatore dà a build_installer.py un messaggio leggibile (makensis comunque si ferma: `= 0`); passa
 # -FailureMarker e blocca la costruzione se il file esiste.
 trap {
     if ($FailureMarker) { try { Set-Content -LiteralPath $FailureMarker -Value ([string]$_) -Encoding UTF8 } catch { } }

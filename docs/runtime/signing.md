@@ -26,7 +26,7 @@ Impronta del certificato: `Get-ChildItem Cert:\CurrentUser\My | Select-Object Th
 python installer/build_installer.py --version <X.Y.Z> --sign-thumbprint <IMPRONTA> --timestamp-url <INDIRIZZO>
 ```
 
-Le due opzioni vanno indicate insieme. Se una firma non riesce, `sign.ps1` scrive `installer/out/sign-failed.txt` e la costruzione si ferma con errore (makensis da solo segnala solo un avviso). Al termine la costruzione esegue `verify-signature.ps1` su `OCR2.exe` e sull'installer e si ferma se lo stato non è `Valid`.
+Le due opzioni vanno indicate insieme. Se una firma non riesce, `sign.ps1` scrive `installer/out/sign-failed.txt` e la costruzione si ferma con errore (gli `!finalize` hanno `= 0`: makensis si ferma anche se PowerShell non parte o non esegue lo script). Al termine la costruzione esegue `verify-signature.ps1` su `OCR2.exe` e sull'installer e si ferma se lo stato non è `Valid`.
 
 Per firmare a mano un file già costruito:
 

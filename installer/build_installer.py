@@ -173,7 +173,7 @@ def run(
         completed = subprocess.run(command, check=False)
         if completed.returncode != 0:
             raise BuildError(f"makensis non riuscito ({Path(command[-1]).name}, codice {completed.returncode})")
-        # makensis only warns when a !finalize / !uninstfinalize command fails: stop here instead.
+        # makensis already aborts on a failing hook ("= 0"); the marker only gives a readable message.
         if signing and marker.exists():
             raise BuildError("firma non riuscita (vedi " + str(marker) + "): " + marker.read_text(encoding="utf-8", errors="replace").strip()[:300])
     setup = setup_path(out_dir, version, test=test_data_root is not None)

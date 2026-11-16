@@ -379,3 +379,12 @@ def test_a_failed_signing_hook_stops_the_build_because_makensis_only_warns(monke
     (out / "sign-failed.txt").unlink()
     build_installer.run(version="0.6.1", out_dir=out)
     assert len(calls) == 2
+
+
+def test_every_finalize_hook_aborts_the_build_on_a_nonzero_exit():
+    for name in ("ocr2.nsi", "launcher.nsi"):
+        hooks = [l for l in _code_lines(name) if l.startswith(("!finalize", "!uninstfinalize"))]
+        assert hooks, name
+        for hook in hooks:
+            assert hook.endswith("' = 0"), (name, hook)
+    assert sum(l.startswith("!uninstfinalize") for l in _code_lines("ocr2.nsi")) == 1
