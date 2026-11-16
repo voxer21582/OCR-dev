@@ -351,3 +351,30 @@ def test_resolved_drops_the_extended_length_prefix_but_keeps_unc(monkeypatch):
     monkeypatch.setattr(rm.Path, "resolve", lambda self, strict=False: type(self)(results[self.name]))
     assert str(rm._resolved(Path("long"))) == str(Path(r"C:\Users\long-name\file.pyc"))
     assert str(rm._resolved(Path("unc"))) == str(Path(results["unc"]))
+
+
+def test_installed_layout_without_manifest_refuses_to_start(monkeypatch, capsys, tmp_path):
+    # R37: an installed copy (versions/<x.y.z>/ with app/ and python/) never starts unverified.
+    program = _installed_folder(tmp_path, monkeypatch, tamper=False)
+    (program / rm.MANIFEST_NAME).unlink()
+    local = tmp_path / "local"
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    opened = []
+    monkeypatch.setattr(launcher.webbrowser, "open", lambda url: opened.append(url) or True)
+    with pytest.raises(SystemExit) as exit_info:
+        launcher._verify_runtime(True)
+    assert exit_info.value.code == 2
+    assert rm.MANIFEST_NAME in capsys.readouterr().err
+    page = (local / "OCR2" / "runtime-error.html").read_text(encoding="utf-8")
+    assert rm.MANIFEST_NAME in page and opened
+
+
+@pytest.mark.parametrize("layout", ["no-python", "not-versions", "bad-version"])
+def test_folders_that_are_not_an_installed_layout_still_run_from_sources(monkeypatch, tmp_path, layout):
+    parent = {"not-versions": "elsewhere"}.get(layout, "versions")
+    name = "1.0" if layout == "bad-version" else "1.0.0"
+    program = _tree(tmp_path / parent / name)
+    if layout == "no-python":
+        shutil.rmtree(program / "python")
+    monkeypatch.setattr(launcher, "_program_folder", lambda: program)
+    assert launcher._verify_runtime(False) == "non verificato (avvio da sorgenti)"

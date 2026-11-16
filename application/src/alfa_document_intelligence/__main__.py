@@ -6,6 +6,7 @@ import html
 import importlib
 import os
 import platform
+import re
 import secrets
 import sys
 import time
@@ -111,17 +112,39 @@ def _open_archive(path: Path, app_window: bool) -> LocalDocumentStore:
     raise SystemExit(2)
 
 
+_INSTALLED_VERSION = re.compile(r"\d+\.\d+\.\d+")
+
+
+def _is_installed_layout(folder: Path) -> bool:
+    """``versions/<x.y.z>/`` holding ``app/`` next to ``python/``, as ``install_state.installed_base`` expects (R37)."""
+    return (
+        folder.parent.name == "versions"
+        and _INSTALLED_VERSION.fullmatch(folder.name) is not None
+        and (folder / "app").is_dir()
+        and (folder / "python").is_dir()
+    )
+
+
 def _verify_runtime(app_window: bool) -> str:
-    """Check the installed files before a port is opened; exit 2 on failure. Returns the status text."""
-    manifest_path = _program_folder() / runtime_manifest.MANIFEST_NAME
-    if not manifest_path.is_file():
+    """Check the installed files before a port is opened; exit 2 on failure. Returns the status text.
+
+    Only a folder outside the installed layout runs from sources unverified; in
+    the installed layout a missing manifest is a verification failure (R37).
+    """
+    program = _program_folder()
+    manifest_path = program / runtime_manifest.MANIFEST_NAME
+    if not manifest_path.is_file() and not _is_installed_layout(program):
         return "non verificato (avvio da sorgenti)"
-    try:
-        result = runtime_manifest.verify_installation(manifest_path.parent, manifest_path)
-        problems = result.problems
-        ok = result.ok
-    except Exception:  # last safety net: never start unverified because verification crashed
-        problems, ok = ("Verifica del runtime non riuscita",), False
+    result = None
+    if not manifest_path.is_file():
+        problems, ok = (f"File mancante: {runtime_manifest.MANIFEST_NAME}",), False
+    else:
+        try:
+            result = runtime_manifest.verify_installation(manifest_path.parent, manifest_path)
+            problems = result.problems
+            ok = result.ok
+        except Exception:  # last safety net: never start unverified because verification crashed
+            problems, ok = ("Verifica del runtime non riuscita",), False
     if not ok:
         print("I file di OCR2 non sono integri:", file=sys.stderr)
         for problem in problems:
