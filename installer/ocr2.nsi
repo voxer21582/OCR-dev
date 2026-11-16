@@ -126,7 +126,7 @@ Function .onInit
 !endif
   Call ReadActive
   ${If} $R0 == "${VERSION}"
-    MessageBox MB_ICONINFORMATION "Questa versione di OCR2 è già installata." /SD IDOK
+    MessageBox MB_ICONINFORMATION "Questa versione di OCR2 è già installata.$\r$\nSe OCR2 non funziona, dal menu Start usa «Torna alla versione precedente», oppure disinstalla OCR2 mantenendo i dati e installalo di nuovo." /SD IDOK
     Quit
   ${EndIf}
 FunctionEnd

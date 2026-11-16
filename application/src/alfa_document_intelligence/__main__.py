@@ -54,7 +54,13 @@ _ERROR_PAGE = (
     "<h1>OCR2 non si avvia</h1>"
     "<p>{message}</p><ul>{items}</ul></body></html>"
 )
-_RUNTIME_ERROR_MESSAGE = "I file del programma non corrispondono all'installazione. Reinstalla OCR2 con l'installer."
+# R38: the installer refuses the active version, so the remedies are a rollback or
+# uninstall (keeping the data) and install again; there is no in-place repair.
+_RUNTIME_ERROR_MESSAGE = (
+    "I file del programma non corrispondono all'installazione. "
+    "Dal menu Start usa «Torna alla versione precedente», "
+    "oppure disinstalla OCR2 mantenendo i dati e installalo di nuovo."
+)
 NEWER_ARCHIVE_MESSAGE = (
     "Questo archivio è stato aggiornato da una versione più recente di OCR2. Reinstalla quella versione."
 )

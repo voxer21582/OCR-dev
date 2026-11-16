@@ -83,6 +83,13 @@ def test_installer_extracts_activates_and_cleans_up_only_its_version():
     assert leftover < extract  # R7: a non-active leftover is deleted before extracting
 
 
+def test_reinstall_refusal_gives_the_remedies_that_work():
+    # R38: no in-place repair; the refusal names the working remedies.
+    line = next(line for line in _code_lines("ocr2.nsi") if "Questa versione di OCR2 è già installata." in line)
+    assert "Torna alla versione precedente" in line
+    assert "disinstalla OCR2 mantenendo i dati" in line and "installalo di nuovo" in line
+
+
 def test_failed_activation_never_deletes_the_version_active_txt_names():
     lines = _code_lines("ocr2.nsi")
     activate = next(i for i, line in enumerate(lines) if "install_state activate ${VERSION}" in line)

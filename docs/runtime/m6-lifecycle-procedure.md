@@ -188,7 +188,7 @@ Esito: ☐ OK ☐ NO — Note: ____________________
 
 **Cosa fare.** Senza aprire OCR2: doppio clic su `OCR2-0.6.1-setup.exe`.
 
-**Cosa si deve vedere.** «Questa versione di OCR2 è già installata.» e nessuna modifica (`active.txt` uguale a prima).
+**Cosa si deve vedere.** Un messaggio che comincia con «Questa versione di OCR2 è già installata.» e indica cosa fare se OCR2 non funziona («Torna alla versione precedente» dal menu Start, oppure disinstallare mantenendo i dati e installare di nuovo). Nessuna modifica (`active.txt` uguale a prima).
 
 Controllo facoltativo del codice di uscita (in modo silenzioso i messaggi **non** si vedono, è atteso): in PowerShell
 

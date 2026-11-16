@@ -378,3 +378,13 @@ def test_folders_that_are_not_an_installed_layout_still_run_from_sources(monkeyp
         shutil.rmtree(program / "python")
     monkeypatch.setattr(launcher, "_program_folder", lambda: program)
     assert launcher._verify_runtime(False) == "non verificato (avvio da sorgenti)"
+
+
+def test_runtime_error_page_gives_the_remedies_that_work(monkeypatch, tmp_path):
+    # R38: the installer refuses the active version, so no «Reinstalla» advice.
+    monkeypatch.setattr(launcher.webbrowser, "open", lambda url: True)
+    launcher._show_runtime_error(["File mancante: x.py"], tmp_path)
+    page = (tmp_path / "runtime-error.html").read_text(encoding="utf-8")
+    assert "Reinstalla" not in page
+    assert "Torna alla versione precedente" in page
+    assert "disinstalla OCR2 mantenendo i dati" in page and "installalo di nuovo" in page
