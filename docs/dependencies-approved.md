@@ -34,9 +34,9 @@ Le GitHub Actions usate dal workflow (`actions/checkout`, `actions/setup-python`
 
 ## Gruppo 4 — Componenti dell'installer (M6)
 
-Approvati il 2026-11-15 (richieste R-001 e R-002). La versione esatta e l'SHA-256 si fissano al primo download (M6, Task 6) e vengono registrati qui.
+Approvati il 2026-11-15 (richieste R-001 e R-002). Versione esatta e SHA-256 fissati al primo download (M6, Task 6, 2026-11-16); le stesse voci sono in `installer/pins.json`.
 
 | Elemento | Versione / impronta | Licenza dichiarata | Uso |
 |---|---|---|---|
-| R-001 — `python-3.13.x-embed-amd64.zip` (python.org), CPython 3.13 embeddable x64 | Ultima 3.13.x al primo download; SHA-256 da fissare al primo download (Task 6) | PSF License 2.0 (più licenze dei componenti inclusi) | Python portato dall'installer (DEC-010) |
-| R-002 — NSIS 3.x, archivio portabile `nsis-3.x.zip`, usato senza installarlo nel sistema | Ultima 3.x stabile al primo download; SHA-256 da fissare al primo download (Task 6) | zlib/libpng | Costruzione dell'installer per utente, offline, senza amministratore |
+| R-001 — `python-3.13.17-embed-amd64.zip` (python.org), CPython 3.13 embeddable x64 | **3.13.17**, 11 441 267 byte, SHA-256 `9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38` (dalla pagina di rilascio https://www.python.org/downloads/release/python-31317/), URL https://www.python.org/ftp/python/3.13.17/python-3.13.17-embed-amd64.zip, scaricato e verificato il 2026-11-16. 3.13.17 è l'ultima 3.13.x con pacchetti binari Windows: 3.13.18 è solo sorgente (pagina di rilascio: «No installers») | PSF License 2.0 (più licenze dei componenti inclusi) | Python portato dall'installer (DEC-010) |
+| R-002 — NSIS 3.x, archivio portabile `nsis-3.13.zip`, usato senza installarlo nel sistema | **3.13**, 2 363 925 byte, SHA-256 `ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8`, URL https://downloads.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip, scaricato il 2026-11-16. Limite: NSIS non pubblica SHA-256; l'impronta è calcolata al primo download e coincide con quella mostrata dall'elenco file di SourceForge, che non è una firma dell'autore | zlib/libpng | Costruzione dell'installer per utente, offline, senza amministratore |
