@@ -13,7 +13,7 @@ Prove con `LOCALAPPDATA` temporaneo (`<scratchpad>\lad-run`, `<scratchpad>\lad-f
 URL: `https://www.python.org/ftp/python/3.13.17/python-3.13.17-embed-amd64.zip`,
 `https://downloads.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip` (SourceForge sceglie il mirror; l'impronta lo copre).
 
-Versione di Python: 3.13.18 (usata dal job CI Ubuntu) è una release solo sorgente, senza pacchetti Windows
+Versione di Python: 3.13.18 (usata dal job CI Ubuntu) non ha embeddable: è una release solo sorgente, senza pacchetti Windows
 (pagina di rilascio: «No installers … Python 3.13.17 was the last bugfix release of Python 3.13 with binary installers»).
 L'embeddable più recente pubblicato è quindi 3.13.17, la stessa versione del job CI Windows.
 
@@ -29,7 +29,7 @@ NSIS è solo scaricato e verificato; si usa dal Task 8.
 ...
 Successfully installed certifi-2026.10.23 charset-normalizer-3.5.2 colorama-0.4.6 colorlog-6.12.0 flatbuffers-25.12.19 idna-3.20 numpy-2.5.4 omegaconf-2.4.0 onnxruntime-1.31.1 opencv-python-headless-5.0.0.93 packaging-26.3 pillow-13.0.0 protobuf-7.36.2 pyclipper-1.4.0 pypdfium2-5.15.2 pyyaml-6.0.3 rapidocr-3.10.0 requests-2.34.2 shapely-2.2.0 six-1.17.0 tqdm-4.70.1 urllib3-2.8.0
 Rimosso (DEC-030): python/Lib/site-packages/cv2/opencv_videoio_ffmpeg500_64.dll
-Contenuto costruito: <repo>\installer\out\0.6.0 (3742 file, 287447309 byte)
+Contenuto costruito: <repo>\installer\out\0.6.0 (3742 file, 287447306 byte)
 ```
 
 Durata circa 1,5 minuti (wheel già in cache).
@@ -37,10 +37,10 @@ Durata circa 1,5 minuti (wheel già in cache).
 | Misura | Valore |
 |---|---|
 | File nel manifest | 3 742 (più `runtime-manifest.json`) |
-| Dimensione dei file elencati | 287 447 309 byte (≈ 274 MiB) |
+| Dimensione dei file elencati | 287 447 306 byte (≈ 274 MiB) |
 | `python/` | 286 486 451 byte |
 | `app/` | 960 858 byte |
-| SHA-256 di `runtime-manifest.json` | `aa87d9191167156bf990c172e46bc3ebb36988dbafdf8101591ccb3181822113` |
+| SHA-256 di `runtime-manifest.json` | `fe08d94249684345954f27193e131d765570f1a714799e5d93f00ebfdbdd8e9a` |
 | `opencv_videoio_ffmpeg*.dll` nel contenuto | nessuno |
 | `bin/`, `Scripts/` in site-packages | nessuno |
 | File che contengono il nome della cartella utente | 0 (i `.pyc` hanno nomi di file relativi) |
@@ -81,7 +81,9 @@ verificato (3742 file, 4.3 s)
 verificato (3742 file, 4.3 s)
 ```
 
-**Tempo di verifica all'avvio: 3,7–4,6 s** (nove misure su due costruzioni identiche).
+**Tempo di verifica all'avvio: 3,7–4,6 s** (dieci misure su tre costruzioni), misurato chiamando direttamente `_verify_runtime`
+(la funzione che l'avvio esegue prima di aprire la porta), non dall'output dell'avvio. **Limite misurato**: circa 4 s
+a ogni avvio per l'hash di ≈ 274 MiB; accettato per M6, i budget di tempo si fissano in M7.
 
 Controllo del runtime OCR (`runtime_check_ref` del manifest del motore `rapidocr-v6`): `ok=True`, nessun problema, nessun avviso.
 
@@ -94,6 +96,14 @@ exit=2
 ```
 
 File ripristinato, verifica di nuovo riuscita.
+
+## Versione nel contenuto (R23)
+
+`build_payload` scrive `__version__ = "<versione>"` nel `__init__.py` **copiato** in `app/` prima del manifest
+(l'hash nel manifest è quello del file aggiornato); `--version` deve essere `MAGGIORE.MINORE.PATCH`
+(`--version 0.6` → «versione non valida»). Il `__version__` del repository è ora `0.6.0`.
+Dopo la ricostruzione: `import alfa_document_intelligence` dal Python installato dà `0.6.0`, e `/app/info`
+del server avviato mostra «Versione 0.6.0 · Python 3.13.17».
 
 ## OCR sintetico senza FFmpeg
 

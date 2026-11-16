@@ -125,6 +125,33 @@ def test_site_packages_bytecode_names_no_build_path(built):
         assert built.parents[1].name.encode() not in data  # the test's own folder name
 
 
+def test_build_version_is_stamped_in_payload(built, tmp_path):
+    stamped = built / "app" / "alfa_document_intelligence" / "__init__.py"
+    text = stamped.read_text(encoding="utf-8")
+    assert '__version__ = "0.6.0"' in text and "0.0.0" not in text
+    # The source package is not modified.
+    assert "0.0.0" in (tmp_path / "src" / "alfa_document_intelligence" / "__init__.py").read_text(encoding="utf-8")
+    manifest = json.loads((built / MANIFEST_NAME).read_text(encoding="utf-8"))
+    entry = manifest["files"]["app/alfa_document_intelligence/__init__.py"]
+    assert entry["sha256"] == _sha256(stamped.read_bytes()) and entry["size"] == stamped.stat().st_size
+
+
+@pytest.mark.parametrize("version", ["0.6", "v0.6.0", "0.6.0-rc1", "../0.6.0", "0.6.0 ", ""])
+def test_version_must_be_major_minor_patch(tmp_path, version):
+    with pytest.raises(build_payload.BuildError):
+        build_payload.build_payload(
+            embeddable_zip=_embeddable(tmp_path), wheel_dir=tmp_path, app_src=_app_source(tmp_path),
+            out_dir=tmp_path / "out", version=version, lock=tmp_path / "missing.lock",
+        )
+    assert not (tmp_path / "out").exists()
+
+
+def test_repository_version_is_release_version():
+    import alfa_document_intelligence
+
+    assert alfa_document_intelligence.__version__ == "0.6.0"
+
+
 def test_tests_and_pycache_are_not_copied(built):
     app = _files(built / "app")
     assert app == {

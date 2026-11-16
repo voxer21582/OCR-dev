@@ -8,7 +8,7 @@
     "sha256": "9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38",
     "sha256_source": "https://www.python.org/downloads/release/python-31317/ (tabella dei file, riga Windows embeddable package (64-bit))",
     "pinned_on": "2026-11-16",
-    "note": "3.13.17 e' l'ultima 3.13.x con pacchetti binari Windows; 3.13.18 e' solo sorgente (pagina di rilascio: No installers)."
+    "note": "3.13.17 e' l'ultima 3.13.x con pacchetti binari Windows; 3.13.18 non ha embeddable: e' solo sorgente (pagina di rilascio: No installers). Scelta accettata dal coordinatore il 2026-11-16 (R-001: ultima 3.13.x disponibile)."
   },
   "nsis": {
     "name": "NSIS portable zip (R-002)",

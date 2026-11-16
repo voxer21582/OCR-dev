@@ -27,6 +27,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import py_compile
+import re
 import shutil
 import subprocess
 import sys
@@ -52,6 +53,8 @@ FFMPEG_DLL_GLOB = "opencv_videoio_ffmpeg*.dll"
 _APP_IGNORED_DIRS = {"__pycache__", "tests"}
 _APP_IGNORED_FILES = ("*.pyc", "*.pyo")
 _CHUNK = 1024 * 1024
+_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
+_VERSION_LINE = re.compile(r"""^__version__[ \t]*=[ \t]*["'][^"'\r\n]*["'][ \t]*\r?$""", re.MULTILINE)
 
 
 class BuildError(RuntimeError):
@@ -198,6 +201,15 @@ def copy_app(app_src: Path, app_target: Path) -> None:
     shutil.copytree(app_src, app_target, ignore=ignore)
 
 
+def stamp_version(init_file: Path, version: str) -> None:
+    """Set ``__version__ = "<version>"`` in the copied package (R23); the sources are not touched."""
+    text = init_file.read_text(encoding="utf-8")
+    stamped, count = _VERSION_LINE.subn(f'__version__ = "{version}"', text)
+    if count != 1:
+        raise BuildError("__init__.py del pacchetto: serve una sola riga __version__")
+    init_file.write_text(stamped, encoding="utf-8", newline="\n")
+
+
 def build_payload(
     *,
     embeddable_zip: Path,
@@ -208,8 +220,8 @@ def build_payload(
     lock: Path = DEFAULT_LOCK,
 ) -> Path:
     """Assemble ``out_dir/<version>/`` and its runtime manifest; return that folder."""
-    if not version or PurePosixPath(version).name != version or version in {".", ".."} or "\\" in version:
-        raise BuildError(f"versione non valida: {version!r}")
+    if not isinstance(version, str) or not _VERSION.fullmatch(version):
+        raise BuildError(f"versione non valida (atteso MAGGIORE.MINORE.PATCH): {version!r}")
     out_dir = Path(out_dir)
     target = out_dir / version
     if target.exists():
@@ -222,6 +234,7 @@ def build_payload(
     for removed in remove_ffmpeg_dlls(target):
         print(f"Rimosso (DEC-030): {removed}")
     copy_app(Path(app_src), target / "app" / Path(app_src).name)
+    stamp_version(target / "app" / Path(app_src).name / "__init__.py", version)
     # No exclusions: a leftover FFmpeg DLL makes build_manifest raise.
     try:
         manifest = runtime_manifest.build_manifest(target, version=version, excluded_globs=())
@@ -258,6 +271,8 @@ def run(
     download_wheels: Callable[[Path, Path], None] = pip_download_wheels,
 ) -> Path:
     """Fetch and verify the pins (NSIS too, used by Task 8), fetch the wheels, build."""
+    if not isinstance(version, str) or not _VERSION.fullmatch(version):
+        raise BuildError(f"versione non valida (atteso MAGGIORE.MINORE.PATCH): {version!r}")
     pins = load_pins(pins_path)
     embeddable = fetch_pinned(pins["embeddable"], cache_dir, download=download)
     fetch_pinned(pins["nsis"], cache_dir, download=download)

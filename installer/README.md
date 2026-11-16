@@ -19,6 +19,8 @@ Con il Python 3.13 di sviluppo (lo stesso dei test). Il comando:
    - `app/alfa_document_intelligence/`: i sorgenti dell'applicazione, senza `tests`, `__pycache__`, `*.pyc`;
    - `runtime-manifest.json`: dimensione e SHA-256 di ogni file, verificato all'avvio (Task 5).
 
+La versione (`--version`) deve essere `MAGGIORE.MINORE.PATCH` ed è scritta come `__version__` nel `__init__.py` copiato in `app/` (R23), prima del manifest.
+
 Uscita: 0 riuscito, 2 errore di costruzione, 3 **BLOCCATO** (impronta diversa).
 
 `installer/.cache/` e `installer/out/` sono ignorate da git.
