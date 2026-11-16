@@ -30,6 +30,13 @@ def build_notices(payload_root: Path) -> str:
     for dist in sorted(package_dir.glob('*.dist-info')):
         metadata = Parser().parsestr((dist / 'METADATA').read_text(encoding='utf-8'))
         name, version = metadata['Name'], metadata['Version']
+        if name.lower().replace('_', '-') == 'pyyaml':
+            if version != '6.0.3':
+                raise ValueError('PyYAML: unverified licence inventory')
+            licence = Path(__file__).parent / 'licenses' / 'libyaml-0.2.5.txt'
+            if not licence.is_file():
+                raise ValueError('Missing libyaml licence')
+            blocks.append('libyaml 0.2.5 (bundled with PyYAML)\n\n' + _text(licence))
         if name.lower().replace('_', '-') == 'pyclipper':
             if version != '1.4.0':
                 raise ValueError('pyclipper: unverified licence inventory')

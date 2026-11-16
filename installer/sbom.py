@@ -22,6 +22,7 @@ WHEEL_NATIVE_COMPONENTS = {
     'shapely': ('2.2.0', '1eaa2cb64cdedaf65d6bc86f2819c9cd7d6d68f969aa3ebfdc93743ab581f437', (('GEOS', '3.14.1'),)),
     'pypdfium2': ('5.15.2', '74d1bace34fb01c660d0b64344d5a4b7d276942b7c6623c88ab59ea21c5acfbd', (('PDFium', '159.0.8149.0'),)),
     'pyclipper': ('1.4.0', 'd4b2d7c41086f1927d14947c563dfc7beed2f6c0d9af13c42fe3dcdc20d35832', (('Clipper', '6.4.2'),)),
+    'pyyaml': ('6.0.3', '79005a0d97d5ddabfeeea4cf676af11e647e41d81c9a7722a193022accdb6b7c', (('libyaml', '0.2.5'),)),
     'opencv-python-headless': ('5.0.0.93', '829717b6a95554f273e49e357cee3b3a2a26b6f4842fbc1bed2b45bdd8f87e0e',
                                (('libprotobuf', '3.19.1'), ('flatbuffers', '25.9.23'),
                                 ('zlib', '1.3.2'), ('libjpeg-turbo', '3.1.2-70'),

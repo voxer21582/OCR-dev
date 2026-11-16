@@ -179,6 +179,20 @@ def test_notices_include_clipper_attribution(tmp_path):
         notices.build_notices(tmp_path)
 
 
+def test_notices_include_libyaml_license(tmp_path):
+    notices = _load('notices')
+    _dist(tmp_path, 'pyyaml')
+    metadata = tmp_path / 'python/Lib/site-packages/pyyaml-1.0.dist-info/METADATA'
+    metadata.write_text(metadata.read_text(encoding='utf-8').replace('Version: 1.0', 'Version: 6.0.3'), encoding='utf-8')
+    (tmp_path / 'python/LICENSE.txt').write_text('Python licence', encoding='utf-8')
+    result = notices.build_notices(tmp_path)
+    assert 'libyaml 0.2.5 (bundled with PyYAML)' in result
+    assert 'Copyright (c) 2017-2020 Ingy' in result
+    metadata.write_text(metadata.read_text(encoding='utf-8').replace('Version: 6.0.3', 'Version: 1.0'), encoding='utf-8')
+    with pytest.raises(ValueError, match='PyYAML.*licence inventory'):
+        notices.build_notices(tmp_path)
+
+
 def test_sbom_includes_native_dependencies_for_verified_python_build(tmp_path, monkeypatch):
     sbom = _load('sbom')
     monkeypatch.setattr(sbom, 'MODELS', {})
@@ -230,7 +244,8 @@ def test_sbom_includes_native_components_for_verified_pillow_wheel(tmp_path, mon
     ('pypdfium2', '5.15.2', '74d1bace34fb01c660d0b64344d5a4b7d276942b7c6623c88ab59ea21c5acfbd', 'PDFium', '159.0.8149.0'),
     ('opencv-python-headless', '5.0.0.93', '829717b6a95554f273e49e357cee3b3a2a26b6f4842fbc1bed2b45bdd8f87e0e', 'libprotobuf', '3.19.1'),
     ('pyclipper', '1.4.0', 'd4b2d7c41086f1927d14947c563dfc7beed2f6c0d9af13c42fe3dcdc20d35832', 'Clipper', '6.4.2'),
-], ids=['numpy', 'geos', 'pdfium', 'opencv', 'clipper'])
+    ('pyyaml', '6.0.3', '79005a0d97d5ddabfeeea4cf676af11e647e41d81c9a7722a193022accdb6b7c', 'libyaml', '0.2.5'),
+], ids=['numpy', 'geos', 'pdfium', 'opencv', 'clipper', 'libyaml'])
 def test_sbom_identifies_verified_wheel_native_components(tmp_path, monkeypatch, package, version, digest, native, native_version):
     sbom = _load('sbom')
     monkeypatch.setattr(sbom, 'MODELS', {})
