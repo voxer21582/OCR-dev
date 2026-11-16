@@ -1,5 +1,15 @@
-STATO: M6 IN CORSO — applicazione installabile; piano in [2026-11-15-m6-applicazione-installabile.md](superpowers/plans/2026-11-15-m6-applicazione-installabile.md)
+STATO: M6 IMPLEMENTATO, IN ATTESA DELLE VERIFICHE DEL PROPRIETARIO — applicazione installabile; piano in [2026-11-15-m6-applicazione-installabile.md](superpowers/plans/2026-11-15-m6-applicazione-installabile.md)
 M6 (applicazione installabile) avviata il 2026-11-15 con le decisioni del proprietario: R-001 e R-002 approvate, Q-001 e Q-003 risolte (DEC-030, DEC-031, DEC-032); il collaudo su PC pulito lo esegue il proprietario con una procedura scritta.
+
+## M6 — implementata, in attesa delle verifiche del proprietario (2026-11-16)
+
+Criteri di accettazione M6 ed evidenze: [acceptance.md](evidence/M6/acceptance.md). **Non è completata**: REQ-100…107 sono verificati in locale (`SYN-CI`, `LOCAL-RUN`), ma le prove sul PC pulito, la firma (Q-004) e alcune conferme spettano al proprietario.
+- Finestra Edge in modalità app, istanza unica, «Esci» e spegnimento automatico (REQ-100, 101): [prova reale](evidence/M6/app-window.md).
+- Installer per utente con runtime verificato, aggiornamento, ritorno alla versione precedente e disinstallazione (REQ-102, 103, 104): [PC di sviluppo](evidence/M6/installer-dev-pc.md), [prova della procedura](evidence/M6/procedure-dry-run.md), [contenuto](evidence/M6/payload.md).
+- SBOM e notice (REQ-107): [esito](evidence/M6/notices.md). Informazioni e collegamento (REQ-106).
+- [Revisione indipendente](evidence/M6/review.md): nessun problema critico; 5 importanti corretti in `eca78c3..167c895`; un nuovo importante accettato come limite (R46). Limiti dichiarati in `acceptance.md`.
+- Suite locale: 1077 test passati, 3 saltati.
+- **In attesa del proprietario:** Q-004 e firma (REQ-105, [modulo](evidence/M6/signature.md)); [matrice sul PC pulito](evidence/M6/lifecycle-matrix.md) con la [procedura](runtime/m6-lifecycle-procedure.md); conferma della licenza di flatbuffers (R26); OK sulle modifiche accanto ad archivio (R7) ed export (R8); decisione sul seguito di R46; il sì alla chiusura dell'issue #9.
 
 ## M5 — completata (2026-11-15, #150)
 
@@ -203,7 +213,7 @@ Design approvato dal proprietario il 2026-11-15: [`superpowers/specs/2026-11-15-
 | M3 Classificazione ed estrazione | **completata** (2026-11-15, #148) |
 | M4 Revisione | **completata** (2026-11-15, #149) |
 | M5 Libreria | **completata** (2026-11-15, #150) |
-| M6 Applicazione installabile | in corso |
+| M6 Applicazione installabile | implementato, in attesa delle verifiche del proprietario (PC pulito, firma Q-004) |
 | M7 Sicurezza e prestazioni | non iniziata |
 | M8 Prova sul campo e collaudo | non iniziata |
 

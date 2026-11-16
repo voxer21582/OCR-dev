@@ -106,6 +106,13 @@ boost») di Edge sul profilo predefinito, non un'impostazione che OCR2 modifica.
 Come richiesto, questo processo (privo della cartella temporanea nella riga di
 comando) **non** è stato arrestato.
 
+**Limite dichiarato (R18, triage «prima dell'unione»):** il processo in
+background dopo la chiusura è l'avvio rapido di Edge sul profilo predefinito
+dell'utente. OCR2 non cambia questa impostazione (V4 intatto) e il flag
+`--disable-background-mode` non la ferma. È elencato in
+[`acceptance.md`](acceptance.md) («Limiti dichiarati») e nella procedura per il
+proprietario, che lo controlla sull'altro PC.
+
 ## 5. R14: navigazione al documento originale (da verificare dal proprietario)
 
 Non eseguibile senza clic nella finestra: **da verificare dal proprietario**.
@@ -125,7 +132,9 @@ Limite noto (R12/R14, aggiornato da R41): una finestra ripristinata da una
 navigazione scade dopo il tempo di inattività della sessione (30 minuti) fino
 al suo heartbeat successivo; restando sulla pagina del documento originale per
 più di 30 minuti il server può fermarsi. Una finestra chiusa davvero entro 2 s
-da una richiesta può tenere acceso il server fino a 30 minuti.
+da una richiesta può tenere acceso il server fino a 30 minuti; lo stesso vale
+per una finestra chiusa durante un'elaborazione, perché quelle pagine si
+aggiornano da sole (R46).
 
 ## Pulizia
 

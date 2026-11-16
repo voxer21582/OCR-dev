@@ -61,6 +61,7 @@ Le vecchie M1 e M2 (PR #138–#143 su `main`; #144 in bozza) hanno prodotto il p
 **Prerequisiti:** approvazione di R-001 (Python embeddable) e R-002 (NSIS); risposta a Q-001 (FFmpeg); disponibilità dell'altro PC.
 **Deliverable:** finestra Edge in modalità app; «Esci» e spegnimento automatico; installer per utente con runtime verificato; aggiornamento, ritorno indietro, disinstallazione; SBOM e notice; passo di firma del proprietario documentato.
 **Evidenze:** matrice del ciclo di vita eseguita sull'altro PC; elenco dei file e voci per utente creati; firma verificata; revisione.
+**Stato:** implementato, in attesa delle verifiche del proprietario (matrice sul PC pulito, firma Q-004, conferme). 1077 test passati, 3 saltati. Vedi [`evidence/M6/acceptance.md`](evidence/M6/acceptance.md).
 
 ## M7 — Sicurezza e prestazioni
 
