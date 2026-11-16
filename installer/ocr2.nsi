@@ -5,8 +5,9 @@
 ;   active.txt      line 1 active version, line 2 previous (written only by install_state)
 ;   OCR2.exe        launcher stub (launcher.nsi); Start-menu shortcuts point only to it and to uninstall.exe
 ;   uninstall.exe
-; Install: a non-active versions\<v> is a leftover of an interrupted install and is
-; deleted first (R7); the payload is extracted; install_state activate <v> verifies
+; Install: install_state check-closed of the active version refuses while OCR2 runs
+; (R42); then a non-active versions\<v> (leftover of an interrupted install, or the
+; previous version installed again) is deleted (R7); the payload is extracted; install_state activate <v> verifies
 ; it and only then rewrites active.txt.  On failure versions\<v> is deleted and the
 ; previous version stays active.  No registry, no admin rights, no download.
 ; The user's data (%LOCALAPPDATA%\OCR2) is deleted only by install_state uninstall
@@ -133,7 +134,22 @@ FunctionEnd
 
 Section "OCR2" SecMain
   SetShellVarContext current
-  ; R7: versions\${VERSION} is not the active version here, so it is a leftover of an interrupted install.
+  ; R42: first make sure OCR2 is closed, with the active version's install_state, before any
+  ; version folder changes: versions\${VERSION} may be the previous version (rollback target).
+  Call ReadActive
+  ${If} $R0 != ""
+  ${AndIf} ${FileExists} "$INSTDIR\versions\$R0\python\python.exe"
+    nsExec::ExecToStack '"$INSTDIR\versions\$R0\python\python.exe" -B -m alfa_document_intelligence.install_state check-closed'
+    Pop $0
+    Pop $1
+    ${If} $0 != "0"
+      MessageBox MB_ICONSTOP "OCR2 ${VERSION} non è stato installato. Resta attiva la versione precedente.$\r$\n$1" /SD IDOK
+      SetErrorLevel 2
+      Abort
+    ${EndIf}
+  ${EndIf}
+  ; R7: versions\${VERSION} is not the active version here: a leftover of an interrupted install,
+  ; or the previous version being installed again.  Only now, OCR2 closed, it is replaced.
   RMDir /r "$INSTDIR\versions\${VERSION}"
   ${If} ${FileExists} "$INSTDIR\versions\${VERSION}\*.*"
     MessageBox MB_ICONSTOP "Impossibile sostituire i file della versione ${VERSION}. Chiudi la finestra di OCR2 (o usa Esci), attendi qualche secondo e riprova." /SD IDOK

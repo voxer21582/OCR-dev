@@ -83,6 +83,24 @@ def test_installer_extracts_activates_and_cleans_up_only_its_version():
     assert leftover < extract  # R7: a non-active leftover is deleted before extracting
 
 
+def test_installer_checks_that_ocr2_is_closed_before_touching_any_version_folder():
+    # R42 (item 9): reinstalling the previous (rollback) version while OCR2 is open
+    # must not delete it; the running check of the active version comes first.
+    lines = _code_lines("ocr2.nsi")
+    section = lines.index('Section "OCR2" SecMain')
+    check = next(i for i, line in enumerate(lines) if "install_state check-closed" in line)
+    assert section < check
+    assert lines[check].startswith("nsExec::ExecToStack '\"$INSTDIR\\versions\\$R0\\python\\python.exe\" -B -m")
+    leftover = lines.index('RMDir /r "$INSTDIR\\versions\\${VERSION}"', section)
+    extract = lines.index('File /r "${PAYLOAD_DIR}\\*.*"', section)
+    assert check < leftover < extract
+    refusal = lines[check:leftover]
+    assert refusal[1:3] == ["Pop $0", "Pop $1"] and '${If} $0 != "0"' in refusal
+    assert "SetErrorLevel 2" in refusal and "Abort" in refusal
+    # Nothing is deleted, written or extracted before the check.
+    assert not any(line.startswith(("RMDir", "Delete", "File", "WriteUninstaller", "SetOutPath")) for line in lines[section:check])
+
+
 def test_reinstall_refusal_gives_the_remedies_that_work():
     # R38: no in-place repair; the refusal names the working remedies.
     line = next(line for line in _code_lines("ocr2.nsi") if "Questa versione di OCR2 è già installata." in line)

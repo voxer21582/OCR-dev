@@ -14,7 +14,9 @@ alfa_document_intelligence.install_state activate <v>``).  ``active.txt`` change
 only after the new version passes ``verify_installation`` and is always written
 atomically (temporary file + ``os.replace``), so an interrupted update leaves the
 previous version active.  ``rollback`` swaps the two lines; ``prune`` keeps only
-the two versions named in ``active.txt``; ``uninstall`` runs before NSIS removes
+the two versions named in ``active.txt``; ``check-closed`` (run by the installer
+with the active version's Python before it touches any version folder) only
+refuses while OCR2 is running; ``uninstall`` runs before NSIS removes
 the program files and deletes the user's data only on explicit request.
 
 The user's data folder is resolved, as the launcher does, from the
@@ -116,6 +118,15 @@ def _refuse_while_running() -> None:
     data_dir = _data_dir()
     if data_dir is not None and running_instance(data_dir) is not None:
         raise InstallStateError(_RUNNING)
+
+
+def check_closed() -> None:
+    """The installer's first step, before any version folder changes (R42).
+
+    Run with the active version's Python: reinstalling the previous (rollback)
+    version while OCR2 is open must not delete that folder first.
+    """
+    _refuse_while_running()
 
 
 def _verify(base: Path, version: str) -> None:
@@ -276,10 +287,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     activate_parser.add_argument("version")
     commands.add_parser("rollback")
     commands.add_parser("prune")
+    commands.add_parser("check-closed")
     uninstall_parser = commands.add_parser("uninstall")
     uninstall_parser.add_argument("--remove-data", action="store_true")
     uninstall_parser.add_argument("--test-data-root", type=Path, default=None)
-    for sub in (activate_parser, commands.choices["rollback"], commands.choices["prune"], uninstall_parser):
+    for sub in (activate_parser, commands.choices["rollback"], commands.choices["prune"], commands.choices["check-closed"], uninstall_parser):
         sub.add_argument("--base", type=Path, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     try:
@@ -289,6 +301,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Versione attiva: {args.version}")
         elif args.command == "rollback":
             print(f"Versione attiva: {rollback(base)}")
+        elif args.command == "check-closed":
+            check_closed()
+            print("OCR2 è chiuso.")
         elif args.command == "prune":
             removed = prune(base)
             print("Versioni eliminate: " + (", ".join(removed) if removed else "nessuna"))

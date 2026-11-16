@@ -333,3 +333,20 @@ def test_prune_failure_after_the_switch_keeps_the_new_version_active(monkeypatch
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     monkeypatch.setattr(install_state, "running_instance", lambda _data_dir: None)
     assert install_state.prune(base) == ["0.6.0"]
+
+
+def test_check_closed_refuses_while_running_and_changes_nothing(monkeypatch, tmp_path, capsys):
+    # R42 (item 9): the installer's first step, run before any file changes.
+    base = tmp_path / "OCR2"
+    _version(base, "0.6.0")
+    install_state.activate(base, "0.6.0")
+    _version(base, "0.6.1")
+    install_state.activate(base, "0.6.1")  # previous (rollback target) = 0.6.0
+    before = _state(base)
+    assert install_state.main(["check-closed", "--base", str(base)]) == 0
+    assert "OCR2 è chiuso." in capsys.readouterr().out
+    monkeypatch.setattr(install_state, "running_instance", lambda _data_dir: 51234)
+    assert install_state.main(["check-closed", "--base", str(base)]) == 1
+    assert install_state._RUNNING in capsys.readouterr().err
+    assert _state(base) == before
+    assert (base / "versions" / "0.6.0").is_dir() and (base / "versions" / "0.6.1").is_dir()
