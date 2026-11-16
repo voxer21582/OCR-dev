@@ -245,6 +245,8 @@ def test_release_payload_verifier_rejects_tampering(tmp_path):
     payload = tmp_path / 'payload'
     for name in ('python/python.exe', 'python/pythonw.exe', 'python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
         f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'original')
+    (payload / 'sbom.json').write_text('{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[{"type":"library","name":"synthetic"}]}', encoding='utf-8')
+    (payload / 'THIRD_PARTY_NOTICES.txt').write_text('Synthetic notices', encoding='utf-8')
     manifest = build_manifest(payload, version='0.6.0', excluded_globs=())
     (payload / 'runtime-manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
     script = Path(__file__).resolve().parents[2] / 'installer/verify_payload.py'
@@ -295,8 +297,62 @@ def test_release_payload_verifier_rejects_version_mismatch(tmp_path):
     payload = tmp_path / 'payload'
     for name in ('python/python.exe', 'python/pythonw.exe', 'python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
         f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    (payload / 'sbom.json').write_text('{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[{"type":"library","name":"synthetic"}]}', encoding='utf-8')
+    (payload / 'THIRD_PARTY_NOTICES.txt').write_text('Synthetic notices', encoding='utf-8')
     manifest = build_manifest(payload, version='0.6.0', excluded_globs=())
     (payload / 'runtime-manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
     script = Path(__file__).resolve().parents[2] / 'installer/verify_payload.py'
     assert subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.0'], capture_output=True).returncode == 0
     assert subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.1'], capture_output=True).returncode != 0
+
+
+@pytest.mark.parametrize('missing,empty', [('sbom.json', False), ('THIRD_PARTY_NOTICES.txt', False),
+                                           ('sbom.json', True), ('THIRD_PARTY_NOTICES.txt', True)])
+def test_release_payload_verifier_requires_inventory_and_notices(tmp_path, missing, empty):
+    import subprocess, sys
+    from alfa_document_intelligence.runtime_manifest import build_manifest
+    payload = tmp_path / 'payload'
+    for name in ('python/python.exe', 'python/pythonw.exe', 'python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
+        f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    (payload / 'sbom.json').write_text('{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[{"type":"library","name":"synthetic"}]}', encoding='utf-8')
+    (payload / 'THIRD_PARTY_NOTICES.txt').write_text('Synthetic notices', encoding='utf-8')
+    if empty:
+        (payload / missing).write_bytes(b'')
+    else:
+        (payload / missing).unlink()
+    manifest = build_manifest(payload, version='0.6.0', excluded_globs=())
+    (payload / 'runtime-manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+    script = Path(__file__).resolve().parents[2] / 'installer/verify_payload.py'
+    result = subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.0'], capture_output=True)
+    assert result.returncode != 0
+
+
+@pytest.mark.parametrize('document', ['{"not_a_bom":true}',
+                                       '{"bomFormat":"CycloneDX","specVersion":"1.5","components":[null]}',
+                                       '{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[{}]}',
+                                       '{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[{"type":"banana","name":"x"}]}'])
+def test_release_payload_verifier_rejects_invalid_inventory(tmp_path, document):
+    import subprocess, sys
+    from alfa_document_intelligence.runtime_manifest import build_manifest
+    payload = tmp_path / 'payload'
+    for name in ('python/python.exe', 'python/pythonw.exe', 'python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
+        f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    (payload / 'sbom.json').write_text(document, encoding='utf-8')
+    (payload / 'THIRD_PARTY_NOTICES.txt').write_text('Synthetic notices', encoding='utf-8')
+    manifest = build_manifest(payload, version='0.6.0', excluded_globs=())
+    (payload / 'runtime-manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+    script = Path(__file__).resolve().parents[2] / 'installer/verify_payload.py'
+    assert subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.0'], capture_output=True).returncode != 0
+
+
+def test_release_payload_verifier_rejects_blank_notices(tmp_path):
+    import subprocess, sys
+    from alfa_document_intelligence.runtime_manifest import build_manifest
+    payload = tmp_path / 'payload'
+    for name in ('python/python.exe', 'python/pythonw.exe', 'python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
+        f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    (payload / 'sbom.json').write_text('{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[{"type":"library","name":"synthetic"}]}', encoding='utf-8')
+    (payload / 'THIRD_PARTY_NOTICES.txt').write_text(' \n ', encoding='utf-8')
+    (payload / 'runtime-manifest.json').write_text(json.dumps(build_manifest(payload, version='0.6.0', excluded_globs=())), encoding='utf-8')
+    script = Path(__file__).resolve().parents[2] / 'installer/verify_payload.py'
+    assert subprocess.run([sys.executable, '-B', str(script), str(payload), '0.6.0'], capture_output=True).returncode != 0
