@@ -175,6 +175,13 @@ SectionEnd
 
 Section "Uninstall"
   SetShellVarContext current
+  ; R42: RMDir /r below only in an OCR2 program folder (one of its own files is there).
+  ${IfNot} ${FileExists} "$INSTDIR\OCR2.exe"
+  ${AndIfNot} ${FileExists} "$INSTDIR\active.txt"
+    MessageBox MB_ICONSTOP "La cartella $INSTDIR non contiene OCR2: nessun file è stato eliminato." /SD IDOK
+    SetErrorLevel 2
+    Abort
+  ${EndIf}
   ; $2 = 1: delete the user's data too.  Silent: only with /REMOVEDATA.  Otherwise ask, default no.
   StrCpy $2 "0"
   ${If} ${Silent}

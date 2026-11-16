@@ -148,6 +148,21 @@ def test_uninstaller_asks_about_data_and_deletes_it_only_through_install_state()
         assert line.startswith(('Delete "$INSTDIR\\', 'RMDir "$INSTDIR"', 'RMDir /r "$INSTDIR\\versions', 'Delete "$SMPROGRAMS\\OCR2\\', 'RMDir "$SMPROGRAMS\\OCR2"')), line
 
 
+def test_uninstaller_removes_versions_only_from_an_ocr2_folder():
+    # R42: $INSTDIR must hold OCR2.exe or active.txt before any RMDir /r.
+    lines = _code_lines("ocr2.nsi")
+    section = lines.index('Section "Uninstall"')
+    guard = lines.index('${IfNot} ${FileExists} "$INSTDIR\\OCR2.exe"', section)
+    assert lines[guard + 1] == '${AndIfNot} ${FileExists} "$INSTDIR\\active.txt"'
+    block = lines[guard:lines.index("${EndIf}", guard)]
+    assert any(line.startswith("MessageBox MB_ICONSTOP") and "non contiene OCR2" in line for line in block)
+    assert "SetErrorLevel 2" in block and "Abort" in block
+    removal = lines.index('RMDir /r "$INSTDIR\\versions"', section)
+    assert guard < removal
+    # Nothing is deleted or run before the guard.
+    assert not any(line.startswith(("Delete", "RMDir", "nsExec")) for line in lines[section:guard])
+
+
 def test_launcher_reads_active_txt_and_starts_the_active_version():
     text = _text("launcher.nsi")
     assert re.search(r"^SilentInstall silent$", text, re.MULTILINE)
