@@ -13,13 +13,29 @@ InstallDir "$LOCALAPPDATA\Programs\OCR2"
 !ifndef OCR2_OUTPUT
   !error "OCR2_OUTPUT must be supplied"
 !endif
+; Explicit unsigned release (DEC-034): skips only the Authenticode steps.
+!ifdef OCR2_UNSIGNED_RELEASE
+  !ifdef OCR2_TEST
+    !error "OCR2_UNSIGNED_RELEASE cannot be combined with OCR2_TEST"
+  !endif
+  !ifdef OCR2_CERT_THUMBPRINT
+    !error "OCR2_UNSIGNED_RELEASE cannot be combined with OCR2_CERT_THUMBPRINT"
+  !endif
+  !ifdef OCR2_SIGN_COMMAND
+    !error "OCR2_UNSIGNED_RELEASE cannot be combined with OCR2_SIGN_COMMAND"
+  !endif
+!endif
 !ifndef OCR2_TEST
-  !ifndef OCR2_CERT_THUMBPRINT
-    !error "Release builds require the expected signing certificate thumbprint"
+  !ifndef OCR2_UNSIGNED_RELEASE
+    !ifndef OCR2_CERT_THUMBPRINT
+      !error "Release builds require the expected signing certificate thumbprint"
+    !endif
   !endif
   !system 'python -B "verify_payload.py" "${OCR2_PAYLOAD}" "${OCR2_VERSION}"' = 0
   !system 'python -B "verify_release_inventory.py" "${OCR2_PAYLOAD}"' = 0
-  !system 'pwsh.exe -NoProfile -NonInteractive -File "verify-runtime-signatures.ps1" -Payload "${OCR2_PAYLOAD}" -Thumbprint "${OCR2_CERT_THUMBPRINT}"' = 0
+  !ifndef OCR2_UNSIGNED_RELEASE
+    !system 'pwsh.exe -NoProfile -NonInteractive -File "verify-runtime-signatures.ps1" -Payload "${OCR2_PAYLOAD}" -Thumbprint "${OCR2_CERT_THUMBPRINT}"' = 0
+  !endif
 !endif
 !ifdef OCR2_SIGN_COMMAND
   !ifdef OCR2_TEST
@@ -31,11 +47,16 @@ InstallDir "$LOCALAPPDATA\Programs\OCR2"
   !endif
 !else
   !ifndef OCR2_TEST
-    !error "Release builds require signing"
+    !ifndef OCR2_UNSIGNED_RELEASE
+      !error "Release builds require signing"
+    !endif
   !endif
 !endif
 
 Name "OCR2 ${OCR2_VERSION}"
+!ifdef OCR2_UNSIGNED_RELEASE
+  BrandingText "OCR2 ${OCR2_VERSION} — non firmato"
+!endif
 OutFile "${OCR2_OUTPUT}"
 ShowInstDetails show
 

@@ -136,3 +136,107 @@ def test_failed_cleanup_after_activation_keeps_the_new_version():
     assert 'MB_ICONEXCLAMATION' in failure
     for undo in ('Abort', 'rollback', 'activate', 'RMDir', 'Delete', 'Rename', 'SetErrorLevel'):
         assert undo not in failure
+
+
+def _preprocess(defines):
+    """Evaluate the conditional directives of ocr2.nsi for a set of /D defines.
+
+    Returns the first active ``!error`` message (or None) and the active lines.
+    Only ``!ifdef``/``!ifndef``/``!else``/``!endif`` are interpreted; everything
+    else is returned as written, so two configurations can be compared line by line.
+    """
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    stack = []
+    active = []
+    for raw in script.splitlines():
+        line = raw.strip()
+        enabled = all(stack)
+        match = re.fullmatch(r'!(ifdef|ifndef)\s+(\S+)', line)
+        if match:
+            defined = match.group(2) in defines
+            stack.append(defined if match.group(1) == 'ifdef' else not defined)
+            continue
+        if line == '!else':
+            stack[-1] = not stack[-1]
+            continue
+        if line == '!endif':
+            stack.pop()
+            continue
+        if not enabled:
+            continue
+        error = re.fullmatch(r'!error\s+"([^"]*)"', line)
+        if error:
+            return error.group(1), active
+        active.append(line)
+    assert not stack
+    return None, active
+
+
+_BASE = {'OCR2_VERSION', 'OCR2_PAYLOAD', 'OCR2_OUTPUT'}
+_SIGNED = _BASE | {'OCR2_CERT_THUMBPRINT', 'OCR2_SIGN_COMMAND'}
+_UNSIGNED = _BASE | {'OCR2_UNSIGNED_RELEASE'}
+
+
+def _body(lines):
+    """Lines after the build-time gates: what ends up in the installer itself."""
+    return lines[next(i for i, line in enumerate(lines) if line.startswith('Name ')):]
+
+
+def test_release_without_signing_still_fails_unless_explicitly_unsigned():
+    error, _ = _preprocess(_BASE)
+    assert error is not None
+    error, _ = _preprocess(_BASE | {'OCR2_CERT_THUMBPRINT'})
+    assert error == 'Release builds require signing'
+
+
+def test_unsigned_release_skips_only_the_authenticode_steps():
+    error, unsigned = _preprocess(_UNSIGNED)
+    assert error is None
+    error, signed = _preprocess(_SIGNED)
+    assert error is None
+    gates = [line for line in unsigned if line.startswith('!system')]
+    # Manifest with version equality, then rebuilt inventory and notices: same as a signed release.
+    assert any('"verify_payload.py" "${OCR2_PAYLOAD}" "${OCR2_VERSION}"' in line for line in gates)
+    assert any('"verify_release_inventory.py" "${OCR2_PAYLOAD}"' in line for line in gates)
+    assert gates == [line for line in signed if line.startswith('!system') and 'verify-runtime-signatures.ps1' not in line]
+    assert any('verify-runtime-signatures.ps1' in line for line in signed)
+    assert not any('verify-runtime-signatures.ps1' in line or 'verify-signature.ps1' in line for line in unsigned)
+    assert not any(line.startswith(('!finalize', '!uninstfinalize')) for line in unsigned)
+
+
+def test_unsigned_release_behaves_like_a_signed_release():
+    _, unsigned = _preprocess(_UNSIGNED)
+    _, signed = _preprocess(_SIGNED)
+    branding = [line for line in _body(unsigned) if line.startswith('BrandingText')]
+    assert branding == ['BrandingText "OCR2 ${OCR2_VERSION} — non firmato"']
+    assert [line for line in _body(unsigned) if not line.startswith('BrandingText')] == _body(signed)
+    body = '\n'.join(_body(unsigned))
+    # Release paths: real install folder, real data folder, Start-menu shortcuts, data question.
+    assert r'StrCpy $INSTDIR "$LOCALAPPDATA\Programs\OCR2"' in body
+    assert r'StrCpy $8 "$LOCALAPPDATA\OCR2"' in body
+    assert 'test-user-data' not in body
+    assert r'CreateShortcut "$SMPROGRAMS\OCR2\OCR2.lnk"' in body
+    assert r'Delete "$SMPROGRAMS\OCR2\Disinstalla OCR2.lnk"' in body
+    assert '"Vuoi eliminare anche i dati locali OCR2?"' in body
+    assert '/TEST-REMOVE-DATA' not in body
+    assert r'''Exec '"$INSTDIR\versions\$1\python\pythonw.exe"''' in body
+
+
+def test_signed_release_is_not_labelled_unsigned():
+    _, signed = _preprocess(_SIGNED)
+    assert not any('non firmato' in line for line in signed)
+
+
+def test_unsigned_release_refuses_signing_inputs_and_test_mode():
+    for extra in ({'OCR2_CERT_THUMBPRINT'}, {'OCR2_SIGN_COMMAND'},
+                  {'OCR2_CERT_THUMBPRINT', 'OCR2_SIGN_COMMAND'}, {'OCR2_TEST'}):
+        error, lines = _preprocess(_UNSIGNED | extra)
+        assert error is not None and 'OCR2_UNSIGNED_RELEASE' in error, extra
+        # The refusal comes before any build-time command runs.
+        assert not any(line.startswith('!system') for line in lines), extra
+
+
+def test_test_build_is_unchanged_by_the_unsigned_option():
+    error, lines = _preprocess(_BASE | {'OCR2_TEST'})
+    assert error is None
+    assert not any(line.startswith('!system') or 'non firmato' in line for line in lines)
