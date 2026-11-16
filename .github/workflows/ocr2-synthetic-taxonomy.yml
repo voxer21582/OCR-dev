@@ -111,6 +111,7 @@ jobs:
           tests/test_handoff_latest_correction.py
           tests/test_hashed_lock.py
           tests/test_ingestion.py
+          tests/test_install_state.py
           tests/test_interrupted_writes.py
           tests/test_invoice_line_items.py
           tests/test_isolated_decoder.py
@@ -126,6 +127,7 @@ jobs:
           tests/test_materialized_upload_batch.py
           tests/test_merchant_name.py
           tests/test_multipage_tiff_processing_contract.py
+          tests/test_nsis_script.py
           tests/test_ocr_adapter.py
           tests/test_ocr_engine_registry.py
           tests/test_ocr_job_ui.py
@@ -243,6 +245,7 @@ jobs:
           tests/test_handoff_latest_correction.py
           tests/test_hashed_lock.py
           tests/test_ingestion.py
+          tests/test_install_state.py
           tests/test_interrupted_writes.py
           tests/test_invoice_line_items.py
           tests/test_isolated_decoder.py
@@ -258,6 +261,7 @@ jobs:
           tests/test_materialized_upload_batch.py
           tests/test_merchant_name.py
           tests/test_multipage_tiff_processing_contract.py
+          tests/test_nsis_script.py
           tests/test_ocr_adapter.py
           tests/test_ocr_engine_registry.py
           tests/test_ocr_job_ui.py

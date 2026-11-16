@@ -343,3 +343,11 @@ def test_rapidocr_runs_without_ffmpeg_dll(tmp_path):
     assert without["ffmpeg_dlls"] == []
     assert original["texts"] and without["texts"] == original["texts"]
     assert any("FATTURA" in text for text in without["texts"])
+
+
+def test_resolved_drops_the_extended_length_prefix_but_keeps_unc(monkeypatch):
+    # A short (8.3) path can resolve to a long name beyond MAX_PATH, which realpath returns with the extended prefix.
+    results = {"long": r"\\?\C:\Users\long-name\file.pyc", "unc": r"\\?\UNC\server\share\file.pyc"}
+    monkeypatch.setattr(rm.Path, "resolve", lambda self, strict=False: type(self)(results[self.name]))
+    assert str(rm._resolved(Path("long"))) == str(Path(r"C:\Users\long-name\file.pyc"))
+    assert str(rm._resolved(Path("unc"))) == str(Path(results["unc"]))

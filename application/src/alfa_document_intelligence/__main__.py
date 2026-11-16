@@ -19,7 +19,8 @@ from .app_instance import InstanceLock, acquire, running_instance
 from .app_lifetime import AppInfo, AppLifetime, WindowPresence
 from .app_window import open_window
 from .local_intake_app import serve_expense_report_local
-from .local_document_store import LocalDocumentStore
+from .local_document_store import LocalDocumentStore, StoreSchemaError
+from .local_document_store import _SCHEMA_VERSION as _SUPPORTED_ARCHIVE_SCHEMA
 from .document_decoder import DecodeLimits
 from .document_family_catalog import DocumentFamilyCatalogError, DocumentFamilyCatalogStore
 from .expense_case_processing import ExpenseCaseProcessingManager
@@ -35,10 +36,14 @@ _STARTING_INSTANCE_WAIT_SECONDS = 15.0
 
 
 def _program_folder() -> Path:
-    """The installed program folder ``versions/<v>`` (R4); tests replace this function."""
+    """The installed program folder ``versions/<v>`` (R4); tests replace this function.
+
+    Absolute but not resolved: started through a short (8.3) path, the folder keeps
+    that form, so every file stays below MAX_PATH as it was when Python found it.
+    """
     import alfa_document_intelligence
 
-    return Path(alfa_document_intelligence.__file__).resolve().parents[2]
+    return Path(os.path.abspath(alfa_document_intelligence.__file__)).parents[2]
 
 
 _ERROR_PAGE = (
@@ -46,12 +51,15 @@ _ERROR_PAGE = (
     "<title>OCR2 non si avvia</title></head>"
     '<body style="font-family:sans-serif;max-width:40em;margin:2em auto">'
     "<h1>OCR2 non si avvia</h1>"
-    "<p>I file del programma non corrispondono all'installazione. "
-    "Reinstalla OCR2 con l'installer.</p><ul>{items}</ul></body></html>"
+    "<p>{message}</p><ul>{items}</ul></body></html>"
+)
+_RUNTIME_ERROR_MESSAGE = "I file del programma non corrispondono all'installazione. Reinstalla OCR2 con l'installer."
+NEWER_ARCHIVE_MESSAGE = (
+    "Questo archivio è stato aggiornato da una versione più recente di OCR2. Reinstalla quella versione."
 )
 
 
-def _show_runtime_error(problems: Sequence[str], data_dir: Path | None) -> None:
+def _show_error_page(message: str, problems: Sequence[str], data_dir: Path | None) -> None:
     """Write the static error page (no script) and open it as a file in the default browser.
 
     ``open_window`` accepts only the local server address, so the file URI goes
@@ -63,10 +71,44 @@ def _show_runtime_error(problems: Sequence[str], data_dir: Path | None) -> None:
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
         page = data_dir / "runtime-error.html"
-        page.write_text(_ERROR_PAGE.replace("{items}", items), encoding="utf-8")
+        page.write_text(_ERROR_PAGE.replace("{message}", html.escape(message)).replace("{items}", items), encoding="utf-8")
         webbrowser.open(page.resolve().as_uri())
     except OSError:
         pass
+
+
+def _show_runtime_error(problems: Sequence[str], data_dir: Path | None) -> None:
+    _show_error_page(_RUNTIME_ERROR_MESSAGE, problems, data_dir)
+
+
+def _archive_schema_version(path: Path) -> int | None:
+    """``user_version`` read from the SQLite header (bytes 60-63) without opening a connection."""
+    try:
+        with Path(path).open("rb") as stream:
+            header = stream.read(100)
+    except OSError:
+        return None
+    if len(header) < 64 or not header.startswith(b"SQLite format 3\x00"):
+        return None
+    return int.from_bytes(header[60:64], "big", signed=True)
+
+
+def _open_archive(path: Path, app_window: bool) -> LocalDocumentStore:
+    """Open the archive; one written by a newer OCR2 stops the start (exit 2), the file untouched.
+
+    The store refuses a ``user_version`` above the supported one before any write;
+    only that case gets the reinstall message, every other schema error propagates.
+    """
+    try:
+        return LocalDocumentStore(path)
+    except StoreSchemaError:
+        version = _archive_schema_version(path)
+        if version is None or version <= _SUPPORTED_ARCHIVE_SCHEMA:
+            raise
+    print(NEWER_ARCHIVE_MESSAGE, file=sys.stderr)
+    if app_window:
+        _show_error_page(NEWER_ARCHIVE_MESSAGE, (), Path(path).parent)
+    raise SystemExit(2)
 
 
 def _verify_runtime(app_window: bool) -> str:
@@ -212,9 +254,7 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status) -
         local_app_data = os.environ.get("LOCALAPPDATA")
         if not local_app_data:
             parser.error("LOCALAPPDATA non è disponibile: archivio locale non inizializzabile")
-        archive_store = LocalDocumentStore(
-            Path(local_app_data) / "OCR2" / "document-archive.sqlite3"
-        )
+        archive_store = _open_archive(Path(local_app_data) / "OCR2" / "document-archive.sqlite3", args.app_window)
         # The user's document-type catalog (REQ-041) lives next to the archive.
         family_catalog_store = DocumentFamilyCatalogStore(Path(local_app_data) / "OCR2" / "family-catalog.json")
         try:

@@ -55,6 +55,22 @@ def _hash_file(path: Path) -> tuple[str, int]:
     return digest.hexdigest(), size
 
 
+_EXTENDED_PREFIX = "\\\\?\\"
+
+
+def _resolved(path: Path) -> Path:
+    r"""``path.resolve()`` without the ``\\?\`` prefix Windows adds to a result longer than MAX_PATH.
+
+    A file reached through a short (8.3) folder name can resolve to a long name
+    beyond MAX_PATH; ``os.path.realpath`` then keeps the extended-length prefix,
+    and the containment check against the (unprefixed) root would fail.
+    """
+    text = str(Path(path).resolve())
+    if text.startswith(_EXTENDED_PREFIX) and not text.upper().startswith(_EXTENDED_PREFIX + "UNC\\"):
+        text = text[4:]
+    return Path(text)
+
+
 def _is_link(path: Path) -> bool:
     """Symbolic link, NTFS junction or any other reparse point."""
     if os.path.islink(path):
@@ -100,7 +116,7 @@ def build_manifest(root: Path, *, version: str, excluded_globs: Sequence[str]) -
     ``FORBIDDEN_GLOBS`` names and ``excluded_globs`` does not exclude.
     """
     root = Path(root)
-    resolved_root = root.resolve()
+    resolved_root = _resolved(root)
     files: dict[str, dict] = {}
     errors: list[str] = []
     entries = sorted(_walk(root, errors))
@@ -112,7 +128,7 @@ def build_manifest(root: Path, *, version: str, excluded_globs: Sequence[str]) -
         if is_link:
             raise ValueError(f"collegamento simbolico non ammesso: {relative}")
         try:
-            path.resolve().relative_to(resolved_root)
+            _resolved(path).relative_to(resolved_root)
         except ValueError as exc:
             raise ValueError(f"percorso fuori dalla cartella: {relative}") from exc
         if _matches(relative, FORBIDDEN_GLOBS):
@@ -161,7 +177,7 @@ def verify_installation(root: Path, manifest_path: Path) -> RuntimeVerification:
     """
     started = perf_counter()
     root = Path(root)
-    resolved_root = root.resolve()
+    resolved_root = _resolved(root)
     problems: list[str] = []
     data = _load(manifest_path)
     if isinstance(data, str):
@@ -174,7 +190,7 @@ def verify_installation(root: Path, manifest_path: Path) -> RuntimeVerification:
             continue
         path = root / pure
         try:
-            contained = path.resolve().is_relative_to(resolved_root)
+            contained = _resolved(path).is_relative_to(resolved_root)
         except (OSError, ValueError):
             contained = False
         if _is_link(path) or not contained:
