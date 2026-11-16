@@ -65,3 +65,9 @@ def test_prune_rejects_unexpected_version_directory(tmp_path):
     with pytest.raises(install_state.InstallStateError):
         install_state.prune(tmp_path)
     assert (tmp_path / 'versions/unexpected').is_dir()
+
+
+def test_cli_activates_with_explicit_base(tmp_path):
+    _version(tmp_path, '0.6.0')
+    assert install_state.main(['--base', str(tmp_path), 'activate', '0.6.0']) == 0
+    assert json.loads((tmp_path / 'active.json').read_text())['active'] == '0.6.0'

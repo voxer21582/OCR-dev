@@ -1,6 +1,7 @@
 """Manage version activation only after checking the candidate installation."""
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -109,3 +110,34 @@ def prune(base: Path) -> list[str]:
             shutil.rmtree(entry)
             removed.append(entry.name)
     return removed
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description='Gestione versioni installate OCR2')
+    parser.add_argument('--base', type=Path)
+    sub = parser.add_subparsers(dest='command', required=True)
+    sub.add_parser('activate').add_argument('version')
+    sub.add_parser('rollback')
+    sub.add_parser('prune')
+    args = parser.parse_args(argv)
+    if args.base is None:
+        local = os.environ.get('LOCALAPPDATA')
+        if not local:
+            parser.error('LOCALAPPDATA non disponibile')
+        args.base = Path(local) / 'Programs' / 'OCR2'
+    try:
+        if args.command == 'activate':
+            activate(args.base, args.version)
+        elif args.command == 'rollback':
+            print(rollback(args.base))
+        else:
+            for name in prune(args.base):
+                print(name)
+    except (InstallStateError, OSError) as exc:
+        print(f'OCR2: {exc}', file=__import__('sys').stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

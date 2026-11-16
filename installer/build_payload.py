@@ -120,6 +120,9 @@ def build_payload(*, embeddable_zip: Path, wheel_dir: Path, app_src: Path, out_d
             raise PayloadBuildError("Application source contains a link")
     shutil.copytree(source, result / "app" / "alfa_document_intelligence",
                     ignore=shutil.ignore_patterns("tests", "__pycache__", "*.pyc"))
+    initializer = result / 'app' / 'alfa_document_intelligence' / '__init__.py'
+    with initializer.open('a', encoding='utf-8') as stream:
+        stream.write(f'\n__version__ = "{version}"\n')
     for dll in (result / "python" / "Lib" / "site-packages").rglob("opencv_videoio_ffmpeg*.dll"):
         if dll.is_symlink() or not dll.is_file():
             raise PayloadBuildError("Invalid FFmpeg payload entry")

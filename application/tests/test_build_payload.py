@@ -112,6 +112,7 @@ def test_build_payload_excludes_tests_caches_and_ffmpeg_and_verifies(monkeypatch
     result = builder.build_payload(embeddable_zip=archive, wheel_dir=wheels, app_src=src,
                                    out_dir=tmp_path / "out", version="0.6.0", pins_path=pins, lock_path=lock)
     assert (result / "app" / "alfa_document_intelligence" / "__init__.py").is_file()
+    assert '__version__ = "0.6.0"' in (result / "app" / "alfa_document_intelligence" / "__init__.py").read_text(encoding='utf-8')
     assert not (result / "app" / "alfa_document_intelligence" / "tests").exists()
     assert not (result / "app" / "alfa_document_intelligence" / "__pycache__").exists()
     assert not list(result.rglob("opencv_videoio_ffmpeg*.dll"))
