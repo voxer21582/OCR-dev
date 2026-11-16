@@ -155,6 +155,7 @@ jobs:
           tests/test_synthetic_ocr_metrics.py
           tests/test_tax_exact_arithmetic.py
           tests/test_tiff_offset_fixture.py
+          tests/test_user_footprint.py
           tests/test_validation_rules.py
 
   windows-contracts:
@@ -289,4 +290,5 @@ jobs:
           tests/test_synthetic_ocr_metrics.py
           tests/test_tax_exact_arithmetic.py
           tests/test_tiff_offset_fixture.py
+          tests/test_user_footprint.py
           tests/test_validation_rules.py
