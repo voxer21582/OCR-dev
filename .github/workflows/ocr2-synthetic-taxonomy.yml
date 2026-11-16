@@ -79,6 +79,7 @@ jobs:
           tests/test_app_window.py
           tests/test_app_window_routes.py
           tests/test_archive_backup.py
+          tests/test_archive_source_after_restart.py
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py
           tests/test_case_benchmark_score.py
@@ -124,6 +125,7 @@ jobs:
           tests/test_local_document_archive_ui.py
           tests/test_local_document_store.py
           tests/test_local_intake_app.py
+          tests/test_launch_log.py
           tests/test_local_launcher.py
           tests/test_runtime_manifest.py
           tests/test_loopback_csrf.py
@@ -216,6 +218,7 @@ jobs:
           tests/test_app_window.py
           tests/test_app_window_routes.py
           tests/test_archive_backup.py
+          tests/test_archive_source_after_restart.py
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py
           tests/test_case_benchmark_score.py
@@ -261,6 +264,7 @@ jobs:
           tests/test_local_document_archive_ui.py
           tests/test_local_document_store.py
           tests/test_local_intake_app.py
+          tests/test_launch_log.py
           tests/test_local_launcher.py
           tests/test_runtime_manifest.py
           tests/test_loopback_csrf.py
