@@ -49,10 +49,18 @@ def _write_launch_log(kind: str, message: str = "", error: BaseException | None 
             lines.append("".join(traceback.format_exception(type(error), error, error.__traceback__)).rstrip())
         data = ("\n".join(lines) + "\n\n").encode("utf-8", "replace")
         if len(data) > _LAUNCH_LOG_ENTRY_BYTES:
-            data = (data[:_LAUNCH_LOG_ENTRY_BYTES].decode("utf-8", "ignore") + "\n[…troncato]\n\n").encode("utf-8")
+            # Keep the head (time and kind) and the tail (the final exception line).
+            marker = "\n[…troncato]\n".encode("utf-8")
+            half = (_LAUNCH_LOG_ENTRY_BYTES - len(marker)) // 2
+            data = (data[:half].decode("utf-8", "ignore").encode("utf-8") + marker
+                    + data[-half:].decode("utf-8", "ignore").encode("utf-8"))
         folder = os.path.join(local_app_data, "OCR2", "logs")
         os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, "launcher.log")
+        # No lock between processes: two launchers failing at the same moment
+        # may interleave their entries or both rotate. Accepted, because only a
+        # failed start writes and a second launcher normally just reuses the
+        # running instance.
         try:
             if os.path.getsize(path) + len(data) > _LAUNCH_LOG_LIMIT_BYTES:
                 os.replace(path, path + ".1")
@@ -71,12 +79,14 @@ class _StderrTail:
         self.target = target
         self.limit = limit
         self.text = ""
+        self.capturing = True
 
     def write(self, text):
-        try:
-            self.text = (self.text + str(text))[-self.limit:]
-        except Exception:
-            pass
+        if self.capturing:
+            try:
+                self.text = (self.text + str(text))[-self.limit:]
+            except Exception:
+                pass
         if self.target is None:
             return len(text)
         return self.target.write(text)
@@ -84,6 +94,20 @@ class _StderrTail:
     def flush(self) -> None:
         if self.target is not None:
             self.target.flush()
+
+
+def _end_startup_capture() -> None:
+    """Stop keeping stderr once the server is about to serve.
+
+    After start-up stderr carries request lines (search terms, tags, document
+    ids): they must never reach the plaintext launch log. The original stream
+    comes back, so under pythonw sys.stderr is None again, as before.
+    """
+    tail = sys.stderr
+    if isinstance(tail, _StderrTail):
+        tail.capturing = False
+        tail.text = ""
+        sys.stderr = tail.target
 
 
 def _show_bootstrap_error() -> None:
@@ -370,6 +394,7 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="n
             instance_lock.publish(port, instance_id)
             _open_app_window(f"http://{host}:{port}/", app_data_dir)
             app_lifetime.start()
+        _end_startup_capture()
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nArresto richiesto.")

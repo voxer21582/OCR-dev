@@ -242,3 +242,72 @@ def test_bootstrap_import_failure_is_logged_and_names_the_log(local_app_data, mo
     assert "synthetic missing module" not in messages[0][1]
     text = _log(local_app_data).read_text(encoding="utf-8")
     assert "import" in text and "ImportError" in text and "synthetic missing module" in text
+
+
+def test_truncated_entry_keeps_the_head_and_the_final_exception_line(local_app_data):
+    try:
+        raise ValueError("final synthetic line")
+    except ValueError as exc:
+        launcher._write_launch_log("eccezione", "x" * 200_000, exc)
+    text = _log(local_app_data).read_text(encoding="utf-8")
+    assert len(text.encode("utf-8")) <= launcher._LAUNCH_LOG_ENTRY_BYTES
+    assert "eccezione" in text.splitlines()[0]
+    assert "[…troncato]" in text
+    assert text.rstrip().endswith("ValueError: final synthetic line")
+
+
+@pytest.mark.parametrize("console", [False, True], ids=["pythonw", "console"])
+def test_requests_after_start_up_never_reach_the_log(local_app_data, monkeypatch, console):
+    """The stderr capture covers start-up only: request lines carry search terms and ids."""
+    import io
+    import threading
+    import urllib.request
+    from wsgiref.simple_server import WSGIRequestHandler, make_server
+
+    _dialogs(monkeypatch)
+    original = io.StringIO() if console else None
+    monkeypatch.setattr(sys, "stderr", original)
+
+    def app(environ, start_response):
+        start_response("200 OK", [("Content-Type", "text/plain")])
+        return [b"ok"]
+
+    class Handler(WSGIRequestHandler):
+        def handle(self):
+            try:
+                super().handle()
+            except AttributeError:
+                pass  # pythonw: sys.stderr is None, as before the capture existed
+
+    def started_then_failed(argv):
+        print("synthetic start-up warning", file=sys.stderr)
+        server = make_server("127.0.0.1", 0, app, handler_class=Handler)
+        launcher._end_startup_capture()
+        assert sys.stderr is original  # under pythonw: None again, unchanged behaviour
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+        port = server.server_address[1]
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/archive?q=Mario+Rossi+IBAN").read()
+        thread.join(10)
+        server.server_close()
+        print("after start-up: tag Riservato", file=sys.stderr) if sys.stderr is not None else None
+        raise SystemExit(1)
+
+    monkeypatch.setattr(launcher, "main", started_then_failed)
+    with pytest.raises(SystemExit):
+        launcher._run_entrypoint(["--app-window"])
+    text = _log(local_app_data).read_text(encoding="utf-8")
+    assert "uscita anomala" in text
+    for secret in ("Mario", "IBAN", "/archive", "Riservato", "synthetic start-up warning"):
+        assert secret not in text
+    if console:
+        assert "Mario+Rossi+IBAN" in original.getvalue()  # the console still sees requests
+
+
+def test_server_ends_the_start_up_capture_right_before_serving():
+    import inspect
+
+    source = inspect.getsource(launcher._serve)
+    assert source.count("_end_startup_capture()") == 1
+    assert source.index("_end_startup_capture()") < source.index("server.serve_forever()")
+    assert source.index("app_lifetime.start()") < source.index("_end_startup_capture()")
