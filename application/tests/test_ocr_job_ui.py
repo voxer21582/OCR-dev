@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import io
+import re
 import threading
 import unittest
 from urllib.parse import urlencode
@@ -141,6 +142,21 @@ class OCRJobUiTests(unittest.TestCase):
         self.assertEqual(status, "200 OK")
         self.assertIn(b"2 / 4", progress)
         self.assertNotIn(b"synthetic note", progress)
+
+    def test_auto_refresh_after_assign_note_targets_the_job_url(self):
+        # A bare <meta refresh> reloads the current URL with GET; after the
+        # POST /assign-note that URL is /assign-note, which only accepts POST,
+        # so the browser showed «Risorsa non trovata» (other-PC test, 2026-11-16).
+        status, _, page = self._assign_note()
+        self.assertEqual(status, "200 OK")
+        job_id = self.manager.started[0][0]
+        refresh = re.search(rb'<meta http-equiv="refresh" content="([^"]*)">', page)
+        self.assertIsNotNone(refresh)
+        self.assertEqual(refresh.group(1), f"2;url=/ocr/jobs/{job_id}".encode())
+        status, _, _ = _request(self.app, path=f"/ocr/jobs/{job_id}")
+        self.assertEqual(status, "200 OK")
+        status, _, _ = _request(self.app, path="/assign-note")
+        self.assertTrue(status.startswith("404"))
 
     def test_custom_family_catalog_is_forwarded_to_the_manager(self):
         sentinel_catalog = object()
@@ -482,3 +498,14 @@ class OCRJobUiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_expense_case_job_page_refreshes_its_own_job_url():
+    from alfa_document_intelligence.expense_case_processing import ExpenseCaseJobStatus
+    from alfa_document_intelligence.local_intake_app import _expense_case_job_page
+
+    job_id = "0" * 31 + "1"
+    page = _expense_case_job_page(ExpenseCaseJobStatus(job_id, "case-1", "processing", 0, 1, 0, None))
+    assert f'<meta http-equiv="refresh" content="2;url=/cases/case-1/jobs/{job_id}">' in page
+    done = _expense_case_job_page(ExpenseCaseJobStatus(job_id, "case-1", "succeeded", 1, 1, 1, None))
+    assert 'http-equiv="refresh"' not in done

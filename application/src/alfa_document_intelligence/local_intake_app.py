@@ -629,9 +629,13 @@ def _expense_case_job_page(status: ExpenseCaseJobStatus) -> str:
         "failed": "Elaborazione non riuscita", "cancelled": "Elaborazione annullata",
     }
     active = status.phase in {"queued", "processing", "cancelling"}
-    refresh = '<meta http-equiv="refresh" content="2">' if active else ""
     job_id = quote(status.job_id, safe="")
     case_id = quote(status.case_id, safe="")
+    # Refresh the job's own GET URL: a bare refresh would reload the POST URL
+    # that started the job (e.g. /cases/<id>/process) with GET.
+    refresh = (
+        f'<meta http-equiv="refresh" content="2;url=/cases/{case_id}/jobs/{job_id}">' if active else ""
+    )
     cancel = (
         f'<form method="post" action="/cases/{case_id}/jobs/{job_id}/cancel">'
         '<button type="submit">Annulla elaborazione</button></form>' if active else ""
@@ -743,7 +747,9 @@ def _ocr_job_page(
     return (
         '<!doctype html><html lang="it"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        + ('<meta http-equiv="refresh" content="2">' if phase in {
+        # Refresh the job URL, not the current one: after POST /assign-note a
+        # bare refresh reloads /assign-note with GET, which is not a page.
+        + (f'<meta http-equiv="refresh" content="2;url=/ocr/jobs/{quote(job_id, safe="")}">' if phase in {
             "In coda", "Avvio del motore", "Elaborazione in corso", "Annullamento in corso",
         } else "")
         + '<title>Elaborazione OCR</title><main><h1>Elaborazione OCR</h1>'
