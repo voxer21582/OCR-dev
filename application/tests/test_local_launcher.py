@@ -252,7 +252,7 @@ def test_launcher_app_window_stops_when_lifetime_requests_exit(monkeypatch, tmp_
 
     assert not thread.is_alive(), "launcher did not stop after the exit request"
     assert not errors, errors
-    assert lifetimes[0].stopped.is_set()
+    assert lifetimes[0].stopped.wait(5), "lifetime guard did not finish shutdown"
     assert served[0]["app_info"] is not None
     assert _port_is_free(port)
     assert not (data_dir / "instance.json").exists()
