@@ -17,6 +17,7 @@ Usage (Windows dev PC)::
 
     python installer/build_installer.py --version 0.6.1
     python installer/build_installer.py --version 0.6.1 --test --test-data-root <temporary folder>
+    python installer/build_installer.py --version 0.6.1 --sign-thumbprint <hex> --timestamp-url <url>   (signed, REQ-105)
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import re
 import subprocess
 import sys
 import zipfile
@@ -40,6 +42,11 @@ DEFAULT_CACHE = build_payload.DEFAULT_CACHE
 DEFAULT_OUT = build_payload.DEFAULT_OUT
 LAUNCHER_SCRIPT = INSTALLER_DIR / "launcher.nsi"
 INSTALLER_SCRIPT = INSTALLER_DIR / "ocr2.nsi"
+SIGN_SCRIPT = INSTALLER_DIR / "sign.ps1"
+VERIFY_SCRIPT = INSTALLER_DIR / "verify-signature.ps1"
+SIGN_MARKER_NAME = "sign-failed.txt"
+_THUMBPRINT = re.compile(r"[0-9A-Fa-f]{40}")
+_TIMESTAMP_URL = re.compile(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]+")
 
 
 def unpack_nsis(pin: dict, cache_dir: Path) -> Path:
@@ -97,18 +104,42 @@ def setup_path(out_dir: Path, version: str, *, test: bool = False) -> Path:
     return Path(out_dir) / f"OCR2-{version}-setup{'-test' if test else ''}.exe"
 
 
+def signing_defines(sign_thumbprint: str | None, timestamp_url: str | None, marker: Path | None = None) -> list[str]:
+    """``-D`` options that switch on the ``!finalize`` hooks (REQ-105); ``[]`` when unsigned.
+
+    Both values or neither.  Nothing is stored: the owner passes them at build time.
+    """
+    if sign_thumbprint is None and timestamp_url is None:
+        return []
+    if sign_thumbprint is None or timestamp_url is None:
+        raise BuildError("la firma richiede sia l'impronta del certificato sia l'indirizzo della marca temporale")
+    if not _THUMBPRINT.fullmatch(sign_thumbprint):
+        raise BuildError("impronta del certificato non valida (attesi 40 caratteri esadecimali)")
+    if not _TIMESTAMP_URL.fullmatch(timestamp_url) or '"' in timestamp_url or "'" in timestamp_url:
+        raise BuildError("indirizzo della marca temporale non valido (atteso http:// o https://)")
+    return [
+        f"-DOCR2_SIGN_THUMBPRINT={sign_thumbprint}",
+        f"-DOCR2_TIMESTAMP_URL={timestamp_url}",
+        f"-DOCR2_SIGN_SCRIPT={SIGN_SCRIPT}",
+        f"-DOCR2_SIGN_MARKER={marker if marker is not None else Path('sign-failed.txt')}",
+    ]
+
+
 def makensis_commands(
-    makensis: Path, version: str, payload_dir: Path, out_dir: Path, *, test_data_root: Path | None = None
+    makensis: Path, version: str, payload_dir: Path, out_dir: Path, *, test_data_root: Path | None = None,
+    sign_thumbprint: str | None = None, timestamp_url: str | None = None,
 ) -> tuple[list[str], list[str]]:
     """The makensis command lines for ``launcher.nsi`` and then ``ocr2.nsi``."""
+    sign = signing_defines(sign_thumbprint, timestamp_url, Path(out_dir) / SIGN_MARKER_NAME)
     if not isinstance(version, str) or not build_payload._VERSION.fullmatch(version):
         raise BuildError(f"versione non valida (atteso MAGGIORE.MINORE.PATCH): {version!r}")
     out_dir = Path(out_dir)
     launcher_exe = out_dir / "launcher" / "OCR2.exe"
     common = [str(makensis), "/V2", "/INPUTCHARSET", "UTF8"]
-    launcher = [*common, f"-DOUTFILE={launcher_exe}", str(LAUNCHER_SCRIPT)]
+    launcher = [*common, *sign, f"-DOUTFILE={launcher_exe}", str(LAUNCHER_SCRIPT)]
     installer = [
         *common,
+        *sign,
         f"-DVERSION={version}",
         f"-DPAYLOAD_DIR={Path(payload_dir)}",
         f"-DLAUNCHER_EXE={launcher_exe}",
@@ -123,18 +154,38 @@ def makensis_commands(
 def run(
     *, version: str, test_data_root: Path | None = None, pins_path: Path = DEFAULT_PINS,
     cache_dir: Path = DEFAULT_CACHE, out_dir: Path = DEFAULT_OUT,
+    sign_thumbprint: str | None = None, timestamp_url: str | None = None,
 ) -> Path:
     pins = build_payload.load_pins(pins_path)
     payload_dir = Path(out_dir) / version
     check_payload(payload_dir, version)
     makensis = unpack_nsis(pins["nsis"], cache_dir)
-    launcher, installer = makensis_commands(makensis, version, payload_dir, out_dir, test_data_root=test_data_root)
+    launcher, installer = makensis_commands(
+        makensis, version, payload_dir, out_dir, test_data_root=test_data_root,
+        sign_thumbprint=sign_thumbprint, timestamp_url=timestamp_url,
+    )
     (Path(out_dir) / "launcher").mkdir(parents=True, exist_ok=True)
+    signing = sign_thumbprint is not None
+    marker = Path(out_dir) / SIGN_MARKER_NAME
+    if signing:
+        marker.unlink(missing_ok=True)
     for command in (launcher, installer):
         completed = subprocess.run(command, check=False)
         if completed.returncode != 0:
             raise BuildError(f"makensis non riuscito ({Path(command[-1]).name}, codice {completed.returncode})")
-    return setup_path(out_dir, version, test=test_data_root is not None)
+        # makensis only warns when a !finalize / !uninstfinalize command fails: stop here instead.
+        if signing and marker.exists():
+            raise BuildError("firma non riuscita (vedi " + str(marker) + "): " + marker.read_text(encoding="utf-8", errors="replace").strip()[:300])
+    setup = setup_path(out_dir, version, test=test_data_root is not None)
+    if signing:
+        for exe in (Path(out_dir) / "launcher" / "OCR2.exe", setup):
+            checked = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(VERIFY_SCRIPT), "-Path", str(exe)],
+                check=False,
+            )
+            if checked.returncode != 0:
+                raise BuildError(f"firma non valida: {exe.name}")
+    return setup
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -144,13 +195,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--test-data-root", type=Path, default=None, help="required with --test: the only folder it may install into")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
+    parser.add_argument("--sign-thumbprint", default=None, help="signing: thumbprint of the certificate in the current user certificate store (REQ-105)")
+    parser.add_argument("--timestamp-url", default=None, help="signing: RFC 3161 timestamp server address, chosen by the owner")
     args = parser.parse_args(argv)
+    if (args.sign_thumbprint is None) != (args.timestamp_url is None):
+        parser.error("--sign-thumbprint e --timestamp-url vanno indicati insieme")
     if args.test != (args.test_data_root is not None):
         parser.error("--test e --test-data-root vanno indicati insieme")
     if args.test_data_root is not None and not args.test_data_root.is_absolute():
         parser.error("--test-data-root deve essere un percorso assoluto")
     try:
-        setup = run(version=args.version, test_data_root=args.test_data_root, out_dir=args.out_dir, cache_dir=args.cache_dir)
+        setup = run(
+            version=args.version, test_data_root=args.test_data_root, out_dir=args.out_dir, cache_dir=args.cache_dir,
+            sign_thumbprint=args.sign_thumbprint, timestamp_url=args.timestamp_url,
+        )
     except PinMismatchError as exc:
         print(f"BLOCCATO: {exc}", file=sys.stderr)
         return 3

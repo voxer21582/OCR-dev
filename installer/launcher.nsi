@@ -22,6 +22,11 @@ SetCompressor /SOLID lzma
 Name "OCR2"
 Caption "OCR2"
 OutFile "${OUTFILE}"
+
+; Optional signing (REQ-105): only when build_installer.py is given a thumbprint and a timestamp server.
+!ifdef OCR2_SIGN_THUMBPRINT
+  !finalize 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${OCR2_SIGN_SCRIPT}" -Installer "%1" -Thumbprint ${OCR2_SIGN_THUMBPRINT} -TimestampServer "${OCR2_TIMESTAMP_URL}" -FailureMarker "${OCR2_SIGN_MARKER}"'
+!endif
 LoadLanguageFile "${NSISDIR}\Contrib\Language files\Italian.nlf"
 
 ; $R0 <- line 1 of $EXEDIR\active.txt, or "" when missing or not a plain version (digits and dots).

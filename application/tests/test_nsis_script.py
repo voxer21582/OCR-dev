@@ -226,3 +226,156 @@ def test_build_installer_main_requires_a_test_root_for_test_builds(capsys):
 def test_pins_name_the_nsis_version_unpacked():
     pins = json.loads((_INSTALLER / "pins.json").read_text(encoding="utf-8"))
     assert pins["nsis"]["version"] == "3.13" and pins["nsis"]["file"] == "nsis-3.13.zip"
+
+
+# --- Task 9: optional signing hooks (REQ-105) -------------------------------
+
+_THUMB = "A1B2C3D4E5F60718293A4B5C6D7E8F9012345678"
+_TS = "http://timestamp.example.test/ts"
+
+
+def _sign_commands(tmp_path, **kwargs):
+    makensis = tmp_path / "nsis" / "makensis.exe"
+    return build_installer.makensis_commands(
+        makensis, "0.6.1", tmp_path / "out" / "0.6.1", tmp_path / "out",
+        sign_thumbprint=_THUMB, timestamp_url=_TS, **kwargs,
+    )
+
+
+def test_unsigned_build_has_no_signing_defines_and_scripts_gate_hooks_on_them(tmp_path):
+    makensis = tmp_path / "nsis" / "makensis.exe"
+    launcher, installer = build_installer.makensis_commands(makensis, "0.6.1", tmp_path / "p", tmp_path / "out")
+    assert not any("SIGN" in a or "TIMESTAMP" in a for a in launcher + installer)
+    for name, hooks in (("ocr2.nsi", ("!finalize", "!uninstfinalize")), ("launcher.nsi", ("!finalize",))):
+        lines = _code_lines(name)
+        text = "\n".join(lines)
+        for hook in hooks:
+            assert hook in text, (name, hook)
+        # every hook sits inside an !ifdef OCR2_SIGN block, so an unsigned build has none
+        depth_sign = 0
+        for line in lines:
+            s = line.strip()
+            if s.startswith("!ifdef OCR2_SIGN"):
+                depth_sign += 1
+            elif s.startswith("!endif") and depth_sign:
+                depth_sign -= 1
+            elif s.startswith(("!finalize", "!uninstfinalize")):
+                assert depth_sign > 0, (name, s)
+        assert "sign.ps1" in text or "OCR2_SIGN_SCRIPT" in text
+
+
+def test_signing_defines_reach_both_makensis_commands(tmp_path):
+    launcher, installer = _sign_commands(tmp_path)
+    for command in (launcher, installer):
+        assert f"-DOCR2_SIGN_THUMBPRINT={_THUMB}" in command
+        assert f"-DOCR2_TIMESTAMP_URL={_TS}" in command
+        assert f"-DOCR2_SIGN_SCRIPT={_INSTALLER / 'sign.ps1'}" in command
+        assert f"-DOCR2_SIGN_MARKER={tmp_path / 'out' / 'sign-failed.txt'}" in command
+
+
+def test_signing_needs_both_values_and_valid_shapes(tmp_path):
+    makensis = tmp_path / "m.exe"
+    args = (makensis, "0.6.1", tmp_path / "p", tmp_path / "o")
+    with pytest.raises(build_payload.BuildError):
+        build_installer.makensis_commands(*args, sign_thumbprint=_THUMB)
+    with pytest.raises(build_payload.BuildError):
+        build_installer.makensis_commands(*args, timestamp_url=_TS)
+    with pytest.raises(build_payload.BuildError):
+        build_installer.makensis_commands(*args, sign_thumbprint="xyz", timestamp_url=_TS)
+    with pytest.raises(build_payload.BuildError):
+        build_installer.makensis_commands(*args, sign_thumbprint=_THUMB, timestamp_url="file:///x")
+    with pytest.raises(build_payload.BuildError):
+        build_installer.makensis_commands(*args, sign_thumbprint=_THUMB, timestamp_url='http://a/"b')
+
+
+def test_build_installer_main_passes_sign_args_through(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(**kwargs):
+        seen.update(kwargs)
+        raise build_payload.BuildError("stop")
+
+    monkeypatch.setattr(build_installer, "run", fake_run)
+    build_installer.main(["--version", "0.6.1", "--sign-thumbprint", _THUMB, "--timestamp-url", _TS])
+    assert seen["sign_thumbprint"] == _THUMB and seen["timestamp_url"] == _TS
+    seen.clear()
+    build_installer.main(["--version", "0.6.1"])
+    assert seen["sign_thumbprint"] is None and seen["timestamp_url"] is None
+    with pytest.raises(SystemExit):
+        build_installer.main(["--version", "0.6.1", "--sign-thumbprint", _THUMB])
+
+
+def test_signing_scripts_are_read_only_on_stores_and_never_hardcode_a_certificate():
+    sign = (_INSTALLER / "sign.ps1").read_text(encoding="utf-8")
+    verify = (_INSTALLER / "verify-signature.ps1").read_text(encoding="utf-8")
+    assert "Cert:\\CurrentUser\\My" in sign and "Set-AuthenticodeSignature" in sign
+    assert "-HashAlgorithm SHA256" in sign and "-TimestampServer" in sign
+    assert "1.3.6.1.5.5.7.3.3" in sign and "HasPrivateKey" in sign
+    for forbidden in ("LocalMachine", "Import-PfxCertificate", "New-SelfSignedCertificate", "Import-Certificate"):
+        assert forbidden not in sign and forbidden not in verify
+    assert not re.search(r"\b[0-9A-Fa-f]{40}\b", sign + verify)
+    assert "Get-AuthenticodeSignature" in verify and "nessuna marca temporale" in verify
+
+
+def _minimal_unsigned_pe() -> bytes:
+    """A tiny valid 64-bit PE with no Authenticode block (synthetic)."""
+    import struct
+
+    dos = bytearray(64); dos[0:2]=b"MZ"; struct.pack_into("<I",dos,0x3C,64)
+    coff = struct.pack("<HHIIIHH",0x8664,1,0,0,0,240,0x22)
+    opt = bytearray(240)
+    struct.pack_into("<HBBIII",opt,0,0x20B,0,0,0x200,0,0)
+    struct.pack_into("<IIQ",opt,16,0x1000,0x1000,0x140000000)  # entry? approx
+    struct.pack_into("<II",opt,32,0x1000,0x200)  # SectionAlignment, FileAlignment
+    struct.pack_into("<HHHHHHI",opt,40,6,0,0,0,6,0,0)
+    struct.pack_into("<II",opt,56,0x2000,0x200)  # SizeOfImage, SizeOfHeaders
+    struct.pack_into("<HH",opt,68,3,0x8160)
+    struct.pack_into("<I",opt,108,16)  # NumberOfRvaAndSizes
+    sec = struct.pack("<8sIIIIIIHHI",b".text",0x100,0x1000,0x200,0x200,0,0,0,0,0x60000020)
+    hdr = bytes(dos)+b"PE\0\0"+coff+bytes(opt)+sec
+    return hdr.ljust(0x200,b"\0")+b"\xC3".ljust(0x200,b"\0")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="PowerShell Authenticode is Windows only")
+def test_verify_signature_reports_not_signed_and_exits_1(tmp_path):
+    import shutil
+    import subprocess
+
+    shell = shutil.which("powershell") or shutil.which("pwsh")
+    if shell is None:
+        pytest.skip("PowerShell non disponibile")
+    exe = tmp_path / "unsigned.exe"
+    exe.write_bytes(_minimal_unsigned_pe())
+    done = subprocess.run(
+        [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(_INSTALLER / "verify-signature.ps1"), "-Path", str(exe)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "NotSigned" in done.stdout
+
+
+def test_a_failed_signing_hook_stops_the_build_because_makensis_only_warns(monkeypatch, tmp_path):
+    out = tmp_path / "out"
+    (out / "0.6.1").mkdir(parents=True)
+    monkeypatch.setattr(build_installer.build_payload, "load_pins", lambda _p: {"nsis": {}})
+    monkeypatch.setattr(build_installer, "check_payload", lambda *_a: None)
+    monkeypatch.setattr(build_installer, "unpack_nsis", lambda *_a: tmp_path / "makensis.exe")
+    calls = []
+
+    class Done:
+        returncode = 0
+
+    def fake_subprocess(command, check=False):
+        calls.append(command)
+        if len(calls) == 2:  # the hook of the installer build failed: sign.ps1 left its marker
+            (out / "sign-failed.txt").write_text("Certificato non trovato", encoding="utf-8")
+        return Done()
+
+    monkeypatch.setattr(build_installer.subprocess, "run", fake_subprocess)
+    with pytest.raises(build_payload.BuildError, match="firma non riuscita"):
+        build_installer.run(version="0.6.1", out_dir=out, sign_thumbprint=_THUMB, timestamp_url=_TS)
+    # unsigned builds never look at the marker nor run verify-signature.ps1
+    calls.clear()
+    (out / "sign-failed.txt").unlink()
+    build_installer.run(version="0.6.1", out_dir=out)
+    assert len(calls) == 2
