@@ -231,8 +231,11 @@ def test_sbom_includes_native_components_for_verified_pillow_wheel(tmp_path, mon
     pins.write_text(json.dumps({'python': {'sha256': 'a2aa39db83d68ec06f4f98908a55682685fa4696696549188b2dd333bfd03041'}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
     (tmp_path / 'runtime-manifest.json').write_text('{"version":"0.6.0"}', encoding='utf-8')
     result = sbom.build_sbom(tmp_path, lock, pins)
-    native = {(c['name'], c['version']) for c in result['components']}
+    native = {(c['name'], c['version']) for c in result['components'] if 'version' in c}
     assert {('FreeType', '2.14.3'), ('libwebp', '1.6.0'), ('libavif', '1.4.2'), ('libjpeg-turbo', '3.2.0'), ('OpenJPEG', '2.5.4'), ('zlib-ng', '2.3.3'), ('LibTIFF', '4.7.2')} <= native
+    lcms = next(c for c in result['components'] if c['name'] == 'LittleCMS')
+    assert 'version' not in lcms
+    assert {'name': 'ocr2:reported-version', 'value': '2.19 (patch unknown)'} in lcms['properties']
     lock.write_text('pillow==13.0.0 --hash=sha256:' + 'd'*64 + '\n', encoding='utf-8')
     with pytest.raises(ValueError, match='Pillow.*native inventory'):
         sbom.build_sbom(tmp_path, lock, pins)

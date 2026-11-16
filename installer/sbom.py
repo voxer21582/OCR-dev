@@ -83,6 +83,11 @@ def build_sbom(payload_root: Path, lock: Path, pins: Path) -> dict:
                            'properties': [{'name': 'ocr2:inventory-source',
                                            'value': 'Pillow wheel runtime features and bundled license'}]}
                           for name, version in PILLOW_NATIVE_COMPONENTS)
+        components.append({'type': 'library', 'name': 'LittleCMS',
+                           'properties': [{'name': 'ocr2:inventory-source',
+                                           'value': 'Pillow wheel runtime features and bundled license'},
+                                          {'name': 'ocr2:reported-version',
+                                           'value': '2.19 (patch unknown)'}]})
     for package, (version, digest, native) in WHEEL_NATIVE_COMPONENTS.items():
         if package not in locked:
             continue
