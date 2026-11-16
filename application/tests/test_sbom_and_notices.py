@@ -88,7 +88,7 @@ def test_sbom_records_locked_package_and_is_deterministic(tmp_path, monkeypatch)
     lock = tmp_path / 'lock'
     lock.write_text('sample==1.0 \\\n    --hash=sha256:' + 'a'*64 + '\n', encoding='utf-8')
     pins = tmp_path / 'pins.json'
-    pins.write_text(json.dumps({'python': {'sha256': 'b'*64}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
+    pins.write_text(json.dumps({'python': {'sha256': 'a2aa39db83d68ec06f4f98908a55682685fa4696696549188b2dd333bfd03041'}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
     (tmp_path / 'runtime-manifest.json').write_text('{"version":"0.6.0"}', encoding='utf-8')
     first = sbom.build_sbom(tmp_path, lock, pins)
     assert first == sbom.build_sbom(tmp_path, lock, pins)
@@ -109,7 +109,7 @@ def test_sbom_lists_and_checks_ocr_models(tmp_path, monkeypatch):
     (model_dir / 'synthetic.onnx').write_bytes(b'model')
     monkeypatch.setattr(sbom, 'MODELS', {'synthetic.onnx': hashlib.sha256(b'model').hexdigest()}, raising=False)
     lock = tmp_path / 'lock'; lock.write_text('sample==1.0 --hash=sha256:' + 'a'*64 + '\n', encoding='utf-8')
-    pins = tmp_path / 'pins.json'; pins.write_text(json.dumps({'python': {'sha256': 'b'*64}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
+    pins = tmp_path / 'pins.json'; pins.write_text(json.dumps({'python': {'sha256': 'a2aa39db83d68ec06f4f98908a55682685fa4696696549188b2dd333bfd03041'}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
     (tmp_path / 'runtime-manifest.json').write_text('{"version":"0.6.0"}', encoding='utf-8')
     result = sbom.build_sbom(tmp_path, lock, pins)
     assert any(c['name'] == 'synthetic.onnx' for c in result['components'])
@@ -145,3 +145,29 @@ def test_notices_include_bundled_expat(tmp_path):
     result = notices.build_notices(tmp_path)
     assert 'Expat 2.9.0 (bundled with CPython)' in result
     assert 'Copyright (c) 2001-2025 Expat maintainers' in result
+
+
+def test_sbom_includes_native_dependencies_for_verified_python_build(tmp_path, monkeypatch):
+    sbom = _load('sbom')
+    monkeypatch.setattr(sbom, 'MODELS', {})
+    _dist(tmp_path)
+    lock = tmp_path / 'lock'
+    lock.write_text('sample==1.0 --hash=sha256:' + 'a'*64 + '\n', encoding='utf-8')
+    pins = tmp_path / 'pins.json'
+    pins.write_text(json.dumps({'python': {'sha256': 'a2aa39db83d68ec06f4f98908a55682685fa4696696549188b2dd333bfd03041'}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
+    (tmp_path / 'runtime-manifest.json').write_text('{"version":"0.6.0"}', encoding='utf-8')
+    result = sbom.build_sbom(tmp_path, lock, pins)
+    native = {(c['name'], c['version']) for c in result['components']}
+    assert {('OpenSSL', '3.5.9'), ('Expat', '2.9.0'), ('mpdecimal', '4.0.0'), ('zlib', '1.3.1'), ('libffi', '3.4.4'), ('bzip2', '1.0.8'), ('liblzma', '5.2.5'), ('SQLite', '3.50.4')} <= native
+
+
+def test_sbom_rejects_python_build_without_native_inventory(tmp_path, monkeypatch):
+    sbom = _load('sbom')
+    monkeypatch.setattr(sbom, 'MODELS', {})
+    _dist(tmp_path)
+    lock = tmp_path / 'lock'
+    lock.write_text('sample==1.0 --hash=sha256:' + 'a'*64 + '\n', encoding='utf-8')
+    pins = tmp_path / 'pins.json'
+    pins.write_text(json.dumps({'python': {'sha256': 'b'*64}, 'nsis': {'version': '3.13', 'sha256': 'c'*64}}), encoding='utf-8')
+    with pytest.raises(ValueError, match='native inventory'):
+        sbom.build_sbom(tmp_path, lock, pins)

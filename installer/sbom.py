@@ -5,6 +5,11 @@ import json
 from pathlib import Path
 import re
 
+PYTHON_BUILD_SHA256 = 'a2aa39db83d68ec06f4f98908a55682685fa4696696549188b2dd333bfd03041'
+NATIVE_COMPONENTS = (('OpenSSL', '3.5.9'), ('Expat', '2.9.0'), ('mpdecimal', '4.0.0'),
+                     ('zlib', '1.3.1'), ('libffi', '3.4.4'), ('bzip2', '1.0.8'),
+                     ('liblzma', '5.2.5'), ('SQLite', '3.50.4'))
+
 MODELS = {
     'PP-OCRv6_det_small.onnx': '090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f',
     'PP-OCRv6_rec_small.onnx': '6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884',
@@ -52,6 +57,12 @@ def build_sbom(payload_root: Path, lock: Path, pins: Path) -> dict:
         components.append(item)
     pin_data = json.loads(pins.read_text(encoding='utf-8'))
     pin = pin_data['python']
+    if pin['sha256'] != PYTHON_BUILD_SHA256:
+        raise ValueError('Python build has no verified native inventory')
+    components.extend({'type': 'library', 'name': name, 'version': version,
+                       'properties': [{'name': 'ocr2:inventory-source',
+                                       'value': 'CPython local build dependency records'}]}
+                      for name, version in NATIVE_COMPONENTS)
     components.append({'type': 'application', 'name': 'CPython', 'version': '3.13.18',
                        'hashes': [{'alg': 'SHA-256', 'content': pin['sha256']}]})
     for name, expected in sorted(MODELS.items()):
