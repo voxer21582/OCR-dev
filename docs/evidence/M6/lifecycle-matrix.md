@@ -5,7 +5,7 @@
 | Installazione 0.6.0 | Riuscita su ac4ba8a, modalità test | Da eseguire |
 | Avvio, informazioni e uscita | Riusciti con finestra Edge reale su copia installata ac4ba8a; pacchetto firmato non verificato | Da eseguire |
 | Aggiornamento 0.6.1 | Riuscito su ac4ba8a, modalità test | Da eseguire |
-| Aggiornamento interrotto | Recupero dopo interruzione in staging riuscito su ac4ba8a, modalità test | Da eseguire |
+| Aggiornamento interrotto | Ripresa riuscita dopo file estratto osservato su ac4ba8a; momento esatto dell’arresto non dimostrato | Da eseguire |
 | Ripristino versione precedente | Riuscito su ac4ba8a, modalità test | Da eseguire |
 | Disinstallazione senza dati | Riuscita su ac4ba8a con dati sintetici conservati, modalità test | Da eseguire |
 | Disinstallazione con dati | Riuscita su ac4ba8a con soli dati sintetici, modalità test | Da eseguire |
