@@ -111,3 +111,28 @@ def test_launch_failure_names_remedies_the_installer_supports():
     assert message.startswith('Impossibile avviare la versione attiva di OCR2.')
     assert 'Installa di nuovo OCR2 con il suo installer' in message
     assert '«Torna alla versione precedente»' in message
+
+
+def test_uninstaller_deletes_nothing_before_finding_a_verified_ocr2_version():
+    """From #151's final review: remove files only from a folder that really holds OCR2."""
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    uninstall = script.split('Section "Uninstall"', 1)[1]
+    search = uninstall.split('cleanup_done:', 1)[0]
+    assert 'install_state --base "$INSTDIR" verify "$4"' in search
+    assert 'Nessuna versione integra disponibile' in search
+    for removal in ('RMDir', 'Delete ', 'WriteUninstaller'):
+        assert removal not in search
+    # Staging and quarantine debris go only after a version verified itself.
+    assert search.count('--cleanup-debris') == 1
+    assert search.index('verify "$4"') < search.index('--cleanup-debris')
+
+
+def test_failed_cleanup_after_activation_keeps_the_new_version():
+    """From #151's final review: a prune failure never undoes or deletes the active version."""
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    section = script.split('Section "OCR2"', 1)[1].split('SectionEnd', 1)[0]
+    assert section.index('activation_ok:') < section.index('install_state --base "$INSTDIR" prune')
+    failure = section.split('prune_failed:', 1)[1].split('prune_ok:', 1)[0]
+    assert 'MB_ICONEXCLAMATION' in failure
+    for undo in ('Abort', 'rollback', 'activate', 'RMDir', 'Delete', 'Rename', 'SetErrorLevel'):
+        assert undo not in failure

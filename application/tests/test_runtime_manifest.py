@@ -222,3 +222,20 @@ def test_rapidocr_runs_without_ffmpeg_dll(tmp_path):
         results.append(json.loads(lines[0].split("=", 1)[1]))
     assert results[0] and results[1] == results[0]
     assert any("123" in text for text in results[1])
+
+
+def test_unusable_manifest_names_are_reported_not_raised(tmp_path):
+    """From #151 ae12b8f: names the OS rejects (ENAMETOOLONG on Linux) never raise."""
+    (tmp_path / "app").mkdir()
+    (tmp_path / "python").mkdir()
+    manifest = build_manifest(tmp_path, version="1", excluded_globs=())
+    entry = {"sha256": "0" * 64, "size": 0}
+    for name in ("python/python.exe", "python/pythonw.exe", "python/python313.zip",
+                 "app/alfa_document_intelligence/__init__.py",
+                 "app/" + "a" * 5000, "app/" + "b" * 300 + "/" + "c" * 300):
+        manifest["files"][name] = entry
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    result = verify_installation(tmp_path, path)
+    assert not result.ok
+    assert "File mancante: app/" + "a" * 5000 in result.problems
