@@ -1,4 +1,5 @@
 STATO: M6 IN CORSO — Python compilato, verifiche e installer in corso — applicazione installabile; piano in [2026-11-15-m6-applicazione-installabile.md](superpowers/plans/2026-11-15-m6-applicazione-installabile.md)
+Individuati e acquisiti dai tag ufficiali i testi delle licenze flatbuffers e onnxruntime, assenti dai metadati installati; SBOM e avvisi completi restano da generare e verificare. [Evidenza](evidence/M6/notices.md).
 Preparato contenuto 0.6.0 con Python locale e 22 wheel del lock; verifica manifest, OCR sintetico senza FFmpeg e avvio locale HTTP 200 riusciti. Non è ancora un installer completo: SBOM, licenze, lifecycle, firma, PC pulito, CI e revisione restano aperti. [Evidenza](evidence/M6/payload.md).
 Build Python 3.13.18 x64 riuscita con accesso agli strumenti locali; import dei moduli principali riuscito. Prove estese del runtime e creazione dell'installer ancora da completare. [Evidenza](evidence/M6/python-build.md).
 Il 2026-11-16 il proprietario ha autorizzato una modifica di V6: diagnosi e tentativi reversibili senza modificare Windows. Diagnosi C1902 ripresa.
