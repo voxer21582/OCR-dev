@@ -86,7 +86,7 @@ Esito: ☐ OK ☐ NO — Durata installazione: ______ s. Note: _________________
 
 **Cosa fare.** Menu Start → OCR2 → «OCR2». Aspetta fino a 15 secondi.
 
-**Cosa si deve vedere.** Si apre una finestra Edge **senza barra degli indirizzi** (finestra «app»). In alto ci sono «Esci» e «Informazioni». Premi **Informazioni**; la pagina mostra:
+**Cosa si deve vedere.** Si apre una finestra Edge **senza barra degli indirizzi** (finestra «app»). In fondo al contenuto della pagina (scorri in basso se serve) ci sono il pulsante «Esci» e il collegamento «Informazioni». Premi **Informazioni**; la pagina mostra:
 
 | Riga | Valore atteso |
 |---|---|
