@@ -29,6 +29,24 @@ class _FakeServer:
         self.closed = True
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='Windows launcher archive')
+def test_newer_archive_stops_with_clear_message_and_without_writing(tmp_path, monkeypatch, capsys):
+    import hashlib
+    import sqlite3
+    from alfa_document_intelligence.local_document_store import _SCHEMA_VERSION
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))
+    archive = tmp_path / 'OCR2' / 'document-archive.sqlite3'
+    archive.parent.mkdir()
+    with sqlite3.connect(archive) as db:
+        db.execute(f'PRAGMA user_version = {_SCHEMA_VERSION + 1}')
+    before = hashlib.sha256(archive.read_bytes()).hexdigest()
+    monkeypatch.setattr(launcher, 'serve_expense_report_local', lambda **kwargs: pytest.fail('server must not start'))
+    with pytest.raises(SystemExit):
+        launcher.main(['--port', '0'])
+    assert 'versione più recente' in capsys.readouterr().err
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == before
+
+
 def test_launcher_serves_on_configured_port_and_closes_cleanly(monkeypatch, capsys, tmp_path):
     # Keep the Windows archive inside a temporary folder, never the real profile.
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))

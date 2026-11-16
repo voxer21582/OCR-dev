@@ -1,0 +1,2 @@
+Test sintetici archivio, launcher, install_state e script NSIS: 49 passed in 4.74s.
+Il test archivio più recente verifica messaggio, mancato avvio del server e SHA-256 del database invariato. Un primo tentativo in contesto con TEMP non accessibile ha prodotto errori di setup; il test è stato rieseguito con TEMP nella cache del worktree.

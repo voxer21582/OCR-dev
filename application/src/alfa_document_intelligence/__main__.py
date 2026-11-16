@@ -16,7 +16,7 @@ from .app_instance import InstanceLock, acquire, running_instance
 from .app_lifetime import AppInfo, AppLifetime, WindowPresence
 from .app_window import open_window
 from .local_intake_app import serve_expense_report_local
-from .local_document_store import LocalDocumentStore
+from .local_document_store import LocalDocumentStore, NewerStoreSchemaError
 from .document_decoder import DecodeLimits
 from .document_family_catalog import DocumentFamilyCatalogError, DocumentFamilyCatalogStore
 from .expense_case_processing import ExpenseCaseProcessingManager
@@ -179,9 +179,17 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="n
         local_app_data = os.environ.get("LOCALAPPDATA")
         if not local_app_data:
             parser.error("LOCALAPPDATA non è disponibile: archivio locale non inizializzabile")
-        archive_store = LocalDocumentStore(
-            Path(local_app_data) / "OCR2" / "document-archive.sqlite3"
-        )
+        try:
+            archive_store = LocalDocumentStore(
+                Path(local_app_data) / "OCR2" / "document-archive.sqlite3"
+            )
+        except NewerStoreSchemaError:
+            message = "Questo archivio è stato aggiornato da una versione più recente di OCR2. Reinstalla quella versione."
+            print(message, file=sys.stderr)
+            if args.app_window:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(None, message, "OCR2 — archivio non compatibile", 0x10)
+            raise SystemExit(2)
         # The user's document-type catalog (REQ-041) lives next to the archive.
         family_catalog_store = DocumentFamilyCatalogStore(Path(local_app_data) / "OCR2" / "family-catalog.json")
         try:
