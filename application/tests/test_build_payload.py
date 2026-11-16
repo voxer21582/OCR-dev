@@ -251,3 +251,39 @@ def test_release_payload_verifier_rejects_tampering(tmp_path):
     assert subprocess.run([sys.executable, '-B', str(script), str(payload)], capture_output=True).returncode == 0
     (payload / 'app/alfa_document_intelligence/__init__.py').write_bytes(b'tampered')
     assert subprocess.run([sys.executable, '-B', str(script), str(payload)], capture_output=True).returncode != 0
+
+
+def test_runtime_release_gate_checks_signer_timestamp_and_content(tmp_path):
+    import shutil, subprocess
+    from alfa_document_intelligence.runtime_manifest import build_manifest
+    pwsh = shutil.which('pwsh')
+    if not pwsh:
+        pytest.skip('PowerShell 7 required for release gate')
+    builder = _builder()
+    payload = tmp_path / 'payload'
+    for name in builder.LOCAL_RUNTIME_BINARIES:
+        f = payload / 'python' / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    for name in ('python/python313.zip', 'app/alfa_document_intelligence/__init__.py'):
+        f = payload / name; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b'synthetic')
+    manifest = build_manifest(payload, version='0.6.0', excluded_globs=())
+    (payload / 'runtime-manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+    gate = Path(__file__).resolve().parents[2] / 'installer/verify-runtime-signatures.ps1'
+    wrapper = tmp_path / 'mock-gate.ps1'
+    wrapper.write_text("""param($Gate, $Payload, $Case)
+function Get-AuthenticodeSignature {
+    param($LiteralPath)
+    $thumb = if ($Case -eq 'wrong') { 'B' * 40 } else { 'A' * 40 }
+    $stamp = if ($Case -eq 'no_timestamp') { $null } else { [pscustomobject]@{Subject='synthetic'} }
+    $status = if ($Case -eq 'unsigned') { 'NotSigned' } else { 'Valid' }
+    [pscustomobject]@{Status=$status; SignerCertificate=[pscustomobject]@{Thumbprint=$thumb}; TimeStamperCertificate=$stamp}
+}
+& $Gate -Payload $Payload -Thumbprint ('A' * 40)
+""", encoding='utf-8')
+    def check(case):
+        return subprocess.run([pwsh, '-NoProfile', '-NonInteractive', '-File', str(wrapper), str(gate), str(payload), case], capture_output=True).returncode
+    assert check('valid') == 0
+    assert check('wrong') != 0
+    assert check('unsigned') != 0
+    assert check('no_timestamp') != 0
+    (payload / 'python/python.exe').write_bytes(b'tampered')
+    assert check('valid') != 0
