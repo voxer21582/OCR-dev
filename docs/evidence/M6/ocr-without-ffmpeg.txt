@@ -1,0 +1,18 @@
+OCR senza opencv_videoio_ffmpeg*.dll (Q-001, DEC-030) - 2026-11-16
+Runtime: venv di sviluppo con rapidocr 3.10.0. cv2 e' copiato senza il DLL FFmpeg e messo per primo in PYTHONPATH;
+il test confronta il testo riconosciuto con quello ottenuto con il cv2 originale.
+
+$ pytest -v -rs tests/test_runtime_manifest.py -k rapidocr_runs_without_ffmpeg_dll
+============================= test session starts =============================
+platform win32 -- Python 3.13.15, pytest-9.2.0, pluggy-1.7.0 -- %USERPROFILE%\ocr2-phase2a\venv-pytest\Scripts\python.exe
+rootdir: %USERPROFILE%\ocr2-phase2a\m6\application
+collecting ... collected 20 items / 19 deselected / 1 selected
+
+tests/test_runtime_manifest.py::test_rapidocr_runs_without_ffmpeg_dll PASSED [100%]
+
+====================== 1 passed, 19 deselected in 6.14s =======================
+
+--- sonda (stesso script del test), cv2 originale ---
+{"cv2_folder": "%USERPROFILE%\\ocr2-phase2a\\venv\\Lib\\site-packages\\cv2", "ffmpeg_dlls": ["opencv_videoio_ffmpeg500_64.dll"], "texts": ["FATTURA N. 2024/0153", "TOTALE EUR 1.234,50"]}
+--- sonda, cv2 copiato senza FFmpeg ---
+{"cv2_folder": "%TEMP%\\no-ffmpeg\\cv2", "ffmpeg_dlls": [], "texts": ["FATTURA N. 2024/0153", "TOTALE EUR 1.234,50"]}

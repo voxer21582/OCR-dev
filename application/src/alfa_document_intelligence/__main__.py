@@ -2,16 +2,19 @@
 from __future__ import annotations
 
 import argparse
+import html
 import importlib
 import os
 import platform
 import secrets
 import sys
 import time
+import webbrowser
 from pathlib import Path
 from typing import Sequence
 
 from . import __version__
+from . import runtime_manifest
 from .app_instance import InstanceLock, acquire, running_instance
 from .app_lifetime import AppInfo, AppLifetime, WindowPresence
 from .app_window import open_window
@@ -29,6 +32,58 @@ _APP_WINDOW_AVAILABLE = os.name == "nt"
 # Wait for an instance that holds the lock but does not answer: it is still
 # starting, or it is closing after «Esci» (or crashed) and will let go.
 _STARTING_INSTANCE_WAIT_SECONDS = 15.0
+
+
+def _program_folder() -> Path:
+    """The installed program folder ``versions/<v>`` (R4); tests replace this function."""
+    import alfa_document_intelligence
+
+    return Path(alfa_document_intelligence.__file__).resolve().parents[2]
+
+
+_ERROR_PAGE = (
+    '<!doctype html><html lang="it"><head><meta charset="utf-8">'
+    "<title>OCR2 non si avvia</title></head>"
+    '<body style="font-family:sans-serif;max-width:40em;margin:2em auto">'
+    "<h1>OCR2 non si avvia</h1>"
+    "<p>I file del programma non corrispondono all'installazione. "
+    "Reinstalla OCR2 con l'installer.</p><ul>{items}</ul></body></html>"
+)
+
+
+def _show_runtime_error(problems: Sequence[str], data_dir: Path | None) -> None:
+    """Write the static error page (no script) and open it as a file in the default browser.
+
+    ``open_window`` accepts only the local server address, so the file URI goes
+    through ``webbrowser.open``.
+    """
+    if data_dir is None:
+        return
+    items = "".join(f"<li>{html.escape(problem)}</li>" for problem in problems)
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        page = data_dir / "runtime-error.html"
+        page.write_text(_ERROR_PAGE.replace("{items}", items), encoding="utf-8")
+        webbrowser.open(page.resolve().as_uri())
+    except OSError:
+        pass
+
+
+def _verify_runtime(app_window: bool) -> str:
+    """Check the installed files before a port is opened; exit 2 on failure. Returns the status text."""
+    manifest_path = _program_folder() / runtime_manifest.MANIFEST_NAME
+    if not manifest_path.is_file():
+        return "non verificato (avvio da sorgenti)"
+    result = runtime_manifest.verify_installation(manifest_path.parent, manifest_path)
+    if not result.ok:
+        print("I file di OCR2 non sono integri:", file=sys.stderr)
+        for problem in result.problems:
+            print(f"- {problem}", file=sys.stderr)
+        if app_window:
+            local_app_data = os.environ.get("LOCALAPPDATA")
+            _show_runtime_error(result.problems, Path(local_app_data) / "OCR2" if local_app_data else None)
+        raise SystemExit(2)
+    return f"verificato ({result.checked_files} file, {result.seconds:.1f} s)"
 
 
 def _open_app_window(url: str, data_dir: Path) -> None:
@@ -106,6 +161,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.port is None:
         args.port = 0 if args.app_window else 8000
 
+    runtime_status = _verify_runtime(args.app_window)
     instance_lock = None
     app_data_dir = None
     if args.app_window:
@@ -127,13 +183,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             _open_app_window(f"http://127.0.0.1:{running_port}/", app_data_dir)
             return
     try:
-        _serve(parser, args, engines, app_data_dir, instance_lock)
+        _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status)
     finally:
         if instance_lock is not None:
             instance_lock.release()
 
 
-def _serve(parser, args, engines, app_data_dir, instance_lock) -> None:
+def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status) -> None:
     manifest = engines.get(args.ocr_engine)
     if manifest is not None:
         runtime = _runtime_check(manifest)
@@ -188,7 +244,7 @@ def _serve(parser, args, engines, app_data_dir, instance_lock) -> None:
                 version=__version__,
                 python_version=platform.python_version(),
                 ocr_engine=None if manifest is None else f"{manifest.name} {manifest.version}",
-                runtime_status="non verificato (avvio da sorgenti)",
+                runtime_status=runtime_status,
                 instance_id=instance_id,
             ),
         }
