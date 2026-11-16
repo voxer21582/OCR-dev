@@ -131,3 +131,101 @@ def test_wheel_install_disables_bytecode_compilation(monkeypatch, tmp_path):
     monkeypatch.setattr(builder.subprocess, "run", run)
     builder._install_wheels(tmp_path / "wheels", tmp_path / "lock", tmp_path / "target")
     assert "--no-compile" in commands[0]
+
+
+def test_local_runtime_signing_fails_closed_and_preserves_vendor_files(tmp_path, monkeypatch):
+    builder = _builder()
+    monkeypatch.setattr(builder, '_verify_runtime_signature', lambda p, thumbprint: None)
+    runtime = tmp_path / 'python'
+    runtime.mkdir()
+    for name in builder.LOCAL_RUNTIME_BINARIES:
+        (runtime / name).write_bytes(b'unsigned')
+    (runtime / 'libssl-3.dll').write_bytes(b'vendor')
+    called = []
+    def sign(path):
+        called.append(path.name)
+        path.write_bytes(b'signed')
+    builder._sign_local_runtime(runtime, sign, 'a'*40)
+    assert set(called) == set(builder.LOCAL_RUNTIME_BINARIES)
+    assert (runtime / 'libssl-3.dll').read_bytes() == b'vendor'
+    (runtime / builder.LOCAL_RUNTIME_BINARIES[0]).unlink()
+    called.clear()
+    with pytest.raises(builder.PayloadBuildError, match='Missing'):
+        builder._sign_local_runtime(runtime, sign, 'a'*40)
+    assert not called
+
+
+def test_signer_failure_stops_before_manifest_and_finalization(tmp_path, monkeypatch):
+    builder = _builder()
+    archive = tmp_path / 'python.zip'
+    with zipfile.ZipFile(archive, 'w') as output:
+        output.writestr('python.exe', b'synthetic')
+        output.writestr('pythonw.exe', b'synthetic')
+        output.writestr('python313.zip', b'synthetic')
+    pins = tmp_path / 'pins.json'
+    pins.write_text(json.dumps({'python': {'filename': archive.name, 'sha256': hashlib.sha256(archive.read_bytes()).hexdigest()}}), encoding='utf-8')
+    src = tmp_path / 'src/alfa_document_intelligence'
+    src.mkdir(parents=True); (src / '__init__.py').write_text('', encoding='utf-8')
+    wheels = tmp_path / 'wheels'; wheels.mkdir()
+    lock = tmp_path / 'lock'; lock.write_text('', encoding='utf-8')
+    monkeypatch.setattr(builder, '_install_wheels', lambda w, l, target: target.mkdir(parents=True))
+    monkeypatch.setattr(builder, 'LOCAL_BUILD_ARCHIVE_SHA256', hashlib.sha256(archive.read_bytes()).hexdigest())
+    finalized = []
+    monkeypatch.setattr(builder, '_finalize', lambda *args: finalized.append(True))
+    with pytest.raises(builder.PayloadBuildError, match='Missing'):
+        builder.build_payload(embeddable_zip=archive, wheel_dir=wheels, app_src=src.parent, out_dir=tmp_path / 'out', version='0.6.0', pins_path=pins, lock_path=lock, local_runtime_signer=lambda p: None, local_runtime_thumbprint='a'*40)
+    assert not (tmp_path / 'out/0.6.0/runtime-manifest.json').exists()
+    assert not finalized
+
+
+def test_manifest_is_generated_after_runtime_signer(tmp_path, monkeypatch):
+    from alfa_document_intelligence.runtime_manifest import verify_installation
+    builder = _builder()
+    archive = tmp_path / 'python.zip'
+    with zipfile.ZipFile(archive, 'w') as output:
+        for name in builder.LOCAL_RUNTIME_BINARIES:
+            output.writestr(name, b'unsigned')
+        output.writestr('python313.zip', b'stdlib')
+    pins = tmp_path / 'pins.json'
+    pins.write_text(json.dumps({'python': {'filename': archive.name, 'sha256': hashlib.sha256(archive.read_bytes()).hexdigest()}}), encoding='utf-8')
+    src = tmp_path / 'src/alfa_document_intelligence'
+    src.mkdir(parents=True); (src / '__init__.py').write_text('', encoding='utf-8')
+    wheels = tmp_path / 'wheels'; wheels.mkdir()
+    lock = tmp_path / 'lock'; lock.write_text('', encoding='utf-8')
+    monkeypatch.setattr(builder, '_install_wheels', lambda w, l, target: target.mkdir(parents=True))
+    monkeypatch.setattr(builder, '_finalize', lambda *args: None)
+    monkeypatch.setattr(builder, '_verify_runtime_signature', lambda p, thumbprint: None)
+    monkeypatch.setattr(builder, 'LOCAL_BUILD_ARCHIVE_SHA256', hashlib.sha256(archive.read_bytes()).hexdigest())
+    def fake_sign(path):
+        path.write_bytes(path.read_bytes() + b'-signed')
+    result = builder.build_payload(embeddable_zip=archive, wheel_dir=wheels, app_src=src.parent, out_dir=tmp_path / 'out', version='0.6.0', pins_path=pins, lock_path=lock, local_runtime_signer=fake_sign, local_runtime_thumbprint='a'*40)
+    assert (result / 'python/python.exe').read_bytes() == b'unsigned-signed'
+    assert verify_installation(result, result / 'runtime-manifest.json').ok
+
+
+def test_runtime_signing_stops_when_independent_verifier_fails(tmp_path, monkeypatch):
+    builder = _builder()
+    runtime = tmp_path / 'python'; runtime.mkdir()
+    for name in builder.LOCAL_RUNTIME_BINARIES:
+        (runtime / name).write_bytes(b'unsigned')
+    def reject(path, thumbprint):
+        raise builder.PayloadBuildError('Runtime signature verification failed')
+    monkeypatch.setattr(builder, '_verify_runtime_signature', reject)
+    calls = []
+    with pytest.raises(builder.PayloadBuildError, match='signature verification'):
+        builder._sign_local_runtime(runtime, lambda p: calls.append(p.name), 'a'*40)
+    assert len(calls) == 1
+
+
+def test_runtime_signature_verifier_checks_expected_thumbprint_and_fails_closed(tmp_path, monkeypatch):
+    builder = _builder()
+    calls = []
+    class Result:
+        returncode = 1
+    def run(args, check):
+        calls.append(args)
+        return Result()
+    monkeypatch.setattr(builder.subprocess, 'run', run)
+    with pytest.raises(builder.PayloadBuildError, match='signature verification'):
+        builder._verify_runtime_signature(tmp_path / 'python.exe', 'a'*40)
+    assert calls[0][-2:] == ['-ExpectedThumbprint', 'a'*40]

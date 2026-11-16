@@ -13,6 +13,18 @@ import sys
 import zipfile
 
 
+# Binaries produced by the approved local CPython build; vendor DLLs are excluded.
+LOCAL_BUILD_ARCHIVE_SHA256 = "a2aa39db83d68ec06f4f98908a55682685fa4696696549188b2dd333bfd03041"
+LOCAL_RUNTIME_BINARIES = (
+    "python.exe", "pythonw.exe", "python3.dll", "python313.dll", "sqlite3.dll",
+    "_asyncio.pyd", "_bz2.pyd", "_ctypes.pyd", "_decimal.pyd", "_elementtree.pyd",
+    "_hashlib.pyd", "_lzma.pyd", "_multiprocessing.pyd", "_overlapped.pyd",
+    "_queue.pyd", "_socket.pyd", "_sqlite3.pyd", "_ssl.pyd", "_uuid.pyd",
+    "_wmi.pyd", "_zoneinfo.pyd", "pyexpat.pyd", "select.pyd", "unicodedata.pyd",
+    "winsound.pyd",
+)
+
+
 class PayloadBuildError(ValueError):
     """An input is unsafe or does not match its approved digest."""
 
@@ -73,6 +85,31 @@ def _install_wheels(wheel_dir: Path, lock_path: Path, target: Path) -> None:
         raise PayloadBuildError("Offline wheel installation failed")
 
 
+def _verify_runtime_signature(path: Path, thumbprint: str) -> None:
+    """Independently reject absent, invalid or untimestamped Authenticode signatures."""
+    verifier = Path(__file__).with_name("verify-signature.ps1")
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-File",
+                             str(verifier), "-Installer", str(path), "-ExpectedThumbprint", thumbprint], check=False)
+    if result.returncode:
+        raise PayloadBuildError("Runtime signature verification failed")
+
+
+def _sign_local_runtime(python_dir: Path, signer, thumbprint: str) -> None:
+    """Sign the known local-build binaries; do not replace vendor signatures."""
+    from alfa_document_intelligence.runtime_manifest import _linked
+
+    if not isinstance(thumbprint, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", thumbprint):
+        raise PayloadBuildError("Invalid signing certificate thumbprint")
+    if _linked(python_dir):
+        raise PayloadBuildError("Linked Python directory")
+    files = [python_dir / name for name in LOCAL_RUNTIME_BINARIES]
+    if any(_linked(path) or not path.is_file() for path in files):
+        raise PayloadBuildError("Missing or linked local runtime binary")
+    for path in files:
+        signer(path)
+        _verify_runtime_signature(path, thumbprint)
+
+
 def _finalize(root: Path, lock_path: Path, pins_path: Path, version: str) -> None:
     from alfa_document_intelligence.runtime_manifest import build_manifest
 
@@ -91,7 +128,8 @@ def _finalize(root: Path, lock_path: Path, pins_path: Path, version: str) -> Non
 
 
 def build_payload(*, embeddable_zip: Path, wheel_dir: Path, app_src: Path, out_dir: Path,
-                  version: str, pins_path: Path | None = None, lock_path: Path | None = None) -> Path:
+                  version: str, pins_path: Path | None = None, lock_path: Path | None = None,
+                  local_runtime_signer=None, local_runtime_thumbprint=None) -> Path:
     from alfa_document_intelligence.runtime_manifest import build_manifest
 
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
@@ -127,6 +165,10 @@ def build_payload(*, embeddable_zip: Path, wheel_dir: Path, app_src: Path, out_d
         if dll.is_symlink() or not dll.is_file():
             raise PayloadBuildError("Invalid FFmpeg payload entry")
         dll.unlink()
+    if local_runtime_signer is not None:
+        if sha != LOCAL_BUILD_ARCHIVE_SHA256:
+            raise PayloadBuildError("Local signing inventory does not match the Python archive")
+        _sign_local_runtime(result / "python", local_runtime_signer, local_runtime_thumbprint)
     manifest = build_manifest(result, version=version, excluded_globs=())
     (result / "runtime-manifest.json").write_text(json.dumps(manifest, ensure_ascii=True, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     _finalize(result, lock_path, pins_path, version)
