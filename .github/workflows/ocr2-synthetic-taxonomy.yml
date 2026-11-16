@@ -71,6 +71,7 @@ jobs:
           tests/test_app_instance.py
           tests/test_app_lifetime.py
           tests/test_build_payload.py
+          tests/test_geos_source_bundle.py
           tests/test_install_state.py
           tests/test_nsis_script.py
           tests/test_sbom_and_notices.py
@@ -205,6 +206,7 @@ jobs:
           tests/test_app_instance.py
           tests/test_app_lifetime.py
           tests/test_build_payload.py
+          tests/test_geos_source_bundle.py
           tests/test_install_state.py
           tests/test_nsis_script.py
           tests/test_sbom_and_notices.py
