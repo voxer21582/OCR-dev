@@ -141,7 +141,16 @@ Section "OCR2" SecMain
   nsExec::ExecToStack '"$INSTDIR\versions\${VERSION}\python\python.exe" -B -m alfa_document_intelligence.install_state activate ${VERSION}'
   Pop $0
   Pop $1
+  ; Contract: exit 0 = active.txt names ${VERSION} (a failed clean-up of old versions is only a
+  ; warning in $1); non-zero = active.txt unchanged.  Before deleting, active.txt is read again so
+  ; the folder it names is never removed, whatever the exit code says.
   ${If} $0 != "0"
+    Call ReadActive
+    ${If} $R0 == "${VERSION}"
+      MessageBox MB_ICONEXCLAMATION "OCR2 ${VERSION} è attivo, ma l'installazione ha segnalato un problema.$\r$\n$1" /SD IDOK
+      SetErrorLevel 2
+      Abort
+    ${EndIf}
     MessageBox MB_ICONSTOP "OCR2 ${VERSION} non è stato installato. Resta attiva la versione precedente.$\r$\n$1" /SD IDOK
     RMDir /r "$INSTDIR\versions\${VERSION}"
     SetErrorLevel 2

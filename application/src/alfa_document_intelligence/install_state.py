@@ -136,7 +136,11 @@ def _current(base: Path) -> tuple[str, str] | None:
 
 
 def activate(base: Path, version: str) -> None:
-    """Make ``version`` active once its files verify, keep the old one as previous, prune to two."""
+    """Make ``version`` active once its files verify, keep the old one as previous, prune to two.
+
+    Every failure raises before ``active.txt`` changes; a prune failure after the
+    switch is only a warning on stderr (exit 0), never a failed activation.
+    """
     _check_version(version)
     base = Path(base)
     _refuse_while_running()
@@ -149,7 +153,13 @@ def activate(base: Path, version: str) -> None:
     else:
         previous = state[0]
     _write_state(base, version, previous)
-    prune(base)
+    # The switch is done: from here nothing may report a failed activation, or the
+    # installer would delete the version that active.txt now names.  An old folder
+    # that cannot be deleted (locked file) stays until the next successful prune.
+    try:
+        prune(base)
+    except InstallStateError as exc:
+        print(f"Attenzione: {exc} Verrà eliminata al prossimo aggiornamento.", file=sys.stderr)
 
 
 def rollback(base: Path) -> str:

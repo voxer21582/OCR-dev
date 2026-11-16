@@ -83,6 +83,19 @@ def test_installer_extracts_activates_and_cleans_up_only_its_version():
     assert leftover < extract  # R7: a non-active leftover is deleted before extracting
 
 
+def test_failed_activation_never_deletes_the_version_active_txt_names():
+    lines = _code_lines("ocr2.nsi")
+    activate = next(i for i, line in enumerate(lines) if "install_state activate ${VERSION}" in line)
+    failure = lines.index('${If} $0 != "0"', activate)
+    cleanup = lines.index('RMDir /r "$INSTDIR\\versions\\${VERSION}"', failure)
+    branch = lines[failure:cleanup]
+    # active.txt is read again; if it names this version the branch aborts before the delete.
+    assert branch[1] == "Call ReadActive" and branch[2] == '${If} $R0 == "${VERSION}"'
+    inner = branch[2:branch.index("${EndIf}")]
+    assert "Abort" in inner and not any("Resta attiva la versione precedente" in line for line in inner)
+    assert any("Resta attiva la versione precedente" in line for line in branch[branch.index("${EndIf}"):])
+
+
 def test_shortcuts_only_outside_test_builds_and_only_to_fixed_targets():
     lines = _code_lines("ocr2.nsi")
     depth_test = []

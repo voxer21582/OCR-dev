@@ -303,3 +303,31 @@ def test_older_version_refuses_newer_archive_schema(monkeypatch, tmp_path, capsy
     connection.close()
     with pytest.raises(launcher.StoreSchemaError):
         launcher._open_archive(other, app_window=False)
+
+
+def test_prune_failure_after_the_switch_keeps_the_new_version_active(monkeypatch, tmp_path, capsys):
+    base = tmp_path / "OCR2"
+    _version(base, "0.6.0")
+    install_state.activate(base, "0.6.0")
+    _version(base, "0.6.1")
+    install_state.activate(base, "0.6.1")
+    _version(base, "0.6.2")
+
+    def locked(_path):
+        raise PermissionError("file locked by another process")
+
+    monkeypatch.setattr(install_state, "_remove_tree", locked)
+    # The switch is done: a failed clean-up of 0.6.0 is a warning, not a failed activation (exit 0).
+    assert install_state.main(["activate", "0.6.2", "--base", str(base)]) == 0
+    captured = capsys.readouterr()
+    assert "Versione attiva: 0.6.2" in captured.out
+    assert "Impossibile eliminare la versione 0.6.0" in captured.err
+    assert _state(base) == "0.6.2\n0.6.1\n"
+    assert install_state.read_state(base) == ("0.6.2", "0.6.1")
+    for version in ("0.6.0", "0.6.1", "0.6.2"):
+        assert (base / "versions" / version / "python" / "python.exe").is_file()
+    # The leftover goes at the next successful prune.
+    monkeypatch.undo()
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setattr(install_state, "running_instance", lambda _data_dir: None)
+    assert install_state.prune(base) == ["0.6.0"]
