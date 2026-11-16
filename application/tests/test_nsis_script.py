@@ -51,7 +51,7 @@ def test_uninstaller_stops_if_files_cannot_be_removed():
     assert 'Call un.AcquireLock' in uninstall
     assert 'kernel32::LockFile' in script
     assert 'CloseHandle' in script
-    assert 'install_state --base "$INSTDIR" cleanup-debris' in uninstall
+    assert 'removal_check.py" --base "$INSTDIR" --cleanup-debris' in uninstall
     assert '"$INSTDIR\\.child.lock"' in script
 
 
@@ -66,7 +66,7 @@ def test_uninstaller_can_find_another_verified_runtime_for_cleanup():
     section = script.split('Section "Uninstall"', 1)[1]
     assert 'FindFirst' in section and 'FindNext' in section
     assert 'install_state --base "$INSTDIR" verify "$4"' in section
-    assert 'install_state --base "$INSTDIR" cleanup-debris' in section
+    assert 'removal_check.py" --base "$INSTDIR" --cleanup-debris' in section
 
 
 def test_launch_and_rollback_find_a_verified_runtime():
@@ -82,3 +82,21 @@ def test_release_installer_requires_runtime_signature_gate():
     assert '!ifndef OCR2_CERT_THUMBPRINT' in script
     assert 'verify-runtime-signatures.ps1' in script
     assert '!system' in script
+
+
+def test_installer_checks_reparse_paths_before_writing_or_extracting():
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    section = script.split('Section "OCR2"', 1)[1]
+    assert section.index('Call ValidateInstallPaths') < section.index('CreateDirectory "$INSTDIR"')
+    assert section.index('Call ValidateInstallPaths') < section.index('GetTempFileName')
+    assert 'GetFileAttributesW' in script and '0x400' in script
+
+
+def test_installer_checks_runtime_path_before_executing_it():
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    paths = script.split('Function ${PREFIX}ValidateInstallPaths', 1)[1].split('FunctionEnd', 1)[0]
+    assert 'versions\\${OCR2_VERSION}\\python\\python.exe' in paths
+    command = script.split('Function un.RunVersionCommand', 1)[1].split('FunctionEnd', 1)[0]
+    assert command.index('Call un.AssertSafePath') < command.index('nsExec::ExecToStack')
+    uninstall = script.split('Section "Uninstall"', 1)[1]
+    assert uninstall.index('Call un.AssertSafePath') < uninstall.index('ExecWait')

@@ -44,6 +44,64 @@ Function .onInit
 !endif
 FunctionEnd
 
+; Check every existing component before touching an installation or lock path.
+!macro DefinePathValidation PREFIX
+Function ${PREFIX}AssertSafePath
+  Exch $0
+  Push $1
+  Push $2
+  Push $3
+  ${GetRoot} "$0" $2
+  StrCmp $2 "" unsafe_path
+  path_loop:
+  System::Call 'kernel32::GetFileAttributesW(w r0) i.r1 ?e'
+  Pop $3
+  IntCmp $1 -1 path_missing
+  IntOp $1 $1 & 0x400
+  IntCmp $1 0 path_parent unsafe_path unsafe_path
+  path_missing:
+  IntCmp $3 2 path_parent
+  IntCmp $3 3 path_parent unsafe_path unsafe_path
+  path_parent:
+  StrCmp $0 $2 safe_path
+  ${GetParent} "$0" $1
+  StrCmp $1 "" unsafe_path
+  StrCmp $1 $0 unsafe_path
+  StrCpy $0 $1
+  Goto path_loop
+  unsafe_path:
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
+  MessageBox MB_OK|MB_ICONSTOP "Operazione interrotta: percorso OCR2 non sicuro." /SD IDOK
+  SetErrorLevel 1
+  Abort
+  safe_path:
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
+
+Function ${PREFIX}ValidateInstallPaths
+  Push "$INSTDIR"
+  Call ${PREFIX}AssertSafePath
+  Push "$INSTDIR\staging"
+  Call ${PREFIX}AssertSafePath
+  Push "$INSTDIR\versions"
+  Call ${PREFIX}AssertSafePath
+  Push "$INSTDIR\versions\${OCR2_VERSION}\python\python.exe"
+  Call ${PREFIX}AssertSafePath
+  Push "$INSTDIR\quarantine"
+  Call ${PREFIX}AssertSafePath
+  Push "$INSTDIR\.child.lock"
+  Call ${PREFIX}AssertSafePath
+FunctionEnd
+!macroend
+!insertmacro DefinePathValidation ""
+!insertmacro DefinePathValidation "un."
+
 !macro DefineCoordinationFunctions PREFIX
 Function ${PREFIX}AcquireLock
 !ifdef OCR2_TEST
@@ -51,6 +109,10 @@ Function ${PREFIX}AcquireLock
 !else
   StrCpy $8 "$LOCALAPPDATA\OCR2"
 !endif
+  Push "$8"
+  Call ${PREFIX}AssertSafePath
+  Push "$8.instance.lock"
+  Call ${PREFIX}AssertSafePath
   System::Call 'kernel32::GetFileAttributesW(w r8) i.r0'
   IntCmp $0 -1 safe_lock_directory
   IntOp $0 $0 & 0x400
@@ -96,6 +158,7 @@ FunctionEnd
 
 Section "OCR2"
   SetShellVarContext current
+  Call ValidateInstallPaths
   CreateDirectory "$INSTDIR"
   Call AcquireLock
   IfFileExists "$INSTDIR\versions\${OCR2_VERSION}\*" check_existing extract_candidate
@@ -201,6 +264,8 @@ Function un.RunVersionCommand
   StrCmp $4 "." version_command_next
   StrCmp $4 ".." version_command_next
   IfFileExists "$INSTDIR\versions\$4\python\python.exe" 0 version_command_next
+  Push "$INSTDIR\versions\$4\python\python.exe"
+  Call un.AssertSafePath
   nsExec::ExecToStack '"$INSTDIR\versions\$4\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" verify "$4"'
   Pop $0
   Pop $1
@@ -226,6 +291,7 @@ FunctionEnd
 
 Function un.onInit
   SetShellVarContext current
+  Call un.ValidateInstallPaths
   ${GetParameters} $0
   ClearErrors
   ${GetOptions} $0 "/LAUNCH" $1
@@ -238,6 +304,8 @@ Function un.onInit
     Quit
   launch_ok:
   StrCpy $1 $1 -2
+  Push "$INSTDIR\versions\$1\python\pythonw.exe"
+  Call un.AssertSafePath
 !ifdef OCR2_TEST
   FileOpen $3 "$INSTDIR\test-launch-version.txt" w
   FileWrite $3 "$1"
@@ -267,19 +335,33 @@ Section "Uninstall"
   SetShellVarContext current
   Call un.AcquireLock
   ClearErrors
+  InitPluginsDir
+  IfErrors uninstall_failed
+  SetOutPath "$PLUGINSDIR"
+  IfErrors uninstall_failed
+  File /oname=removal_check.py "..\application\src\alfa_document_intelligence\removal_check.py"
+  IfErrors uninstall_failed
+  ClearErrors
   FindFirst $3 $4 "$INSTDIR\versions\*"
   IfErrors cleanup_missing_no_handle
   cleanup_find:
   StrCmp $4 "." cleanup_next
   StrCmp $4 ".." cleanup_next
   IfFileExists "$INSTDIR\versions\$4\python\python.exe" 0 cleanup_next
+  Push "$INSTDIR\versions\$4\python\python.exe"
+  Call un.AssertSafePath
   ClearErrors
   ExecWait '"$INSTDIR\versions\$4\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" verify "$4"' $0
   IfErrors cleanup_next
   IntCmp $0 0 cleanup_try cleanup_next cleanup_next
   cleanup_try:
   ClearErrors
-  ExecWait '"$INSTDIR\versions\$4\python\python.exe" -B -m alfa_document_intelligence.install_state --base "$INSTDIR" cleanup-debris' $0
+  ExecWait '"$INSTDIR\versions\$4\python\python.exe" -B "$PLUGINSDIR\removal_check.py" --base "$INSTDIR"' $0
+  IfErrors cleanup_next
+  IntCmp $0 0 cleanup_supported cleanup_next cleanup_next
+  cleanup_supported:
+  ClearErrors
+  ExecWait '"$INSTDIR\versions\$4\python\python.exe" -B "$PLUGINSDIR\removal_check.py" --base "$INSTDIR" --cleanup-debris' $0
   IfErrors cleanup_next
   IntCmp $0 0 cleanup_done cleanup_next cleanup_next
   cleanup_next:
@@ -296,6 +378,7 @@ Section "Uninstall"
   Abort
   cleanup_done:
   FindClose $3
+  StrCpy $6 $4
 !ifdef OCR2_TEST
   ${GetParameters} $0
   ClearErrors
@@ -307,12 +390,26 @@ Section "Uninstall"
   MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Vuoi eliminare anche i dati locali OCR2?" /SD IDNO IDYES remove_data
   Goto keep_data
   remove_data:
+  Push "$INSTDIR\versions\$6\python\python.exe"
+  Call un.AssertSafePath
+  ClearErrors
+  ExecWait '"$INSTDIR\versions\$6\python\python.exe" -B "$PLUGINSDIR\removal_check.py" --base "$INSTDIR" --data "$8"' $0
+  IfErrors uninstall_failed
+  IntCmp $0 0 data_checked uninstall_failed uninstall_failed
+  data_checked:
   System::Call 'kernel32::GetFileAttributesW(w r8) i.r0'
   IntCmp $0 -1 keep_data
   ClearErrors
   RMDir /r "$8"
   IfErrors uninstall_failed
   keep_data:
+  Push "$INSTDIR\versions\$6\python\python.exe"
+  Call un.AssertSafePath
+  ClearErrors
+  ExecWait '"$INSTDIR\versions\$6\python\python.exe" -B "$PLUGINSDIR\removal_check.py" --base "$INSTDIR"' $0
+  IfErrors uninstall_failed
+  IntCmp $0 0 versions_checked uninstall_failed uninstall_failed
+  versions_checked:
   ClearErrors
   RMDir /r "$INSTDIR\versions"
   IfErrors uninstall_failed

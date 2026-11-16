@@ -248,6 +248,16 @@ def _prune_locked(base: Path) -> list[str]:
     return removed
 
 
+def check_removal(base: Path, data: Path | None) -> None:
+    """Reject linked entries under the installer transaction lock."""
+    from .removal_check import validate_removal
+    with _transaction(Path(base)):
+        try:
+            validate_removal(base, data)
+        except ValueError as exc:
+            raise InstallStateError(str(exc)) from exc
+
+
 def cleanup_debris(base: Path) -> None:
     base = Path(base)
     with _transaction(base):
@@ -287,6 +297,8 @@ def main(argv=None) -> int:
     sub.add_parser('rollback')
     sub.add_parser('prune')
     sub.add_parser('cleanup-debris')
+    removal_parser = sub.add_parser('check-removal')
+    removal_parser.add_argument('--data', type=Path)
     sub.add_parser('active')
     args = parser.parse_args(argv)
     if args.base is None:
@@ -314,6 +326,8 @@ def main(argv=None) -> int:
             print(active)
         elif args.command == 'cleanup-debris':
             cleanup_debris(args.base)
+        elif args.command == 'check-removal':
+            check_removal(args.base, args.data)
         else:
             for name in prune(args.base):
                 print(name)

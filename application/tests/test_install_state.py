@@ -247,3 +247,61 @@ def test_cleanup_debris_refuses_link_before_removing_anything(tmp_path, monkeypa
     with pytest.raises(install_state.InstallStateError):
         install_state.cleanup_debris(tmp_path)
     assert staging.exists() and quarantine.exists()
+
+
+def test_uninstall_preflight_rejects_links_before_removing_anything(tmp_path, monkeypatch):
+    from pathlib import Path
+    versions = tmp_path / 'base/versions/0.6.0'; versions.mkdir(parents=True)
+    data = tmp_path / 'data'; data.mkdir()
+    linked = data / 'linked'; linked.mkdir()
+    original = Path.is_symlink
+    monkeypatch.setattr(Path, 'is_symlink', lambda p: p == linked or original(p))
+    with pytest.raises(install_state.InstallStateError, match='Linked'):
+        install_state.check_removal(tmp_path / 'base', data)
+    assert versions.exists() and data.exists()
+    install_state.check_removal(tmp_path / 'base', None)
+
+
+def test_uninstall_preflight_rejects_nested_version_link(tmp_path, monkeypatch):
+    from pathlib import Path
+    nested = tmp_path / 'base/versions/0.6.0/nested'; nested.mkdir(parents=True)
+    original = Path.is_symlink
+    monkeypatch.setattr(Path, 'is_symlink', lambda p: p == nested or original(p))
+    with pytest.raises(install_state.InstallStateError, match='Linked'):
+        install_state.check_removal(tmp_path / 'base', None)
+
+
+def test_standalone_removal_preflight_works_without_installed_package(tmp_path):
+    import subprocess, sys
+    from pathlib import Path
+    script = Path(install_state.__file__).with_name('removal_check.py')
+    base = tmp_path / 'base'; base.mkdir()
+    valid = subprocess.run([sys.executable, '-I', '-B', str(script), '--base', str(base)], capture_output=True)
+    assert valid.returncode == 0
+    (base / 'versions').write_text('not a directory', encoding='utf-8')
+    result = subprocess.run([sys.executable, '-I', '-B', str(script), '--base', str(base)], capture_output=True)
+    assert result.returncode != 0
+    assert (base / 'versions').is_file()
+
+
+def test_standalone_cleanup_works_without_installed_package(tmp_path):
+    import subprocess, sys
+    from pathlib import Path
+    script = Path(install_state.__file__).with_name('removal_check.py')
+    base = tmp_path / 'base'; (base / 'staging/synthetic').mkdir(parents=True)
+    (base / 'staging/synthetic/file.txt').write_text('synthetic', encoding='utf-8')
+    (base / 'quarantine').mkdir()
+    result = subprocess.run([sys.executable, '-I', '-B', str(script), '--base', str(base), '--cleanup-debris'], capture_output=True)
+    assert result.returncode == 0
+    assert not (base / 'staging').exists() and not (base / 'quarantine').exists()
+
+
+def test_standalone_cleanup_checks_all_roots_before_deleting(tmp_path, monkeypatch):
+    from alfa_document_intelligence import removal_check
+    staging = tmp_path / 'staging'; staging.mkdir()
+    linked = tmp_path / 'quarantine/linked'; linked.mkdir(parents=True)
+    original = removal_check._linked
+    monkeypatch.setattr(removal_check, '_linked', lambda path: path == linked or original(path))
+    with pytest.raises(ValueError, match='Linked'):
+        removal_check.cleanup_debris(tmp_path)
+    assert staging.exists() and linked.exists()
