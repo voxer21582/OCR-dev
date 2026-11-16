@@ -442,3 +442,57 @@ def test_window_entrypoint_unexpected_error_hides_details(monkeypatch):
     with pytest.raises(RuntimeError):
         launcher._run_entrypoint(['--app-window'])
     assert len(messages) == 1 and 'synthetic private content' not in messages[0]
+
+
+# R38 (from #151): every repair advice names a remedy that #152's installer
+# accepts. Reinstalling replaces a damaged version (install_state.prepare,
+# test_prepare_can_restore_corrupt_active_version_from_verified_stage) and the
+# Start-menu entry «Torna alla versione precedente» activates the previous one.
+_REINSTALL = 'installa di nuovo ocr2 con il suo installer'
+
+
+def test_window_start_failure_names_a_remedy(monkeypatch):
+    messages = []
+    def failed(argv):
+        raise SystemExit(1)
+    monkeypatch.setattr(launcher, 'main', failed)
+    monkeypatch.setattr(launcher, '_show_startup_error', lambda message: messages.append(message))
+    with pytest.raises(SystemExit):
+        launcher._run_entrypoint(['--app-window'])
+    assert len(messages) == 1
+    assert 'manutenzione' not in messages[0]
+    assert 'installazioni o disinstallazioni di OCR2' in messages[0]
+    assert _REINSTALL in messages[0].lower()
+
+
+def test_window_bootstrap_failure_names_a_remedy(monkeypatch):
+    import builtins
+    import types
+    source = Path(launcher.__file__).read_text(encoding='utf-8')
+    real_import = builtins.__import__
+    messages = []
+    fake_ctypes = types.SimpleNamespace(windll=types.SimpleNamespace(user32=types.SimpleNamespace(MessageBoxW=lambda *args: messages.append(args))))
+    def intercept(name, *args, **kwargs):
+        if name == 'app_instance':
+            raise ImportError('synthetic missing module')
+        if name == 'ctypes':
+            return fake_ctypes
+        return real_import(name, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(builtins, '__import__', intercept)
+        patch.setattr(os, 'name', 'nt')
+        patch.setattr(sys, 'argv', ['ocr2', '--app-window'])
+        with pytest.raises(ImportError):
+            exec(compile(source, launcher.__file__, 'exec'), {'__name__': 'synthetic_bootstrap', '__package__': 'alfa_document_intelligence'})
+    text = messages[0][1]
+    assert _REINSTALL in text.lower() and '«Torna alla versione precedente»' in text
+
+
+def test_integrity_failure_names_a_remedy(monkeypatch, tmp_path):
+    (tmp_path / 'runtime-manifest.json').write_text('{}', encoding='utf-8')
+    monkeypatch.setattr(launcher, '_installation_root', lambda: tmp_path)
+    notices = []
+    monkeypatch.setattr(launcher, '_show_integrity_error', notices.append)
+    with pytest.raises(SystemExit):
+        launcher.main(['--app-window'])
+    assert _REINSTALL in notices[0].lower() and '«Torna alla versione precedente»' in notices[0]

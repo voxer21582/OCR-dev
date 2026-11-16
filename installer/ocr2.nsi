@@ -301,7 +301,7 @@ Function un.onInit
   Call un.RunVersionCommand
   Pop $1
   StrCmp $1 "" 0 launch_ok
-    MessageBox MB_OK|MB_ICONSTOP "Impossibile avviare la versione attiva di OCR2." /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "Impossibile avviare la versione attiva di OCR2. Installa di nuovo OCR2 con il suo installer, oppure usa «Torna alla versione precedente»." /SD IDOK
     Quit
   launch_ok:
   StrCpy $1 $1 -2

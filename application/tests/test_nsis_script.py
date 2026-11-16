@@ -101,3 +101,13 @@ def test_installer_checks_runtime_path_before_executing_it():
     assert command.index('Call un.AssertSafePath') < command.index('nsExec::ExecToStack')
     uninstall = script.split('Section "Uninstall"', 1)[1]
     assert uninstall.index('Call un.AssertSafePath') < uninstall.index('ExecWait')
+
+
+def test_launch_failure_names_remedies_the_installer_supports():
+    """R38 (from #151): the Start-menu launch failure says what works in this installer."""
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8')
+    launch = script.split('Function un.onInit', 1)[1].split('launch_ok:', 1)[0]
+    message = re.search(r'MessageBox MB_OK\|MB_ICONSTOP "([^"]*)"', launch).group(1)
+    assert message.startswith('Impossibile avviare la versione attiva di OCR2.')
+    assert 'Installa di nuovo OCR2 con il suo installer' in message
+    assert '«Torna alla versione precedente»' in message

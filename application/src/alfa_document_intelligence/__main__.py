@@ -11,13 +11,25 @@ import time
 from pathlib import Path
 from typing import Sequence
 
+# Remedies the installer accepts: reinstalling replaces a damaged version, and
+# the Start-menu entry activates the previous one (R38, from #151).
+_REPAIR_ADVICE = (
+    "Installa di nuovo OCR2 con il suo installer, oppure dal menu Start usa "
+    "«Torna alla versione precedente»."
+)
+_START_FAILURE_MESSAGE = (
+    "Impossibile avviare OCR2. Attendi la fine di eventuali installazioni o disinstallazioni "
+    "di OCR2 e riprova; se il problema resta, installa di nuovo OCR2 con il suo installer."
+)
+
+
 def _show_bootstrap_error() -> None:
     """Make an application import failure visible in window mode without logging data."""
     if os.name == "nt" and "--app-window" in sys.argv[1:]:
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(
-                None, "Impossibile avviare OCR2. Verifica l’installazione e riprova.",
+                None, "Impossibile avviare OCR2. " + _REPAIR_ADVICE,
                 "OCR2 — avvio non riuscito", 0x10,
             )
         except Exception:
@@ -156,7 +168,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if runtime_manifest.exists() or runtime_manifest.is_symlink() or _is_installed(install_root):
         verification = verify_installation(install_root, runtime_manifest)
         if not verification.ok:
-            message = "Installazione non valida: " + "; ".join(verification.problems)
+            message = "Installazione non valida: " + "; ".join(verification.problems) + ". " + _REPAIR_ADVICE
             print(message, file=sys.stderr)
             if args.app_window:
                 _show_integrity_error(message)
@@ -314,11 +326,11 @@ def _run_entrypoint(argv: Sequence[str] | None = None) -> None:
         main(arguments)
     except SystemExit as exc:
         if exc.code not in (None, 0) and "--app-window" in arguments and not _startup_error_shown:
-            _show_startup_error("Impossibile avviare OCR2. Verifica che non sia già in manutenzione e riprova.")
+            _show_startup_error(_START_FAILURE_MESSAGE)
         raise
     except Exception:
         if "--app-window" in arguments and not _startup_error_shown:
-            _show_startup_error("Impossibile avviare OCR2. Verifica che non sia già in manutenzione e riprova.")
+            _show_startup_error(_START_FAILURE_MESSAGE)
         raise
 
 
