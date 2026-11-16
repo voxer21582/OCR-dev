@@ -147,6 +147,28 @@ def test_traversal_path_in_manifest_is_a_problem(tmp_path):
     assert "Percorso non valido nel manifest: ../x" in rm.verify_installation(root, path).problems
 
 
+@pytest.mark.parametrize("key", ["app/a\x00b", "app/" + "a" * 40000])
+def test_malformed_path_keys_never_raise(tmp_path, key):
+    root = _tree(tmp_path)
+    path = tmp_path / "m.json"
+    rm.write_manifest({"format": 1, "version": "1", "files": {key: {"sha256": "0" * 64, "size": 1}}}, path)
+    result = rm.verify_installation(root, path)
+    assert not result.ok and result.problems
+
+
+def test_launcher_turns_unexpected_verification_error_into_exit_2(monkeypatch, capsys, tmp_path):
+    _installed_folder(tmp_path, monkeypatch, tamper=False)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(launcher.runtime_manifest, "verify_installation", boom)
+    with pytest.raises(SystemExit) as exit_info:
+        launcher._verify_runtime(False)
+    assert exit_info.value.code == 2
+    assert "Verifica del runtime non riuscita" in capsys.readouterr().err
+
+
 def test_problem_list_is_capped_at_twenty(tmp_path):
     root = _tree(tmp_path)
     path = _manifested(root)

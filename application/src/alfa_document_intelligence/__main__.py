@@ -74,14 +74,19 @@ def _verify_runtime(app_window: bool) -> str:
     manifest_path = _program_folder() / runtime_manifest.MANIFEST_NAME
     if not manifest_path.is_file():
         return "non verificato (avvio da sorgenti)"
-    result = runtime_manifest.verify_installation(manifest_path.parent, manifest_path)
-    if not result.ok:
+    try:
+        result = runtime_manifest.verify_installation(manifest_path.parent, manifest_path)
+        problems = result.problems
+        ok = result.ok
+    except Exception:  # last safety net: never start unverified because verification crashed
+        problems, ok = ("Verifica del runtime non riuscita",), False
+    if not ok:
         print("I file di OCR2 non sono integri:", file=sys.stderr)
-        for problem in result.problems:
+        for problem in problems:
             print(f"- {problem}", file=sys.stderr)
         if app_window:
             local_app_data = os.environ.get("LOCALAPPDATA")
-            _show_runtime_error(result.problems, Path(local_app_data) / "OCR2" if local_app_data else None)
+            _show_runtime_error(problems, Path(local_app_data) / "OCR2" if local_app_data else None)
         raise SystemExit(2)
     return f"verificato ({result.checked_files} file, {result.seconds:.1f} s)"
 

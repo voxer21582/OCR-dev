@@ -64,7 +64,7 @@ def _is_link(path: Path) -> bool:
         return True
     try:
         attributes = getattr(os.lstat(path), "st_file_attributes", 0)
-    except OSError:
+    except (OSError, ValueError):
         return False
     return bool(attributes & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
 
@@ -175,7 +175,7 @@ def verify_installation(root: Path, manifest_path: Path) -> RuntimeVerification:
         path = root / pure
         try:
             contained = path.resolve().is_relative_to(resolved_root)
-        except OSError:
+        except (OSError, ValueError):
             contained = False
         if _is_link(path) or not contained:
             problems.append(f"Collegamento simbolico non ammesso: {relative}")
