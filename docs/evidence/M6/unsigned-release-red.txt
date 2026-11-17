@@ -1,0 +1,46 @@
+................FF.F.                                                    [100%]
+================================== FAILURES ===================================
+___________ test_unsigned_release_skips_only_the_authenticode_steps ___________
+
+    def test_unsigned_release_skips_only_the_authenticode_steps():
+        error, unsigned = _preprocess(_UNSIGNED)
+>       assert error is None
+E       AssertionError: assert 'Release builds require the expected signing certificate thumbprint' is None
+
+tests\test_nsis_script.py:194: AssertionError
+_____________ test_unsigned_release_behaves_like_a_signed_release _____________
+
+    def test_unsigned_release_behaves_like_a_signed_release():
+        _, unsigned = _preprocess(_UNSIGNED)
+        _, signed = _preprocess(_SIGNED)
+>       branding = [line for line in _body(unsigned) if line.startswith('BrandingText')]
+                                     ^^^^^^^^^^^^^^^
+
+tests\test_nsis_script.py:210: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+lines = ['; OCR2 per-user installer. Work in progress: lifecycle validation pending.', '!include "FileFunc.nsh"', 'Unicode true', 'RequestExecutionLevel user', 'InstallDir "$LOCALAPPDATA\\Programs\\OCR2"', '']
+
+    def _body(lines):
+        """Lines after the build-time gates: what ends up in the installer itself."""
+>       return lines[next(i for i, line in enumerate(lines) if line.startswith('Name ')):]
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       StopIteration
+
+tests\test_nsis_script.py:182: StopIteration
+_________ test_unsigned_release_refuses_signing_inputs_and_test_mode __________
+
+    def test_unsigned_release_refuses_signing_inputs_and_test_mode():
+        for extra in ({'OCR2_CERT_THUMBPRINT'}, {'OCR2_SIGN_COMMAND'},
+                      {'OCR2_CERT_THUMBPRINT', 'OCR2_SIGN_COMMAND'}, {'OCR2_TEST'}):
+            error, lines = _preprocess(_UNSIGNED | extra)
+>           assert error is not None and 'OCR2_UNSIGNED_RELEASE' in error, extra
+E           AssertionError: {'OCR2_CERT_THUMBPRINT'}
+E           assert ('Release builds require signing' is not None and 'OCR2_UNSIGNED_RELEASE' in 'Release builds require signing')
+
+tests\test_nsis_script.py:234: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_nsis_script.py::test_unsigned_release_skips_only_the_authenticode_steps
+FAILED tests/test_nsis_script.py::test_unsigned_release_behaves_like_a_signed_release
+FAILED tests/test_nsis_script.py::test_unsigned_release_refuses_signing_inputs_and_test_mode
+3 failed, 18 passed in 0.25s

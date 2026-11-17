@@ -124,6 +124,10 @@ class StoreSchemaError(StoreError):
     """The database schema is unsupported or malformed."""
 
 
+class NewerStoreSchemaError(StoreSchemaError):
+    """The database was created by a newer version of the application."""
+
+
 class StoreProtectionError(StoreError):
     """The platform payload-protection operation failed."""
 
@@ -277,7 +281,9 @@ class LocalDocumentStore:
         try:
             with self._connect() as connection:
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
-                if version > _SCHEMA_VERSION or version < 0:
+                if version > _SCHEMA_VERSION:
+                    raise NewerStoreSchemaError(f"unsupported local document-store schema version: {version}")
+                if version < 0:
                     raise StoreSchemaError(f"unsupported local document-store schema version: {version}")
                 if version == 0:
                     existing = connection.execute(

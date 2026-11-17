@@ -4,17 +4,170 @@ from __future__ import annotations
 import argparse
 import importlib
 import os
+import platform
+import secrets
 import sys
+import time
+import traceback
 from pathlib import Path
 from typing import Sequence
 
-from .local_intake_app import serve_expense_report_local
-from .local_document_store import LocalDocumentStore
-from .document_decoder import DecodeLimits
-from .document_family_catalog import DocumentFamilyCatalogError, DocumentFamilyCatalogStore
-from .expense_case_processing import ExpenseCaseProcessingManager
-from .ocr_engine_registry import EngineManifest, EngineRegistryError, discover_engines
-from .ocr_processing import OCRProcessLimits, OCRProcessingManager
+# Remedies the installer accepts: reinstalling replaces a damaged version, and
+# the Start-menu entry activates the previous one (R38, from #151).
+_REPAIR_ADVICE = (
+    "Installa di nuovo OCR2 con il suo installer, oppure dal menu Start usa "
+    "«Torna alla versione precedente»."
+)
+_START_FAILURE_MESSAGE = (
+    "Impossibile avviare OCR2. Attendi la fine di eventuali installazioni o disinstallazioni "
+    "di OCR2 e riprova; se il problema resta, installa di nuovo OCR2 con il suo installer."
+)
+
+
+# The dialogs stay generic; the details go to the launch log in the data folder
+# (owner decision 2026-11-16). The variable is shown as written, not expanded.
+_LAUNCH_LOG_HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher.log"
+_LAUNCH_LOG_LIMIT_BYTES = 256 * 1024
+_LAUNCH_LOG_ENTRY_BYTES = 64 * 1024
+
+
+def _write_launch_log(kind: str, message: str = "", error: BaseException | None = None) -> None:
+    """Append a start-up failure to launcher.log; never raise.
+
+    Only window-mode failures call this. Paths with the user name may appear
+    (accepted by the owner). Above the limit the log moves to launcher.log.1,
+    replacing the previous backup, so at most two small files exist.
+    """
+    try:
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data or not os.path.isabs(local_app_data):
+            return
+        lines = [f"=== {time.strftime('%Y-%m-%dT%H:%M:%S%z')} · {kind} ==="]
+        if message:
+            lines.append(message.rstrip())
+        if error is not None:
+            lines.append("".join(traceback.format_exception(type(error), error, error.__traceback__)).rstrip())
+        data = ("\n".join(lines) + "\n\n").encode("utf-8", "replace")
+        if len(data) > _LAUNCH_LOG_ENTRY_BYTES:
+            # Keep the head (time and kind) and the tail (the final exception line).
+            marker = "\n[…troncato]\n".encode("utf-8")
+            half = (_LAUNCH_LOG_ENTRY_BYTES - len(marker)) // 2
+            data = (data[:half].decode("utf-8", "ignore").encode("utf-8") + marker
+                    + data[-half:].decode("utf-8", "ignore").encode("utf-8"))
+        folder = os.path.join(local_app_data, "OCR2", "logs")
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "launcher.log")
+        # No lock between processes: two launchers failing at the same moment
+        # may interleave their entries or both rotate. Accepted, because only a
+        # failed start writes and a second launcher normally just reuses the
+        # running instance.
+        try:
+            if os.path.getsize(path) + len(data) > _LAUNCH_LOG_LIMIT_BYTES:
+                os.replace(path, path + ".1")
+        except OSError:
+            pass  # No log yet, or the backup cannot be replaced: append anyway.
+        with open(path, "ab") as log:
+            log.write(data)
+    except Exception:
+        pass  # The log is a help; the dialog and the original error come first.
+
+
+class _StderrTail:
+    """Forward stderr (absent under pythonw) and keep its end for the launch log."""
+
+    def __init__(self, target, limit: int = 16 * 1024) -> None:
+        self.target = target
+        self.limit = limit
+        self.text = ""
+        self.capturing = True
+
+    def write(self, text):
+        if self.capturing:
+            try:
+                self.text = (self.text + str(text))[-self.limit:]
+            except Exception:
+                pass
+        if self.target is None:
+            return len(text)
+        return self.target.write(text)
+
+    def flush(self) -> None:
+        if self.target is not None:
+            self.target.flush()
+
+
+def _end_startup_capture() -> None:
+    """Stop keeping stderr once the server is about to serve.
+
+    After start-up stderr carries request lines (search terms, tags, document
+    ids): they must never reach the plaintext launch log. The original stream
+    comes back, so under pythonw sys.stderr is None again, as before.
+    """
+    tail = sys.stderr
+    if isinstance(tail, _StderrTail):
+        tail.capturing = False
+        tail.text = ""
+        sys.stderr = tail.target
+
+
+def _show_bootstrap_error() -> None:
+    """Make an application import failure visible in window mode; details go to the launch log."""
+    if os.name == "nt" and "--app-window" in sys.argv[1:]:
+        _write_launch_log("import", error=sys.exc_info()[1])
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                None, "Impossibile avviare OCR2. " + _REPAIR_ADVICE + "\n\n" + _LAUNCH_LOG_HINT,
+                "OCR2 — avvio non riuscito", 0x10,
+            )
+        except Exception:
+            pass  # Preserve the original import failure.
+
+
+try:
+    from . import __version__
+    from .app_instance import InstanceLock, acquire, running_instance
+    from .app_lifetime import AppInfo, AppLifetime, WindowPresence
+    from .app_window import open_window
+    from .local_intake_app import serve_expense_report_local
+    from .local_document_store import LocalDocumentStore, NewerStoreSchemaError
+    from .document_decoder import DecodeLimits
+    from .document_family_catalog import DocumentFamilyCatalogError, DocumentFamilyCatalogStore
+    from .expense_case_processing import ExpenseCaseProcessingManager
+    from .ocr_engine_registry import EngineManifest, EngineRegistryError, discover_engines
+    from .ocr_processing import OCRProcessLimits, OCRProcessingManager
+    from .runtime_manifest import verify_installation
+except Exception:
+    _show_bootstrap_error()
+    raise
+
+
+# The Edge app window and the single-instance lock are Windows features (REQ-100).
+_APP_WINDOW_AVAILABLE = os.name == "nt"
+# Wait for an instance that holds the lock but does not answer: it is still
+# starting, or it is closing after «Esci» (or crashed) and will let go.
+_STARTING_INSTANCE_WAIT_SECONDS = 15.0
+_startup_error_shown = False
+
+
+def _open_app_window(url: str, data_dir: Path) -> None:
+    if open_window(url, data_dir) == "browser":
+        print("Edge non trovato: OCR2 si apre nel browser predefinito.", file=sys.stderr)
+
+
+def _wait_for_instance_or_lock(data_dir: Path) -> tuple[int | None, InstanceLock | None]:
+    """Until the deadline: the port of an instance that answers, or the lock once it is free."""
+    deadline = time.monotonic() + _STARTING_INSTANCE_WAIT_SECONDS
+    while True:
+        port = running_instance(data_dir)
+        if port is not None:
+            return port, None
+        lock = acquire(data_dir)
+        if lock is not None:
+            return None, lock
+        if time.monotonic() >= deadline:
+            return None, None
+        time.sleep(0.25)
 
 
 def _runtime_check(manifest: EngineManifest):
@@ -53,9 +206,34 @@ def _port(value: str) -> int:
     return port
 
 
+def _installation_root() -> Path:
+    return Path(sys.executable).resolve().parent.parent
+
+
+def _is_installed(root: Path) -> bool:
+    return Path(__file__).resolve().parent.parent == (root / "app").resolve()
+
+
+def _show_error_dialog(message: str, title: str) -> None:
+    """Report a local startup error without starting a server; the details are in the launch log."""
+    global _startup_error_shown
+    if os.name == "nt":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message + "\n\n" + _LAUNCH_LOG_HINT, title, 0x10)
+        _startup_error_shown = True
+
+
+def _show_integrity_error(message: str) -> None:
+    _show_error_dialog(message, "OCR2 — installazione non valida")
+
+
+def _show_startup_error(message: str) -> None:
+    _show_error_dialog(message, "OCR2 — avvio non riuscito")
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Start the loopback-only expense document review app.")
-    parser.add_argument("--port", type=_port, default=8000, help="loopback TCP port (default: 8000; 0 selects a free port)")
+    parser.add_argument("--port", type=_port, default=None, help="loopback TCP port (default: 8000; 0 selects a free port)")
     try:
         engines = {engine_id: manifest for engine_id, manifest in discover_engines().items() if manifest.selectable}
     except EngineRegistryError as exc:
@@ -64,8 +242,64 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--ocr-engine", choices=("disabled", *sorted(engines)), default="disabled",
         help="optional local OCR worker from the engine registry (default: disabled; an engine requires its verified local package and models)",
     )
+    parser.add_argument(
+        "--app-window", action="store_true",
+        help="open OCR2 in its own Edge window, one instance per user; stop when the window closes (default port: 0)",
+    )
     args = parser.parse_args(argv)
+    if args.port is None:
+        args.port = 0 if args.app_window else 8000
 
+    install_root = _installation_root()
+    runtime_manifest = install_root / "runtime-manifest.json"
+    runtime_status = "non verificato (avvio da sorgenti)"
+    if runtime_manifest.exists() or runtime_manifest.is_symlink() or _is_installed(install_root):
+        verification = verify_installation(install_root, runtime_manifest)
+        if not verification.ok:
+            message = "Installazione non valida: " + "; ".join(verification.problems) + ". " + _REPAIR_ADVICE
+            print(message, file=sys.stderr)
+            if args.app_window:
+                _write_launch_log("integrità", message)
+                _show_integrity_error(message)
+            raise SystemExit(2)
+        runtime_status = "verificato"
+
+    instance_lock = None
+    app_data_dir = None
+    if args.app_window:
+        if not _APP_WINDOW_AVAILABLE:
+            parser.error("La finestra dell'app è disponibile solo su Windows")
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data:
+            parser.error("LOCALAPPDATA non è disponibile: archivio locale non inizializzabile")
+        app_data_dir = Path(local_app_data) / "OCR2"
+        running_port = running_instance(app_data_dir)
+        if running_port is None:
+            instance_lock = acquire(app_data_dir)
+            if instance_lock is None:
+                running_port, instance_lock = _wait_for_instance_or_lock(app_data_dir)
+                if running_port is None and instance_lock is None:
+                    print("OCR2 è già in avvio ma non risponde. Riprova tra qualche secondo.", file=sys.stderr)
+                    raise SystemExit(1)
+        if running_port is not None:
+            _open_app_window(f"http://127.0.0.1:{running_port}/", app_data_dir)
+            return
+    elif os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data:
+            parser.error("LOCALAPPDATA non è disponibile: archivio locale non inizializzabile")
+        instance_lock = acquire(Path(local_app_data) / "OCR2")
+        if instance_lock is None:
+            print("OCR2 è già in uso o in manutenzione. Chiudilo e riprova.", file=sys.stderr)
+            raise SystemExit(1)
+    try:
+        _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status)
+    finally:
+        if instance_lock is not None:
+            instance_lock.release()
+
+
+def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="non verificato (avvio da sorgenti)") -> None:
     manifest = engines.get(args.ocr_engine)
     if manifest is not None:
         runtime = _runtime_check(manifest)
@@ -82,9 +316,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         local_app_data = os.environ.get("LOCALAPPDATA")
         if not local_app_data:
             parser.error("LOCALAPPDATA non è disponibile: archivio locale non inizializzabile")
-        archive_store = LocalDocumentStore(
-            Path(local_app_data) / "OCR2" / "document-archive.sqlite3"
-        )
+        try:
+            archive_store = LocalDocumentStore(
+                Path(local_app_data) / "OCR2" / "document-archive.sqlite3"
+            )
+        except NewerStoreSchemaError:
+            message = "Questo archivio è stato aggiornato da una versione più recente di OCR2. Reinstalla quella versione."
+            print(message, file=sys.stderr)
+            if args.app_window:
+                _write_launch_log("archivio più recente", message)
+                _show_error_dialog(message, "OCR2 — archivio non compatibile")
+            raise SystemExit(2)
         # The user's document-type catalog (REQ-041) lives next to the archive.
         family_catalog_store = DocumentFamilyCatalogStore(Path(local_app_data) / "OCR2" / "family-catalog.json")
         try:
@@ -107,6 +349,23 @@ def main(argv: Sequence[str] | None = None) -> None:
             close_worker_on_close=False,
             custom_family_catalog=custom_family_catalog,
         )
+    app_services = {}
+    app_lifetime = None
+    if args.app_window:
+        server_holder = []
+        # The guard thread stops the server; it starts only after the server exists.
+        app_lifetime = AppLifetime(WindowPresence(), lambda: server_holder[0].shutdown())
+        instance_id = secrets.token_urlsafe(16)
+        app_services = {
+            "app_lifetime": app_lifetime,
+            "app_info": AppInfo(
+                version=__version__,
+                python_version=platform.python_version(),
+                ocr_engine=None if manifest is None else f"{manifest.name} {manifest.version}",
+                runtime_status=runtime_status,
+                instance_id=instance_id,
+            ),
+        }
     server = serve_expense_report_local(
         port=args.port,
         archive_store=archive_store,
@@ -114,6 +373,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         expense_case_processing_manager=case_processing_manager,
         custom_family_catalog=custom_family_catalog,
         family_catalog_store=family_catalog_store,
+        **app_services,
     )
     host, port = server.server_address[:2]
     print(f"Apri http://{host}:{port}/ nel browser. Il server ascolta solo su loopback.")
@@ -129,15 +389,54 @@ def main(argv: Sequence[str] | None = None) -> None:
     else:
         print("Archivio persistente non disponibile fuori da Windows senza un protettore esplicito.")
     try:
+        if app_lifetime is not None:
+            server_holder.append(server)
+            instance_lock.publish(port, instance_id)
+            _open_app_window(f"http://{host}:{port}/", app_data_dir)
+            app_lifetime.start()
+        _end_startup_capture()
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nArresto richiesto.")
     finally:
+        if app_lifetime is not None:
+            # Ends the guard thread; shutdown() on a stopped server returns at once.
+            app_lifetime.request_exit()
         close_app = getattr(server, "ocr2_close", None)
         if callable(close_app):
             close_app()
         server.server_close()
 
 
+def _run_entrypoint(argv: Sequence[str] | None = None) -> None:
+    """Show a generic error for window-mode failures otherwise hidden by pythonw, and log the details."""
+    global _startup_error_shown
+    _startup_error_shown = False
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    window = "--app-window" in arguments
+    stderr_tail = None
+    if window:
+        # parser.error() and the launcher's own messages go to stderr, which
+        # pythonw discards: keep their end for the log.
+        stderr_tail = _StderrTail(sys.stderr)
+        sys.stderr = stderr_tail
+    try:
+        main(arguments)
+    except SystemExit as exc:
+        if exc.code not in (None, 0) and window and not _startup_error_shown:
+            _write_launch_log("uscita anomala", f"Codice di uscita: {exc.code!r}\n{stderr_tail.text}", exc)
+            _show_startup_error(_START_FAILURE_MESSAGE)
+        raise
+    except Exception as exc:
+        if window:
+            _write_launch_log("eccezione", stderr_tail.text, exc)
+            if not _startup_error_shown:
+                _show_startup_error(_START_FAILURE_MESSAGE)
+        raise
+    finally:
+        if stderr_tail is not None and sys.stderr is stderr_tail:
+            sys.stderr = stderr_tail.target
+
+
 if __name__ == "__main__":
-    main()
+    _run_entrypoint()

@@ -1,0 +1,3 @@
+python -B -m pytest -q -p no:cacheprovider tests/test_install_state.py
+5 passed in 0.42s
+Test sintetici; implementazione iniziale, non prova del ciclo di vita completo.

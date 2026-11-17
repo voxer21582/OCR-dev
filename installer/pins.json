@@ -1,0 +1,13 @@
+{
+  "python": {
+    "filename": "python-3.13.18-local-embed-amd64.zip",
+    "sha256": "a2aa39db83d68ec06f4f98908a55682685fa4696696549188b2dd333bfd03041",
+    "origin": "local build from Python 3.13.18 source; see docs/evidence/M6/python-source-dependencies.md"
+  },
+  "nsis": {
+    "filename": "nsis-3.13.zip",
+    "version": "3.13",
+    "url": "https://sourceforge.net/projects/nsis/files/NSIS%203/3.13/nsis-3.13.zip/download",
+    "sha256": "ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8"
+  }
+}
