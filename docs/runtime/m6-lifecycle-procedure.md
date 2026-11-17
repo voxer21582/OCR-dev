@@ -12,6 +12,7 @@ Usare un account Windows normale e solo documenti sintetici del progetto. Conser
 - Il ritorno alla versione precedente si fa **solo** dalla voce «Torna alla versione precedente» del menu Start, mai reinstallando la 0.6.0.
 - Gli script del progetto si lanciano con `powershell -NoProfile -ExecutionPolicy Bypass …`: l'opzione vale solo per quel comando e non cambia le impostazioni di Windows.
 - Il disinstallatore ritorna subito e continua per qualche secondo: aspettare 15 secondi prima di controllare cartelle e menu Start.
+- La ricerca di Windows può impiegare alcuni minuti a mostrare i nuovi collegamenti: cercare nella cartella «OCR2» del menu Start.
 - Su questo PC si usano **solo dati di prova**: la rimozione dei dati al punto 9 è definitiva.
 
 ## Limiti già noti

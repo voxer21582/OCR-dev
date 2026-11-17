@@ -22,6 +22,7 @@ Tempo previsto: circa un'ora e mezza.
 - **App ancora accesa dopo la chiusura.** Se si chiude la finestra con la X entro 2 secondi da un clic, oppure mentre una pagina di elaborazione si aggiorna da sola, OCR2 può restare acceso fino a 3 minuti. Nel frattempo installer e disinstallatore rispondono «Chiudi OCR2 e gli altri installer prima di continuare.»: aspettare 3 minuti e riprovare.
 - **Edge in background.** Dopo la chiusura può restare un `msedge.exe` con `--no-startup-window`: è l'avvio rapido di Edge, non di OCR2.
 - **Residui dopo la disinstallazione.** Possono restare il file `%LOCALAPPDATA%\OCR2.instance.lock` e una cartella `%LOCALAPPDATA%\Programs` vuota.
+- **Ricerca nel menu Start.** La ricerca di Windows può impiegare alcuni minuti a mostrare i nuovi collegamenti: cercare nella cartella «OCR2» del menu Start.
 
 ---
 

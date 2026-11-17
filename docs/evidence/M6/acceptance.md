@@ -1,21 +1,23 @@
 # Accettazione M6 — non completata
 
+Il 2026-11-17 il proprietario ha eseguito la matrice con un secondo account Windows standard sul PC di sviluppo ([esito](collaudo-secondo-account.md)); l'altro PC non era disponibile. Restano aperti REQ-103 e REQ-107, e REQ-105 è rinviato (DEC-034).
+
 | Requisito | Evidenza disponibile | Stato |
 |---|---|---|
-| REQ-100 | Prove precedenti della finestra e test sintetici; da confermare sul pacchetto finale e sull'altro PC. | Aperto |
-| REQ-101 | Test sintetici di presenza finestra e launcher; da confermare sul pacchetto finale. | Aperto |
-| REQ-102 | Installazioni di prova locali in cartelle temporanee; nessuna prova sul PC pulito. | Aperto |
-| REQ-103 | Impronte delle wheel e dei modelli, manifest e prova locale; il manifest non è ancorato a una radice di fiducia indipendente. | Aperto |
-| REQ-104 | Prove parziali di installazione, aggiornamento, interruzione, ripristino e disinstallazione; collegamenti e matrice sull'altro PC da verificare. | Aperto |
-| REQ-105 | Il proprietario non dispone di un certificato (Q-004): installer, disinstallatore e binari della build locale non sono firmati. Gli installer di rilascio si compilano con `OCR2_UNSIGNED_RELEASE`, che salta solo le verifiche Authenticode; all'installazione Windows SmartScreen avvisa («Ulteriori informazioni» → «Esegui comunque»). La procedura di [firma](../../runtime/signing.md) resta pronta. | Rinviato — limite dichiarato (DEC-034) |
-| REQ-106 | Collegamenti e informazioni implementati, ma il percorso completo nel menu Start non è stato verificato sul PC pulito. | Aperto |
-| REQ-107 | Distinta e avvisi generati, FFmpeg escluso e OCR sintetico riuscito; la completezza degli avvisi e delle licenze resta da verificare. | Aperto |
+| REQ-100 | Prove precedenti della finestra e test sintetici; da confermare sul pacchetto finale e sull'altro PC. Collaudo con secondo account: finestra di Edge aperta e chiusa, nessun `msedge.exe` con `OCR2\edge-profile`, confronto dell'impronta con la sola riga OCR2 `OCR2.instance.lock`. Limite: Windows ed Edge del PC di sviluppo, non un altro PC; nessun screenshot conservato. [collaudo](collaudo-secondo-account.md). | Verificato dal proprietario (secondo account, 2026-11-17) |
+| REQ-101 | Test sintetici di presenza finestra e launcher; da confermare sul pacchetto finale. Collaudo con secondo account: «Esci» e chiusura con la X lasciano `instance.json` assente e nessun `pythonw.exe`; porta libera in circa 15 s. Limite: stesso PC. [collaudo](collaudo-secondo-account.md). | Verificato dal proprietario (secondo account, 2026-11-17) |
+| REQ-102 | Installazioni di prova locali in cartelle temporanee; nessuna prova sul PC pulito. Collaudo con secondo account standard: installazione, aggiornamento, ripristino e disinstallazione riusciti offline. L'assenza di richiesta di amministratore è dedotta dall'account standard, non osservata. Limite: non è un PC pulito (DEC-007). [collaudo](collaudo-secondo-account.md). | Verificato dal proprietario (secondo account, 2026-11-17) |
+| REQ-103 | Impronte delle wheel e dei modelli, manifest e prova locale; il manifest non è ancorato a una radice di fiducia indipendente. Il collaudo del 2026-11-17 non ha verificato in modo specifico le impronte né il manifest. | Aperto |
+| REQ-104 | Prove parziali di installazione, aggiornamento, interruzione, ripristino e disinstallazione; collegamenti e matrice sull'altro PC da verificare. Collaudo con secondo account (B10–B15): aggiornamento bloccato con OCR2 aperto, interrotto e ripreso, 0.6.1, ripristino alla 0.6.0 dal menu Start, disinstallazione con dati conservati e con dati eliminati. Limite: stesso PC. [collaudo](collaudo-secondo-account.md). | Verificato dal proprietario (secondo account, 2026-11-17) |
+| REQ-105 | Il proprietario non dispone di un certificato (Q-004): installer, disinstallatore e binari della build locale non sono firmati. Gli installer di rilascio si compilano con `OCR2_UNSIGNED_RELEASE`, che salta solo le verifiche Authenticode; all'installazione Windows SmartScreen avvisa («Ulteriori informazioni» → «Esegui comunque»). La procedura di [firma](../../runtime/signing.md) resta pronta. Il collaudo del 2026-11-17 ha confermato `NotSigned` per l'installer. | Rinviato — limite dichiarato (DEC-034) |
+| REQ-106 | Collegamenti e informazioni implementati, ma il percorso completo nel menu Start non è stato verificato sul PC pulito. Collaudo con secondo account: avvio dal menu Start e «Torna alla versione precedente» usati; «Informazioni» dichiarata corretta senza annotare i valori letti. La ricerca di Windows ha impiegato tempo a mostrare i nuovi collegamenti. Limite: stesso PC. [collaudo](collaudo-secondo-account.md). | Verificato dal proprietario (secondo account, 2026-11-17) |
+| REQ-107 | Distinta e avvisi generati, FFmpeg escluso e OCR sintetico riuscito; la completezza degli avvisi e delle licenze resta da verificare. Non esercitato nel collaudo del 2026-11-17. | Aperto |
 
 La [revisione](review.md), le [prove locali](installer-dev-pc.md) e la [matrice](lifecycle-matrix.md) riportano i limiti. Nessuna evidenza qui dichiara completata la milestone.
 
 ## Limiti dichiarati
 
-Ripresi dal confronto con la PR #151 e verificati su questo ramo; nessuno chiude un requisito. Restano tutti aperti finché il collaudo sull'altro PC non li conferma.
+Ripresi dal confronto con la PR #151 e verificati su questo ramo; nessuno chiude un requisito. Il collaudo con secondo account del 2026-11-17 non li chiude: li ha solo incontrati o non esercitati, come indicato nell'[esito](collaudo-secondo-account.md). Restano aperti.
 
 | Limite | Stato |
 |---|---|
