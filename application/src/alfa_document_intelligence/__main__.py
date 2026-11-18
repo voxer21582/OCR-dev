@@ -144,6 +144,13 @@ try:
     from .runtime_manifest import verify_installation
 except Exception:
     _show_bootstrap_error()
+    if __name__ == "__main__":
+        try:
+            if sys.stderr is not None:
+                print("OCR2_START_IMPORT", file=sys.stderr)
+        except Exception:
+            pass
+        raise SystemExit(1) from None
     raise
 
 

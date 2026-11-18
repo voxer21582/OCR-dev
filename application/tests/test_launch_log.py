@@ -9,6 +9,7 @@ from enum import IntEnum
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import types
@@ -59,6 +60,55 @@ launcher._cli_entrypoint()
     assert result.returncode == 1
     assert 'SYNTHETIC_PRIVATE_EXIT' not in result.stderr + result.stdout
     assert 'Traceback' not in result.stderr
+
+
+@pytest.mark.parametrize('window', [False, True])
+def test_executed_bootstrap_redacts_application_import_failure(tmp_path, window):
+    script = '''
+import builtins, sys, types
+from pathlib import Path
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+window = sys.argv[2] == "window"
+sys.argv = ["ocr2"] + (["--app-window"] if window else [])
+original = builtins.__import__
+def intercept(name, *args, **kwargs):
+    if name == "app_instance":
+        raise ImportError("SYNTHETIC_PRIVATE_BOOTSTRAP_PATH")
+    if name == "ctypes" and window:
+        return types.SimpleNamespace(windll=types.SimpleNamespace(user32=types.SimpleNamespace(MessageBoxW=lambda *a: 0)))
+    return original(name, *args, **kwargs)
+builtins.__import__ = intercept
+exec(compile(source, "synthetic_launcher", "exec"), {"__name__": "__main__", "__package__": "alfa_document_intelligence"})
+'''
+    env = dict(os.environ, LOCALAPPDATA=str(tmp_path))
+    result = subprocess.run([sys.executable, '-B', '-c', script, launcher.__file__,
+                             'window' if window else 'console'], env=env,
+                            capture_output=True, text=True, timeout=20, check=False)
+    assert result.returncode == 1
+    assert 'OCR2_START_IMPORT' in result.stderr
+    assert 'SYNTHETIC_PRIVATE_BOOTSTRAP_PATH' not in result.stdout + result.stderr
+    assert 'Traceback' not in result.stderr
+
+
+def test_python_module_entrypoint_redacts_bootstrap_import_failure(tmp_path):
+    source_package = Path(launcher.__file__).parent
+    copied_package = tmp_path / 'alfa_document_intelligence'
+    shutil.copytree(source_package, copied_package, ignore=shutil.ignore_patterns('__pycache__'))
+    (copied_package / 'app_instance.py').write_text(
+        'raise ImportError("SYNTHETIC_PRIVATE_BOOTSTRAP_PATH")\n', encoding='utf-8')
+    env = dict(os.environ, PYTHONPATH=str(tmp_path))
+    result = subprocess.run([sys.executable, '-B', '-m', 'alfa_document_intelligence'],
+                            cwd=str(tmp_path), env=env, capture_output=True, text=True,
+                            timeout=20, check=False)
+    assert result.returncode == 1
+    assert 'OCR2_START_IMPORT' in result.stderr
+    assert 'SYNTHETIC_PRIVATE_BOOTSTRAP_PATH' not in result.stderr + result.stdout
+    assert 'Traceback' not in result.stderr
+    imported = subprocess.run([sys.executable, '-B', '-c', 'import alfa_document_intelligence.__main__'],
+                              cwd=str(tmp_path), env=env, capture_output=True, text=True,
+                              timeout=20, check=False)
+    assert imported.returncode != 0
+    assert 'SYNTHETIC_PRIVATE_BOOTSTRAP_PATH' in imported.stderr
 
 
 class _ExitEnum(IntEnum):
