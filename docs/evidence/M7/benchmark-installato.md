@@ -32,6 +32,12 @@ Successiva prova sulla versione installata aggiornata: fascicolo sintetico con 3
 
 La stessa prova è stata ripetuta sull'ultima versione installata, dopo le modifiche a ONNX e DPAPI, con lo stesso esito: 21 documenti visualizzati prima della terminazione, ripresa iniziale da 20 salvati e completamento di 36/36. Non simula la perdita di alimentazione.
 
+## Tempi diretti per pagina
+
+Una prova sulla build `OCR2_TEST` con installer SHA-256 `a30e978be55f050b58d94c7313b6c1ab8acab380ba061aa2df3e68ddaa0aa765` ha usato una copia separata, strumentata e con manifest rigenerato. In `process_document_record`, un cronometro monotono parte prima dell'iterazione del decoder e viene letto dopo la costruzione dell'inventario di ogni pagina; prima della pagina successiva viene riavviato. I valori registrati sono solo durate numeriche, senza identificativi o contenuti. Tutte le **104** pagine sintetiche hanno prodotto un campione: mediana **1,339 s**, media **1,599 s**, p95 nearest-rank **1,844 s**, massimo **6,771 s**; quattro campioni sono pari o superiori a 3 s. Il fascicolo è terminato in **193,2 s** con i punteggi sintetici previsti. I [campioni numerici](tempi-pagina-v48.json) sono conservati per verifica.
+
+La misura diretta comprende l'attesa del decoder e l'elaborazione OCR o del livello testo fino all'inventario della pagina; include il callback di avanzamento precedente dopo la prima pagina del documento. Esclude preparazione precedente all'iterazione, caricamento iniziale del motore, analisi semantica dopo il ciclo e salvataggio. La scrittura dei tempi aggiunge un piccolo costo e la copia non è l'installer originale: la mediana osservata soddisfa la metrica indicata da REQ-127 per questo insieme sintetico e questo PC, ma non garantisce che ogni pagina sia sotto 3 s né rappresenta documenti reali.
+
 ## Osservazione di rete estesa sulla versione aggiornata
 
 Ripetizione del fascicolo completo sulla copia di prova strumentata della versione con registro separato: 100 allegati, 104 pagine, 171,0 s. Il manifest della copia è stato rigenerato dopo l'inserimento del solo hook; non si tratta dell'installer originale. L'hook registra `connect`, `connect_ex`, `sendto` e `getaddrinfo` Python non loopback e un segnale di inizializzazione con PID; un test con socket simulati ha esercitato tutte e quattro le registrazioni e il caso loopback. Nel fascicolo ha contato zero eventi non loopback per ciascun metodo e 7 PID con hook inizializzato.
