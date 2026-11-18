@@ -4,7 +4,7 @@ Stato: **in corso**, non è un'accettazione della milestone. Le prove sono local
 
 | Requisito | Evidenza disponibile | Lavoro residuo |
 |---|---|---|
-| REQ-108 | Download diagnostico volontario con campi tecnici limitati, test sintetici, revisione indipendente e controllo HTTP sulla versione installata. | Controllo visivo della finestra. [Dettagli](diagnostica.md). |
+| REQ-108 | Download diagnostico volontario con campi tecnici limitati, test sintetici, revisione indipendente e controllo HTTP sulla versione installata. Pagina Informazioni verificata visivamente nel browser integrato con interprete installato e server sintetico. | La prova visiva non usa la finestra Edge di rilascio. [Dettagli](diagnostica.md). |
 | REQ-121 | Fascicolo completo sulla nuova copia strumentata; hook Python e 98 campioni TCP, 7 PID coincidenti, zero eventi non loopback osservati. | Copertura nativa e prodotto originale non completamente osservabili; nessuna garanzia assoluta. [Metodo e limiti](benchmark-installato.md). |
 | REQ-124 | Protezioni e test dei percorsi individuati; su copia installata strumentata, marcatori stdout/stderr raccolti da sette processi durante 104 pagine sintetiche. Sulla nuova installazione 28 file corrotti respinti senza stderr, anche con `-W always`. | Completare la revisione degli errori e delle uscite native non coperte; i registri storici sono conservati su scelta del proprietario. [Verifica](log-review.md). |
 | REQ-125 | Modello delle minacce e revisione automatica indipendente firmata dal proprietario il 2026-11-18; successiva proposta R7 nuovamente riesaminata automaticamente. | La firma precede le ultime modifiche; completare la valutazione finale con il proprietario. [Revisione](revisione-sicurezza.md), [modello](modello-minacce.md). |
