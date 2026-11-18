@@ -188,6 +188,22 @@ class ManualRegionEvidenceTests(unittest.TestCase):
         self.assertTrue(preview.startswith(b"\x89PNG\r\n\x1a\n"))
         decoder.assert_called_once()
 
+        from contextlib import redirect_stderr, redirect_stdout
+        from alfa_document_intelligence.document_decoder import DocumentDecodeError
+        marker = "OCR2_SYNTHETIC_PRIVATE_TEXT_AND_PATH"
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err), patch(
+            "alfa_document_intelligence.local_intake_app.iter_decoded_pages_isolated",
+            side_effect=DocumentDecodeError(marker),
+        ):
+            response, rejected = invoke({
+                "REQUEST_METHOD": "GET", "PATH_INFO": "/reviews/doc-001/pages/1.png",
+                "HTTP_HOST": "127.0.0.1:8080",
+            })
+        self.assertEqual(response["status"], "422 Unprocessable Content")
+        self.assertNotIn(marker.encode(), rejected)
+        self.assertNotIn(marker, out.getvalue() + err.getvalue())
+
     def test_rejected_csrf_post_does_not_mutate_session(self):
         """Every mutating browser route must reject an untrusted Origin before effects."""
         from alfa_document_intelligence.local_intake_app import create_expense_report_app

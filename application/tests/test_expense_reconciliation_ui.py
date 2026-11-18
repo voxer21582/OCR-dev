@@ -390,6 +390,21 @@ class ExpenseReconciliationUITests(unittest.TestCase):
             )
             self.assertEqual(status, "404 Not Found")
 
+    def test_source_page_hides_decoder_exception_details(self):
+        from contextlib import redirect_stderr, redirect_stdout
+        from alfa_document_intelligence.document_decoder import DocumentDecodeError
+
+        marker = "OCR2_SYNTHETIC_PRIVATE_TEXT_AND_PATH"
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err), patch(
+            "alfa_document_intelligence.local_intake_app._source_page_png",
+            side_effect=DocumentDecodeError(marker),
+        ):
+            status, _, body = _request(self.app, path="/cases/case-1/documents/statement/pages/1.png")
+        self.assertEqual(status, "422 Unprocessable Content")
+        self.assertNotIn(marker.encode(), body)
+        self.assertNotIn(marker, out.getvalue() + err.getvalue())
+
     def test_reconciliation_html_escapes_untrusted_source_text(self):
         line = self.archive.documents["statement"].record["expense_lines"][0]
         line["description"]["value"] = "<script>alert(1)</script>"
