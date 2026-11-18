@@ -38,6 +38,8 @@ Una prova sulla build `OCR2_TEST` con installer SHA-256 `a30e978be55f050b58d94c7
 
 La misura diretta comprende l'attesa del decoder e l'elaborazione OCR o del livello testo fino all'inventario della pagina; include il callback di avanzamento precedente dopo la prima pagina del documento. Esclude preparazione precedente all'iterazione, caricamento iniziale del motore, analisi semantica dopo il ciclo e salvataggio. La scrittura dei tempi aggiunge un piccolo costo e la copia non è l'installer originale: la mediana osservata soddisfa la metrica indicata da REQ-127 per questo insieme sintetico e questo PC, ma non garantisce che ogni pagina sia sotto 3 s né rappresenta documenti reali.
 
+Un successivo confronto dei manifest ha mostrato che la copia con il cronometro includeva anche 120 file di cache Python creati da prove precedenti sull'installazione di test e poi inclusi nel manifest rigenerato. La prova resta riferita a quella copia, non al payload pulito. L'installazione di origine era stata verificata prima delle prove che hanno creato le cache; per le verifiche successive è stata preparata una nuova installazione pulita.
+
 ## Osservazione di rete estesa sulla versione aggiornata
 
 Ripetizione del fascicolo completo sulla copia di prova strumentata della versione con registro separato: 100 allegati, 104 pagine, 171,0 s. Il manifest della copia è stato rigenerato dopo l'inserimento del solo hook; non si tratta dell'installer originale. L'hook registra `connect`, `connect_ex`, `sendto` e `getaddrinfo` Python non loopback e un segnale di inizializzazione con PID; un test con socket simulati ha esercitato tutte e quattro le registrazioni e il caso loopback. Nel fascicolo ha contato zero eventi non loopback per ciascun metodo e 7 PID con hook inizializzato.
@@ -47,6 +49,8 @@ Un osservatore di sistema avviato prima del fascicolo e fermato dopo la conclusi
 La procedura è stata ripetuta sulla copia strumentata della versione aggiornata con limite ONNX e riuso delle funzioni DPAPI. Il fascicolo ha elaborato 104 pagine in 179,3 s; l'hook ha inizializzato 7 PID e non ha registrato chiamate non loopback nei quattro metodi osservati. L'osservatore ha effettuato 82 campioni TCP senza errori, rilevando gli stessi 7 PID e nessuna connessione non loopback nei campioni. Restano gli stessi limiti su chiamate native, connessioni brevi e processi mai visti da entrambi. La copia ha un hook aggiunto e manifest rigenerato, quindi non è il payload originale non strumentato.
 
 Sulla successiva build `OCR2_TEST`, installer SHA-256 `a30e978be55f050b58d94c7313b6c1ab8acab380ba061aa2df3e68ddaa0aa765`, il controllo è stato ripetuto su una copia con hook aggiunto e manifest rigenerato. Il fascicolo ha completato 104 pagine in **228,1 s**. L'hook e l'osservatore hanno identificato gli stessi **7 PID**; l'hook non ha registrato eventi non loopback nei quattro metodi osservati e i **98 campioni TCP** non hanno rilevato connessioni non loopback. Il monitor non ha segnalato errori ed è stato fermato mediante il segnale previsto. Restano le limitazioni già indicate: copie strumentate, processi non osservati, API native, UDP, DNS e connessioni brevi non sono coperti completamente.
+
+Il confronto successivo con una nuova installazione pulita ha rilevato nella copia di rete 99 file di cache Python aggiunti dalle prove precedenti, oltre all'hook; il manifest della copia li comprendeva. L'osservazione riguarda pertanto quella copia modificata, non il payload pulito.
 
 ### Riproduzione delle misure
 
