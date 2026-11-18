@@ -6,6 +6,7 @@ import copy
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 import hashlib
 import hmac
 import json
@@ -158,6 +159,37 @@ class StoredDocumentSummary:
     review_status: str = "not_started"
 
 
+@lru_cache(maxsize=1)
+def _windows_dpapi_api():
+    """Initialize only DPAPI function definitions; never retain payload data."""
+    if os.name != 'nt':
+        raise StoreProtectionError('Windows DPAPI is required for the default store protector')
+    import ctypes
+    from ctypes import wintypes
+
+    class DataBlob(ctypes.Structure):
+        _fields_ = [('cbData', wintypes.DWORD), ('pbData', ctypes.POINTER(ctypes.c_ubyte))]
+
+    crypt32 = ctypes.WinDLL('Crypt32', use_last_error=True)
+    kernel32 = ctypes.WinDLL('Kernel32', use_last_error=True)
+    local_free = kernel32.LocalFree
+    local_free.argtypes = [ctypes.c_void_p]
+    local_free.restype = ctypes.c_void_p
+    crypt_protect = crypt32.CryptProtectData
+    crypt_protect.argtypes = [
+        ctypes.POINTER(DataBlob), wintypes.LPCWSTR, ctypes.POINTER(DataBlob),
+        ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DataBlob),
+    ]
+    crypt_protect.restype = wintypes.BOOL
+    crypt_unprotect = crypt32.CryptUnprotectData
+    crypt_unprotect.argtypes = [
+        ctypes.POINTER(DataBlob), ctypes.POINTER(wintypes.LPWSTR), ctypes.POINTER(DataBlob),
+        ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DataBlob),
+    ]
+    crypt_unprotect.restype = wintypes.BOOL
+    return ctypes, DataBlob, crypt_protect, crypt_unprotect, local_free, crypt32, kernel32
+
+
 class WindowsDpapiProtector:
     """Protect payloads for the current Windows user with CryptProtectData."""
 
@@ -165,34 +197,10 @@ class WindowsDpapiProtector:
 
     @staticmethod
     def _crypt(data: bytes, *, protect: bool) -> bytes:
-        if os.name != "nt":
-            raise StoreProtectionError("Windows DPAPI is required for the default store protector")
-        import ctypes
-        from ctypes import wintypes
-
-        class DataBlob(ctypes.Structure):
-            _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
-
+        ctypes, DataBlob, crypt_protect, crypt_unprotect, local_free, _, _ = _windows_dpapi_api()
         source_buffer = ctypes.create_string_buffer(data, max(1, len(data)))
         source = DataBlob(len(data), ctypes.cast(source_buffer, ctypes.POINTER(ctypes.c_ubyte)))
         destination = DataBlob()
-        crypt32 = ctypes.WinDLL("Crypt32", use_last_error=True)
-        kernel32 = ctypes.WinDLL("Kernel32", use_last_error=True)
-        local_free = kernel32.LocalFree
-        local_free.argtypes = [ctypes.c_void_p]
-        local_free.restype = ctypes.c_void_p
-        crypt_protect = crypt32.CryptProtectData
-        crypt_protect.argtypes = [
-            ctypes.POINTER(DataBlob), wintypes.LPCWSTR, ctypes.POINTER(DataBlob),
-            ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DataBlob),
-        ]
-        crypt_protect.restype = wintypes.BOOL
-        crypt_unprotect = crypt32.CryptUnprotectData
-        crypt_unprotect.argtypes = [
-            ctypes.POINTER(DataBlob), ctypes.POINTER(wintypes.LPWSTR), ctypes.POINTER(DataBlob),
-            ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DataBlob),
-        ]
-        crypt_unprotect.restype = wintypes.BOOL
 
         if protect:
             ok = crypt_protect(
@@ -690,6 +698,7 @@ class LocalDocumentStore:
                 raise StoreRejected("the backup cannot be opened by this user or failed its integrity checks") from exc
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             previous = self.path.with_name(f"{self.path.name}.before-restore-{stamp}-{secrets.token_hex(2)}")
+            previous_index_key = self._index_key
             os.replace(self.path, previous)
             try:
                 os.replace(staging, self.path)
@@ -702,6 +711,7 @@ class LocalDocumentStore:
                 os.replace(previous, self.path)
                 self._known_index_entries = {}
                 self._known_case_entries = {}
+                self._index_key = previous_index_key
                 if isinstance(exc, (StoreError, OSError)):
                     raise StoreError("restore failed; the previous archive was put back") from exc
                 raise
@@ -930,7 +940,9 @@ class LocalDocumentStore:
             byte_length = source.get("byte_length")
             if not isinstance(byte_length, int) or isinstance(byte_length, bool) or byte_length < 1:
                 raise ValueError("stored source length is invalid")
-            return copy.deepcopy(record), envelope["saved_at"]
+            # json.loads produced a fresh object for this read; no shared
+            # in-memory record needs to be copied before returning it.
+            return record, envelope["saved_at"]
         except StoreError as exc:
             raise StoreIntegrityError("stored document record failed integrity validation") from exc
         except Exception as exc:
@@ -1036,6 +1048,10 @@ class LocalDocumentStore:
             ],
         ]
 
+
+
+
+
     def _validate_case_references(self, connection: sqlite3.Connection, case: dict, case_index: str) -> list[dict]:
         expected = {
             self._document_id_index(item["document_id"]): item
@@ -1057,28 +1073,32 @@ class LocalDocumentStore:
             if binding["source_sha256"].lower() != ref["source_sha256"].lower() or binding["role"] != ref["role"]:
                 raise StoreIntegrityError("case-document reference binding does not match the manifest")
             doc_row = connection.execute(
-                "SELECT entry_id, document_id_index, record_payload, source_payload FROM documents WHERE document_id_index = ?",
+                "SELECT entry_id, document_id_index, record_payload, typeof(source_payload), length(source_payload) "
+                "FROM documents WHERE document_id_index = ?",
                 (document_index,),
             ).fetchone()
             if doc_row is None:
                 raise StoreIntegrityError("case references a missing local document")
-            _, stored_index, record_payload, source_payload = doc_row
+            _, stored_index, record_payload, source_type, source_length = doc_row
             record, saved_at = self._decode_record(record_payload)
-            doc_id, source_hash = self._validate_record(record)
+            # _decode_record already validated this freshly decoded record.
+            doc_id, source_hash = record['document_id'], record['source']['sha256'].lower()
             if self._document_id_index(doc_id) != stored_index or stored_index != document_index:
                 raise StoreIntegrityError("case document index points to a different record")
-            if doc_id != ref["document_id"] or source_hash != ref["source_sha256"].lower():
+            if doc_id != ref['document_id'] or source_hash != ref['source_sha256'].lower():
                 raise StoreIntegrityError("case source hash does not match the archived document")
-            if not isinstance(source_payload, bytes) or not source_payload:
+            # Presence and type are the only source checks here; avoid copying
+            # the potentially large ciphertext into the list/status response.
+            if source_type != 'blob' or not isinstance(source_length, int) or source_length < 1:
                 raise StoreIntegrityError("case source ciphertext is missing")
-            metadata_size = self._case_record_metadata_size(record)
+            metadata_size = self._case_record_metadata_size_validated(record, doc_id)
             if metadata_size > _MAX_CASE_RECORD_METADATA_BYTES:
                 raise StoreIntegrityError("case document metadata exceeds its configured limit")
             actual_metadata_bytes += metadata_size
-            if record.get("processing", {}).get("ocr", {}).get("status") == "completed":
+            if record.get('processing', {}).get('ocr', {}).get('status') == 'completed':
                 actual_processed_bytes += len(self._canonical_json(record))
-            actual_bytes += record["source"]["byte_length"]
-            ownership[doc_id] = binding["case_owned"]
+            actual_bytes += record['source']['byte_length']
+            ownership[doc_id] = binding['case_owned']
         if actual_bytes != case.get("retained_source_bytes"):
             raise StoreIntegrityError("case retained-source byte count does not match archived documents")
         if actual_metadata_bytes > _MAX_CASE_TOTAL_METADATA_BYTES:
@@ -1090,6 +1110,7 @@ class LocalDocumentStore:
     def _verify_case_index_integrity(self) -> None:
         try:
             with self._connect() as connection:
+                connection.execute("BEGIN")
                 rows = connection.execute("SELECT entry_id, case_id_index, case_payload FROM cases ORDER BY entry_id").fetchall()
                 for entry_id, case_index, payload in rows:
                     case = self._decode_case_payload(payload)
@@ -1155,10 +1176,18 @@ class LocalDocumentStore:
         if not isinstance(record, dict):
             raise StoreRejected("case document record must be an object")
         document_id, _ = LocalDocumentStore._validate_record(record)
-        archived_record = copy.deepcopy(record)
-        source = archived_record.get("source")
+        return LocalDocumentStore._case_record_metadata_size_validated(record, document_id)
+
+    @staticmethod
+    def _case_record_metadata_size_validated(record: dict, document_id: str) -> int:
+        # Copy only the mappings changed below, not the potentially large OCR
+        # result tree which is excluded from the metadata calculation.
+        archived_record = record.copy()
+        source = record.get("source")
         if not isinstance(source, dict):
             raise StoreRejected("case document source metadata must be an object")
+        source = source.copy()
+        archived_record["source"] = source
         source["storage_ref"] = f"local-archive://{document_id}"
         # Large line proposals produced by OCR count against the separate
         # cumulative processing-result budget, not the upload metadata quota.
@@ -1246,6 +1275,9 @@ class LocalDocumentStore:
             return None
         try:
             with self._connect() as connection:
+                # The manifest and referenced documents must be read from the
+                # same SQLite snapshot while OCR publishes a completed chunk.
+                connection.execute("BEGIN")
                 return self._get_case_in_connection(connection, case_id)
         except StoreError:
             raise
@@ -1306,6 +1338,8 @@ class LocalDocumentStore:
         try:
             matches = []
             with self._connect() as connection:
+                # Keep case payloads, bindings and document records consistent.
+                connection.execute("BEGIN")
                 rows = connection.execute("SELECT entry_id, case_id_index, case_payload FROM cases ORDER BY entry_id").fetchall()
                 for entry_id, case_index, payload in rows:
                     case = self._decode_case_payload(payload)

@@ -6,8 +6,96 @@ import threading
 import time
 import unittest
 import urllib.request
+import urllib.error
 
 from alfa_document_intelligence.local_intake_app import serve_expense_report_local
+
+
+def test_access_log_does_not_write_request_or_query(capsys):
+    server = serve_expense_report_local(port=0, idle_connection_timeout_seconds=1)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/?q=SYNTHETIC_PRIVATE_291', timeout=6) as response:
+            assert response.status == 200
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+    captured = capsys.readouterr()
+    assert 'SYNTHETIC_PRIVATE_291' not in captured.err
+    assert 'SYNTHETIC_PRIVATE_291' not in captured.out
+
+
+def test_server_error_does_not_write_exception_content(capsys):
+    server = serve_expense_report_local(port=0, idle_connection_timeout_seconds=1)
+    def failing_app(environ, start_response):
+        raise RuntimeError('SYNTHETIC_DOCUMENT_622')
+    server.set_app(failing_app)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        with unittest.TestCase().assertRaises(urllib.error.HTTPError) as error:
+            urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=6)
+        assert error.exception.code == 500
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+    captured = capsys.readouterr()
+    assert 'SYNTHETIC_DOCUMENT_622' not in captured.err
+    assert 'SYNTHETIC_DOCUMENT_622' not in captured.out
+    assert captured.err.count('OCR2_HTTP_ERROR') == 1
+
+
+def test_wsgi_error_stream_supports_writelines_without_disclosing_content(capsys):
+    server = serve_expense_report_local(port=0, idle_connection_timeout_seconds=1)
+    def app(environ, start_response):
+        environ['wsgi.errors'].writelines(['SYNTHETIC_PRIVATE_931\n'])
+        start_response('200 OK', [('Content-Type', 'text/plain')])
+        return [b'ok']
+    server.set_app(app)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=6) as response:
+            assert response.status == 200
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+    captured = capsys.readouterr()
+    assert 'SYNTHETIC_PRIVATE_931' not in captured.out + captured.err
+    assert captured.err.count('OCR2_HTTP_ERROR') == 1
+
+
+def test_handler_failure_does_not_write_exception_or_client_address(capsys):
+    server = serve_expense_report_local(port=0, idle_connection_timeout_seconds=1)
+    class FailingHandler:
+        def __init__(self, request, client_address, server):
+            raise RuntimeError('SYNTHETIC_HANDLER_SECRET_557')
+    server.RequestHandlerClass = FailingHandler
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        with socket.create_connection(('127.0.0.1', port), timeout=6) as client:
+            client.sendall(b'GET / HTTP/1.0\r\n\r\n')
+            try:
+                client.recv(1)
+            except (ConnectionResetError, ConnectionAbortedError):
+                pass
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+    captured = capsys.readouterr()
+    assert 'SYNTHETIC_HANDLER_SECRET_557' not in captured.err
+    assert '127.0.0.1' not in captured.err
+    assert 'OCR2_HTTP_HANDLER_ERROR' in captured.err
 
 
 class IdleConnectionTests(unittest.TestCase):

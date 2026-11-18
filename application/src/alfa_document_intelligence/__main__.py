@@ -8,7 +8,6 @@ import platform
 import secrets
 import sys
 import time
-import traceback
 from pathlib import Path
 from typing import Sequence
 
@@ -24,39 +23,34 @@ _START_FAILURE_MESSAGE = (
 )
 
 
-# The dialogs stay generic; the details go to the launch log in the data folder
-# (owner decision 2026-11-16). The variable is shown as written, not expanded.
-_LAUNCH_LOG_HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher.log"
+# The dialogs stay generic; the launch log contains stable, non-sensitive codes.
+_LAUNCH_LOG_HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher-safe.log"
 _LAUNCH_LOG_LIMIT_BYTES = 256 * 1024
 _LAUNCH_LOG_ENTRY_BYTES = 64 * 1024
+_LAUNCH_LOG_CODES = {
+    'import': 'OCR2_START_IMPORT',
+    'integrità': 'OCR2_START_INTEGRITY',
+    'archivio più recente': 'OCR2_START_ARCHIVE_VERSION',
+    'uscita anomala': 'OCR2_START_EXIT',
+    'eccezione': 'OCR2_START_EXCEPTION',
+}
 
 
 def _write_launch_log(kind: str, message: str = "", error: BaseException | None = None) -> None:
-    """Append a start-up failure to launcher.log; never raise.
+    """Append a start-up failure to the separate safe log; never raise.
 
-    Only window-mode failures call this. Paths with the user name may appear
-    (accepted by the owner). Above the limit the log moves to launcher.log.1,
-    replacing the previous backup, so at most two small files exist.
+    Only fixed event codes are persisted. Arbitrary exception messages, stderr,
+    paths, identifiers and tracebacks are deliberately excluded.
     """
     try:
         local_app_data = os.environ.get("LOCALAPPDATA")
         if not local_app_data or not os.path.isabs(local_app_data):
             return
-        lines = [f"=== {time.strftime('%Y-%m-%dT%H:%M:%S%z')} · {kind} ==="]
-        if message:
-            lines.append(message.rstrip())
-        if error is not None:
-            lines.append("".join(traceback.format_exception(type(error), error, error.__traceback__)).rstrip())
-        data = ("\n".join(lines) + "\n\n").encode("utf-8", "replace")
-        if len(data) > _LAUNCH_LOG_ENTRY_BYTES:
-            # Keep the head (time and kind) and the tail (the final exception line).
-            marker = "\n[…troncato]\n".encode("utf-8")
-            half = (_LAUNCH_LOG_ENTRY_BYTES - len(marker)) // 2
-            data = (data[:half].decode("utf-8", "ignore").encode("utf-8") + marker
-                    + data[-half:].decode("utf-8", "ignore").encode("utf-8"))
+        code = _LAUNCH_LOG_CODES.get(kind, 'OCR2_START_OTHER')
+        data = f"=== {time.strftime('%Y-%m-%dT%H:%M:%S%z')} · {code} ===\n\n".encode('utf-8')
         folder = os.path.join(local_app_data, "OCR2", "logs")
         os.makedirs(folder, exist_ok=True)
-        path = os.path.join(folder, "launcher.log")
+        path = os.path.join(folder, "launcher-safe.log")
         # No lock between processes: two launchers failing at the same moment
         # may interleave their entries or both rotate. Accepted, because only a
         # failed start writes and a second launcher normally just reuses the
@@ -256,7 +250,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if runtime_manifest.exists() or runtime_manifest.is_symlink() or _is_installed(install_root):
         verification = verify_installation(install_root, runtime_manifest)
         if not verification.ok:
-            message = "Installazione non valida: " + "; ".join(verification.problems) + ". " + _REPAIR_ADVICE
+            message = "Installazione non valida (OCR2_START_INTEGRITY). " + _REPAIR_ADVICE
             print(message, file=sys.stderr)
             if args.app_window:
                 _write_launch_log("integrità", message)
@@ -385,7 +379,7 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="n
             "pacchetto, modelli e identità del motore saranno verificati nel worker isolato."
         )
     if archive_store is not None:
-        print(f"Archivio locale cifrato attivo: {archive_store.path}")
+        print("Archivio locale cifrato attivo.")
     else:
         print("Archivio persistente non disponibile fuori da Windows senza un protettore esplicito.")
     try:

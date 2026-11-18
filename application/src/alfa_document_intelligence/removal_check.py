@@ -61,8 +61,8 @@ def main(argv=None) -> int:
             cleanup_debris(args.base)
         else:
             validate_removal(args.base, args.data)
-    except (ValueError, OSError) as exc:
-        print(f"OCR2: {exc}", file=sys.stderr)
+    except (ValueError, OSError):
+        print("OCR2_REMOVE_ERROR", file=sys.stderr)
         return 1
     return 0
 

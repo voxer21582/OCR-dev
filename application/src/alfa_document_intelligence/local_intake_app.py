@@ -22,7 +22,8 @@ from urllib.parse import parse_qs, quote, urlencode
 import tempfile
 import zipfile
 from pathlib import Path
-from wsgiref.simple_server import WSGIRequestHandler, make_server
+from wsgiref.simple_server import make_server
+from .safe_wsgi import SafeWSGIRequestHandler, SafeWSGIServer
 
 from . import __version__ as _PACKAGE_VERSION
 from .app_lifetime import AppInfo, AppLifetime, is_valid_window_id
@@ -369,8 +370,30 @@ def _app_info_page(info: AppInfo | None) -> str:
         f'<meta name="ocr2-instance" content="{escape(info.instance_id, quote=True)}">'
         "<title>Informazioni</title><main><h1>Informazioni</h1><dl>"
         + "".join(f"<dt>{escape(label)}</dt><dd>{escape(value)}</dd>" for label, value in rows)
-        + '</dl><p><a href="/">Torna all’acquisizione temporanea</a></p></main></html>'
+        + '</dl><p><a href="/app/diagnostics">Scarica diagnostica</a> '
+        '(solo versioni e stato tecnico; nessun documento o registro).</p>'
+        + '<p>Lo stato OCR indica la configurazione, non una prova di funzionamento. '
+        'La verifica del runtime confronta i file con il manifest locale e non ne autentica la provenienza.</p>'
+        + '<p><a href="/">Torna all’acquisizione temporanea</a></p></main></html>'
     )
+
+
+def _diagnostic_snapshot(info: AppInfo | None) -> dict[str, str]:
+    """Return bounded technical values; never read or export user data or logs."""
+    has_info = info is not None
+    if not has_info:
+        info = AppInfo(version=_PACKAGE_VERSION, python_version=platform.python_version(),
+                       ocr_engine=None, runtime_status="unknown")
+
+    def version(value: str) -> str:
+        return value if isinstance(value, str) and re.fullmatch(r'\d{1,3}\.\d{1,3}\.\d{1,3}', value) else 'unknown'
+
+    runtime = {'verificato': 'verified', 'non verificato (avvio da sorgenti)': 'unverified'}.get(
+        info.runtime_status, 'unknown'
+    )
+    return {'format': 'ocr2-diagnostics-v1', 'app_version': version(info.version),
+            'python_version': version(info.python_version),
+            'ocr': ('enabled' if info.ocr_engine else 'disabled') if has_info else 'unknown', 'runtime': runtime}
 
 
 def _app_window_form(environ: dict[str, Any], csrf_token: str) -> dict[str, list[str]] | None:
@@ -2076,6 +2099,11 @@ def create_expense_report_app(
                 if app_method != "GET":
                     return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
                 return _page(environ, start_response, "200 OK", _app_info_page(app_info))
+            if app_path == "/app/diagnostics":
+                if app_method != "GET":
+                    return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                return _page(environ, start_response, "200 OK", json.dumps(_diagnostic_snapshot(app_info), sort_keys=True),
+                             "application/json; charset=utf-8", download_filename="ocr2-diagnostica.json")
             if app_lifetime is None or app_path not in {"/app/heartbeat", "/app/closing", "/app/exit"}:
                 return _page(environ, start_response, "404 Not Found", "Risorsa non trovata", "text/plain; charset=utf-8")
             if app_path == "/app/heartbeat":
@@ -3568,7 +3596,7 @@ _IDLE_CONNECTION_TIMEOUT_SECONDS = 2.0
 _REQUEST_BODY_TIMEOUT_SECONDS = 300.0
 
 
-class _QuietIdleHandler(WSGIRequestHandler):
+class _QuietIdleHandler(SafeWSGIRequestHandler):
     """Short wait for the first byte of a request, long wait once it has started.
 
     A connection that sends nothing within ``idle_timeout`` is dropped quietly
@@ -3626,6 +3654,6 @@ def serve_expense_report_local(
     # connections that may never send a request; without a socket timeout one
     # of them blocks every later request.
     handler = type("_BoundedIdleHandler", (_QuietIdleHandler,), {"idle_timeout": idle_connection_timeout_seconds})
-    server = make_server("127.0.0.1", port, app, handler_class=handler)
+    server = make_server("127.0.0.1", port, app, server_class=SafeWSGIServer, handler_class=handler)
     server.ocr2_close = app.close
     return server

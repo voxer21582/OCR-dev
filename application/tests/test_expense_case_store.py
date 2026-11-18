@@ -4,15 +4,19 @@ import hashlib
 import json
 import sqlite3
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from alfa_document_intelligence.local_document_store import (
     LocalDocumentStore,
     StoreConcurrentUpdate,
     StoreIntegrityError,
+    StoreError,
     StoreRejected,
     StoreSourceConflict,
 )
@@ -60,6 +64,177 @@ def _case(statement_record):
         "inclusion_events": [],
         "processing": {"state": "not_started", "cursor": None, "result_bytes": 0},
     }
+
+
+@pytest.mark.parametrize('read_method', ['get_case', 'list_cases'])
+def test_case_read_uses_one_snapshot_during_concurrent_ocr_commit(tmp_path, read_method):
+    """Readers see one consistent case version while an OCR commit is published."""
+    path = tmp_path / 'snapshot.sqlite3'
+    store = LocalDocumentStore(path, protector=SyntheticProtector())
+    with sqlite3.connect(path) as connection:
+        assert connection.execute('PRAGMA journal_mode=WAL').fetchone()[0] == 'wal'
+    source = b'%PDF synthetic statement'
+    statement = _source_record('snapshot-statement', source)
+    case = store.create_case(_case(statement), statement, source)
+    original_record = store.get('snapshot-statement').record
+    updated = copy.deepcopy(original_record)
+    updated['processing']['ocr']['status'] = 'completed'
+    next_case = copy.deepcopy(case)
+    next_case['processing'].update({
+        'state': 'processing', 'cursor': '1',
+        'result_bytes': len(store._canonical_json(updated)),
+    })
+    expected_hash = store.record_revision_sha256(original_record)
+    decode = store._decode_case_payload
+    triggered = False
+
+    def commit_after_case_read(payload):
+        nonlocal triggered
+        decoded = decode(payload)
+        if not triggered:
+            triggered = True
+            store.commit_case_processing_chunk(
+                case['case_id'], case['case_revision'], 'snapshot-ocr', [updated],
+                next_case, {'snapshot-statement': expected_hash},
+            )
+        return decoded
+
+    with patch.object(store, '_decode_case_payload', side_effect=commit_after_case_read):
+        result = store.get_case(case['case_id']) if read_method == 'get_case' else store.list_cases()[0]
+    assert result['case_revision'] == case['case_revision']
+    assert store.get_case(case['case_id'])['processing']['cursor'] == '1'
+
+
+def test_case_read_in_default_journal_releases_writer_after_snapshot(tmp_path):
+    path = tmp_path / 'snapshot-delete.sqlite3'
+    store = LocalDocumentStore(path, protector=SyntheticProtector())
+    with sqlite3.connect(path) as connection:
+        assert connection.execute('PRAGMA journal_mode').fetchone()[0] == 'delete'
+    source = b'%PDF synthetic statement'
+    statement = _source_record('snapshot-statement', source)
+    case = store.create_case(_case(statement), statement, source)
+    original_record = store.get('snapshot-statement').record
+    updated = copy.deepcopy(original_record)
+    updated['processing']['ocr']['status'] = 'completed'
+    next_case = copy.deepcopy(case)
+    next_case['processing'].update({
+        'state': 'processing', 'cursor': '1',
+        'result_bytes': len(store._canonical_json(updated)),
+    })
+    expected_hash = store.record_revision_sha256(original_record)
+    decode = store._decode_case_payload
+    started = threading.Event()
+    finished = threading.Event()
+    errors = []
+
+    def writer():
+        started.set()
+        try:
+            store.commit_case_processing_chunk(
+                case['case_id'], case['case_revision'], 'snapshot-ocr', [updated],
+                next_case, {'snapshot-statement': expected_hash},
+            )
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            finished.set()
+
+    triggered = False
+    thread = threading.Thread(target=writer)
+
+    def begin_concurrent_write(payload):
+        nonlocal triggered
+        decoded = decode(payload)
+        if not triggered:
+            triggered = True
+            thread.start()
+            assert started.wait(2)
+            assert not finished.wait(0.2), 'writer should wait for the read snapshot'
+        return decoded
+
+    try:
+        with patch.object(store, '_decode_case_payload', side_effect=begin_concurrent_write):
+            result = store.list_cases()[0]
+    finally:
+        thread.join(12)
+    assert not thread.is_alive() and not errors
+    assert result['case_revision'] == case['case_revision']
+    assert store.get_case(case['case_id'])['processing']['cursor'] == '1'
+
+
+def test_metadata_size_does_not_mutate_nested_record():
+    record = _source_record('metadata-synthetic', b'%PDF synthetic source')
+    original = copy.deepcopy(record)
+    legacy = copy.deepcopy(record)
+    legacy['source']['storage_ref'] = 'local-archive://metadata-synthetic'
+    legacy.pop('expense_lines', None)
+    expected = len(LocalDocumentStore._canonical_json({
+        'format_version': 1, 'record': legacy, 'saved_at': '2000-01-01T00:00:00+00:00',
+    }))
+    assert LocalDocumentStore._case_record_metadata_size(record) == expected
+    assert record == original
+
+
+def test_decoded_records_are_independent_between_reads(tmp_path):
+    store = LocalDocumentStore(tmp_path / 'fresh.sqlite3', protector=SyntheticProtector())
+    source = b'%PDF synthetic source'
+    statement = _source_record('independent-record', source)
+    store.create_case(_case(statement), statement, source)
+    first = store.get('independent-record').record
+    first['source']['original_filename'] = 'modified-only-in-memory.pdf'
+    second = store.get('independent-record').record
+    assert second['source']['original_filename'] != 'modified-only-in-memory.pdf'
+
+
+@pytest.mark.parametrize('invalid_source', [b'', 'synthetic text instead of ciphertext'])
+@pytest.mark.parametrize('reader', ['get_case', 'list_cases'])
+def test_case_read_rejects_missing_or_wrong_type_source_ciphertext(tmp_path, invalid_source, reader):
+    path = tmp_path / 'invalid-source.sqlite3'
+    store = LocalDocumentStore(path, protector=SyntheticProtector())
+    source = b'%PDF synthetic source'
+    statement = _source_record('invalid-source-record', source)
+    store.create_case(_case(statement), statement, source)
+    with sqlite3.connect(path) as connection:
+        connection.execute('UPDATE documents SET source_payload = ?', (invalid_source,))
+    connection.close()
+    with pytest.raises(StoreIntegrityError, match='source ciphertext'):
+        store.get_case('case-001') if reader == 'get_case' else store.list_cases()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def test_failed_restore_restores_original_index_key(tmp_path):
+    protector = SyntheticProtector()
+    first = LocalDocumentStore(tmp_path / 'first.sqlite3', protector=protector)
+    second = LocalDocumentStore(tmp_path / 'second.sqlite3', protector=protector)
+    source = b'%PDF synthetic source'
+    statement = _source_record('rollback-record', source)
+    first.create_case(_case(statement), statement, source)
+    second.create_case(_case(statement), statement, source)
+    old_key = first._index_key
+    backup = tmp_path / 'backup'
+    second.backup_to(backup)
+    with patch.object(first, '_verify_index_integrity', side_effect=StoreIntegrityError('synthetic failure')):
+        with pytest.raises(StoreError, match='previous archive was put back'):
+            first.restore_from(backup)
+    assert first._index_key == old_key
+    assert first.get_case('case-001')
+
+
+
+
 
 
 class ExpenseCaseStoreTests(unittest.TestCase):

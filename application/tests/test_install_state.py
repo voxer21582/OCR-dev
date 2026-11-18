@@ -6,6 +6,27 @@ from alfa_document_intelligence import install_state
 from alfa_document_intelligence.runtime_manifest import build_manifest
 
 
+def test_installer_error_does_not_print_exception_details(tmp_path, monkeypatch, capsys):
+    def fail(*args):
+        raise OSError('SYNTHETIC_PRIVATE_PATH_841')
+    monkeypatch.setattr(install_state, 'rollback', fail)
+    assert install_state.main(['--base', str(tmp_path), 'rollback']) == 1
+    err = capsys.readouterr().err
+    assert 'SYNTHETIC_PRIVATE_PATH_841' not in err
+    assert 'OCR2_INSTALL_ERROR' in err
+
+
+def test_removal_error_does_not_print_exception_details(tmp_path, monkeypatch, capsys):
+    from alfa_document_intelligence import removal_check
+    def fail(*args):
+        raise OSError('SYNTHETIC_PRIVATE_PATH_842')
+    monkeypatch.setattr(removal_check, 'validate_removal', fail)
+    assert removal_check.main(['--base', str(tmp_path)]) == 1
+    err = capsys.readouterr().err
+    assert 'SYNTHETIC_PRIVATE_PATH_842' not in err
+    assert 'OCR2_REMOVE_ERROR' in err
+
+
 @pytest.fixture(autouse=True)
 def _synthetic_profile(tmp_path, monkeypatch):
     monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))

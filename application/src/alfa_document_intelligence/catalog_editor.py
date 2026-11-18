@@ -77,7 +77,7 @@ def family_from_form(*, label: str, title_cues: str, fields: str) -> dict[str, A
         line_of_id[field_id] = number
         for alias in aliases:
             if alias.casefold() in seen_aliases:
-                raise CatalogFormError(f"L'alias «{alias}» compare in più campi: ogni alias va usato una sola volta.")
+                raise CatalogFormError("Un alias compare in più campi: usalo una sola volta. (OCR2_CATALOG_ALIAS)")
             seen_aliases.add(alias.casefold())
         field: dict[str, Any] = {"id": field_id, "label": field_label, "aliases": aliases}
         for flag in (item.strip().lower() for item in flags):
@@ -87,7 +87,7 @@ def family_from_form(*, label: str, title_cues: str, fields: str) -> dict[str, A
             elif flag == "obbligatorio":
                 field["required"] = True
             else:
-                raise CatalogFormError(f"Campo alla riga {number}: «{flag}» non è un'opzione nota (usa data, importo, testo, codice, obbligatorio).")
+                raise CatalogFormError(f"Campo alla riga {number}: opzione non valida; usa data, importo, testo, codice o obbligatorio. (OCR2_CATALOG_OPTION)")
         family_fields.append(field)
     return {"id": "custom_" + _slug(label, 24), "label": label, "title_cues": cues, "fields": family_fields}
 
@@ -144,8 +144,8 @@ def save_with_history(
             old = existing.get(family.id)
             if old is not None and (old.as_dict() != family.as_dict() or current.version != catalog.version):
                 raise CatalogFormError(
-                    f"Il tipo «{old.label}» esiste già con una definizione diversa. I documenti già elaborati "
-                    "usano quella precedente: per cambiarlo, crea un tipo con un nome nuovo."
+                    "Un tipo esiste già con una definizione diversa. I documenti già elaborati "
+                    "usano quella precedente: per cambiarlo, crea un tipo con un nome nuovo. (OCR2_CATALOG_CONFLICT)"
                 )
     path = Path(store.path)
     previous = path.read_bytes() if path.is_file() and not path.is_symlink() else None

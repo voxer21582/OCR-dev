@@ -82,6 +82,8 @@ jobs:
           tests/test_archive_source_after_restart.py
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py
+          tests/test_case_benchmark_network.py
+          tests/test_case_load_metrics.py
           tests/test_case_benchmark_score.py
           tests/test_case_export_reader.py
           tests/test_catalog_alias_delimiters.py
@@ -144,6 +146,7 @@ jobs:
           tests/test_pdf_text_layer.py
           tests/test_preview_isolation.py
           tests/test_public_data_guard.py
+          tests/test_process_tcp_observer.py
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
           tests/test_region_review_keyboard.py
@@ -221,6 +224,8 @@ jobs:
           tests/test_archive_source_after_restart.py
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py
+          tests/test_case_benchmark_network.py
+          tests/test_case_load_metrics.py
           tests/test_case_benchmark_score.py
           tests/test_case_export_reader.py
           tests/test_catalog_alias_delimiters.py
@@ -283,6 +288,7 @@ jobs:
           tests/test_pdf_text_layer.py
           tests/test_preview_isolation.py
           tests/test_public_data_guard.py
+          tests/test_process_tcp_observer.py
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
           tests/test_region_review_keyboard.py

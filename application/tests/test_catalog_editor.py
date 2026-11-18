@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from urllib.parse import urlencode
 
-from alfa_document_intelligence.catalog_editor import CatalogFormError, family_from_form
+from alfa_document_intelligence.catalog_editor import CatalogFormError, family_from_form, save_with_history
 from alfa_document_intelligence.document_family_catalog import DocumentFamilyCatalogStore, load_custom_family_catalog
 from alfa_document_intelligence.local_intake_app import create_expense_report_app
 from alfa_document_intelligence.ocr_adapter import OCRPageResult, OCRToken
@@ -54,6 +54,27 @@ TAXI_FORM = {
 
 
 class FamilyFormTests(unittest.TestCase):
+    def test_conflict_error_does_not_repeat_existing_type_label(self):
+        old = family_from_form(label='SYNTHETIC_PERSON_514', title_cues='Prima', fields='Campo: Alias')
+        new = family_from_form(label='SYNTHETIC_PERSON_514', title_cues='Dopo', fields='Campo: Alias')
+        current = load_custom_family_catalog(json.dumps({'catalog_version': '2', 'families': [old]}))
+        raw = json.dumps({'catalog_version': '2', 'families': [new]})
+        with tempfile.TemporaryDirectory() as folder:
+            store = DocumentFamilyCatalogStore(Path(folder) / 'catalog.json')
+            with self.assertRaises(CatalogFormError) as failure:
+                save_with_history(store, raw, current)
+        self.assertNotIn('SYNTHETIC_PERSON_514', str(failure.exception))
+
+    def test_errors_do_not_repeat_user_supplied_alias_or_flag(self):
+        cases = [
+            'Primo: SYNTHETIC_PERSON_129\nSecondo: SYNTHETIC_PERSON_129',
+            'Primo: Alias [SYNTHETIC_DOCUMENT_407]',
+        ]
+        for fields in cases:
+            with self.subTest(fields=fields), self.assertRaises(CatalogFormError) as failure:
+                family_from_form(label='Tipo', title_cues='Chiave', fields=fields)
+            self.assertNotIn('SYNTHETIC_', str(failure.exception))
+
     def test_form_becomes_a_valid_family(self):
         family = family_from_form(**TAXI_FORM)
         self.assertEqual(family["id"], "custom_ricevuta_taxi")
@@ -234,7 +255,7 @@ class CatalogSafetyTests(unittest.TestCase):
 
     def test_errors_say_what_to_fix(self):
         cases = [
-            (dict(TAXI_FORM, fields="Partenza: Corsa\nArrivo: Corsa"), "alias «Corsa»"),
+            (dict(TAXI_FORM, fields="Partenza: Corsa\nArrivo: Corsa"), "alias"),
             (dict(TAXI_FORM, fields="Data: Giorno\nData!: Quando"), "righe 1 e 2"),
         ]
         for form, expected in cases:

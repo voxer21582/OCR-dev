@@ -162,6 +162,21 @@ def test_launcher_reports_integrity_failure_in_window_mode(monkeypatch, tmp_path
     assert notices and "installazione" in notices[0].lower()
 
 
+def test_launcher_integrity_error_does_not_disclose_runtime_paths(monkeypatch, tmp_path, capsys):
+    from types import SimpleNamespace
+    from alfa_document_intelligence import __main__ as launcher
+    (tmp_path / 'runtime-manifest.json').write_text('{}', encoding='utf-8')
+    monkeypatch.setattr(launcher, '_installation_root', lambda: tmp_path)
+    monkeypatch.setattr(launcher, 'verify_installation', lambda *args: SimpleNamespace(
+        ok=False, problems=['File aggiuntivo: app/SYNTHETIC_PRIVATE_PATH_731']))
+    notices = []
+    monkeypatch.setattr(launcher, '_show_integrity_error', notices.append)
+    with pytest.raises(SystemExit):
+        launcher.main(['--app-window'])
+    assert 'SYNTHETIC_PRIVATE_PATH_731' not in capsys.readouterr().err
+    assert notices and 'SYNTHETIC_PRIVATE_PATH_731' not in notices[0]
+
+
 def test_launcher_window_error_works_without_stderr(monkeypatch, tmp_path):
     from alfa_document_intelligence import __main__ as launcher
     (tmp_path / "runtime-manifest.json").write_text("{}", encoding="utf-8")

@@ -331,8 +331,8 @@ def main(argv=None) -> int:
         else:
             for name in prune(args.base):
                 print(name)
-    except (InstallStateError, OSError) as exc:
-        print(f'OCR2: {exc}', file=__import__('sys').stderr)
+    except (InstallStateError, OSError):
+        print('OCR2_INSTALL_ERROR', file=__import__('sys').stderr)
         return 1
     return 0
 

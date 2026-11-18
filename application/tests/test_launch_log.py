@@ -1,4 +1,4 @@
-"""Launch log of the app window: %LOCALAPPDATA%\\OCR2\\logs\\launcher.log (owner decision 2026-11-16).
+"""Launch log of the app window: %LOCALAPPDATA%\\OCR2\\logs\\launcher-safe.log (DEC-035).
 
 Every test points LOCALAPPDATA at a temporary folder: the real profile is never touched.
 """
@@ -15,7 +15,7 @@ import pytest
 
 import alfa_document_intelligence.__main__ as launcher
 
-HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher.log"
+HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher-safe.log"
 TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 
@@ -28,7 +28,7 @@ def local_app_data(tmp_path, monkeypatch):
 
 
 def _log(root: Path) -> Path:
-    return root / "OCR2" / "logs" / "launcher.log"
+    return root / "OCR2" / "logs" / "launcher-safe.log"
 
 
 def _dialogs(monkeypatch):
@@ -37,7 +37,41 @@ def _dialogs(monkeypatch):
     return shown
 
 
-def test_unexpected_error_is_logged_with_type_and_traceback(local_app_data, monkeypatch):
+def test_new_log_preserves_both_legacy_files(local_app_data):
+    folder = local_app_data / 'OCR2' / 'logs'
+    folder.mkdir(parents=True)
+    old = folder / 'launcher.log'
+    backup = folder / 'launcher.log.1'
+    old.write_bytes(b'LEGACY_SYNTHETIC' * 20000)
+    backup.write_bytes(b'LEGACY_BACKUP_SYNTHETIC')
+    safe = folder / 'launcher-safe.log'
+    safe.write_bytes(b'SAFE_SYNTHETIC' * 20000)
+    original = old.read_bytes(), backup.read_bytes()
+    launcher._write_launch_log('eccezione', 'SYNTHETIC_SECRET')
+    assert (old.read_bytes(), backup.read_bytes()) == original
+    assert (folder / 'launcher-safe.log.1').read_bytes() == b'SAFE_SYNTHETIC' * 20000
+    assert 'OCR2_START_EXCEPTION' in safe.read_text(encoding='utf-8')
+
+
+def test_launch_log_records_only_safe_stable_code(local_app_data):
+    try:
+        raise ValueError('SYNTHETIC_DOCUMENT_921 C:\\private\\statement.pdf')
+    except ValueError as exc:
+        launcher._write_launch_log('eccezione', 'SYNTHETIC_IDENTIFIER_718', exc)
+    text = _log(local_app_data).read_text(encoding='utf-8')
+    assert 'OCR2_START_EXCEPTION' in text
+    for private in ('SYNTHETIC_DOCUMENT_921', 'SYNTHETIC_IDENTIFIER_718', 'statement.pdf', 'Traceback'):
+        assert private not in text
+
+
+def test_unknown_log_kind_cannot_inject_content(local_app_data):
+    launcher._write_launch_log('SYNTHETIC_PERSON_512', 'SYNTHETIC_DOCUMENT_921')
+    text = _log(local_app_data).read_text(encoding='utf-8')
+    assert 'OCR2_START_OTHER' in text
+    assert 'SYNTHETIC_PERSON_512' not in text and 'SYNTHETIC_DOCUMENT_921' not in text
+
+
+def test_unexpected_error_is_logged_without_message_or_traceback(local_app_data, monkeypatch):
     shown = _dialogs(monkeypatch)
 
     def failed(argv):
@@ -48,13 +82,12 @@ def test_unexpected_error_is_logged_with_type_and_traceback(local_app_data, monk
         launcher._run_entrypoint(["--app-window"])
     text = _log(local_app_data).read_text(encoding="utf-8")
     assert TIMESTAMP.search(text)
-    assert "eccezione" in text
-    assert "RuntimeError" in text and "synthetic failure" in text
-    assert "Traceback" in text
+    assert "OCR2_START_EXCEPTION" in text
+    assert "synthetic failure" not in text and "Traceback" not in text
     assert len(shown) == 1 and "synthetic failure" not in shown[0]
 
 
-def test_failed_exit_is_logged_with_code_and_console_messages(local_app_data, monkeypatch):
+def test_failed_exit_is_logged_without_console_messages(local_app_data, monkeypatch):
     _dialogs(monkeypatch)
 
     def failed(argv):
@@ -68,9 +101,8 @@ def test_failed_exit_is_logged_with_code_and_console_messages(local_app_data, mo
     assert sys.stderr is None
     text = _log(local_app_data).read_text(encoding="utf-8")
     assert TIMESTAMP.search(text)
-    assert "uscita" in text and "1" in text
-    assert "synthetic reason on stderr" in text
-    assert "SystemExit" in text
+    assert "OCR2_START_EXIT" in text
+    assert "synthetic reason on stderr" not in text
 
 
 def test_integrity_failure_is_logged_once(local_app_data, monkeypatch, tmp_path):
@@ -90,7 +122,7 @@ def test_integrity_failure_is_logged_once(local_app_data, monkeypatch, tmp_path)
         launcher._run_entrypoint(["--app-window"])
     assert len(notices) == 1
     text = _log(local_app_data).read_text(encoding="utf-8")
-    assert "integrità" in text and "Installazione non valida" in text
+    assert "OCR2_START_INTEGRITY" in text and "Installazione non valida" not in text
     assert text.count("=== ") == 1
 
 
@@ -115,7 +147,7 @@ def test_newer_archive_is_logged(local_app_data, monkeypatch):
         launcher._run_entrypoint(["--app-window"])
     assert len(dialogs) == 1
     text = _log(local_app_data).read_text(encoding="utf-8")
-    assert "archivio più recente" in text and "versione più recente" in text
+    assert "OCR2_START_ARCHIVE_VERSION" in text and "versione più recente" not in text
     assert text.count("=== ") == 1
 
 
@@ -182,7 +214,7 @@ def test_log_rotates_to_one_backup_above_the_limit(local_app_data, monkeypatch):
     log.parent.mkdir(parents=True)
     old = "old entry\n" * (launcher._LAUNCH_LOG_LIMIT_BYTES // 10)
     log.write_text(old, encoding="utf-8")
-    (log.parent / "launcher.log.1").write_text("older backup\n", encoding="utf-8")
+    (log.parent / "launcher-safe.log.1").write_text("older backup\n", encoding="utf-8")
     _dialogs(monkeypatch)
 
     def failed(argv):
@@ -191,11 +223,11 @@ def test_log_rotates_to_one_backup_above_the_limit(local_app_data, monkeypatch):
     monkeypatch.setattr(launcher, "main", failed)
     with pytest.raises(RuntimeError):
         launcher._run_entrypoint(["--app-window"])
-    backup = log.parent / "launcher.log.1"
+    backup = log.parent / "launcher-safe.log.1"
     assert backup.read_text(encoding="utf-8") == old
-    assert "synthetic failure" in log.read_text(encoding="utf-8")
+    assert "OCR2_START_EXCEPTION" in log.read_text(encoding="utf-8")
     assert log.stat().st_size < launcher._LAUNCH_LOG_LIMIT_BYTES
-    assert sorted(path.name for path in log.parent.iterdir()) == ["launcher.log", "launcher.log.1"]
+    assert sorted(path.name for path in log.parent.iterdir()) == ["launcher-safe.log", "launcher-safe.log.1"]
 
 
 def test_one_huge_entry_stays_within_the_limit(local_app_data):
@@ -241,19 +273,18 @@ def test_bootstrap_import_failure_is_logged_and_names_the_log(local_app_data, mo
     assert len(messages) == 1 and HINT in messages[0][1]
     assert "synthetic missing module" not in messages[0][1]
     text = _log(local_app_data).read_text(encoding="utf-8")
-    assert "import" in text and "ImportError" in text and "synthetic missing module" in text
+    assert "OCR2_START_IMPORT" in text and "synthetic missing module" not in text
 
 
-def test_truncated_entry_keeps_the_head_and_the_final_exception_line(local_app_data):
+def test_large_sensitive_entry_is_not_written(local_app_data):
     try:
         raise ValueError("final synthetic line")
     except ValueError as exc:
         launcher._write_launch_log("eccezione", "x" * 200_000, exc)
     text = _log(local_app_data).read_text(encoding="utf-8")
     assert len(text.encode("utf-8")) <= launcher._LAUNCH_LOG_ENTRY_BYTES
-    assert "eccezione" in text.splitlines()[0]
-    assert "[…troncato]" in text
-    assert text.rstrip().endswith("ValueError: final synthetic line")
+    assert "OCR2_START_EXCEPTION" in text
+    assert "final synthetic line" not in text and "x" * 100 not in text
 
 
 @pytest.mark.parametrize("console", [False, True], ids=["pythonw", "console"])
@@ -297,7 +328,7 @@ def test_requests_after_start_up_never_reach_the_log(local_app_data, monkeypatch
     with pytest.raises(SystemExit):
         launcher._run_entrypoint(["--app-window"])
     text = _log(local_app_data).read_text(encoding="utf-8")
-    assert "uscita anomala" in text
+    assert "OCR2_START_EXIT" in text
     for secret in ("Mario", "IBAN", "/archive", "Riservato", "synthetic start-up warning"):
         assert secret not in text
     if console:

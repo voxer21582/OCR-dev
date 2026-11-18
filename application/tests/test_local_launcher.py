@@ -86,6 +86,7 @@ def test_launcher_serves_on_configured_port_and_closes_cleanly(monkeypatch, caps
     assert "http://127.0.0.1:8765/" in output
     assert "loopback" in output
     assert "OCR resta disattivato" in output
+    assert str(tmp_path) not in output
 
 
 @pytest.mark.parametrize("value", ["-1", "65536", "not-a-port"])
