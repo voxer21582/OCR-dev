@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
+import threading
 import secrets
 import uuid
 from typing import Iterator, Protocol
@@ -24,6 +25,10 @@ from .contracts import validate_document_record
 
 DEFAULT_MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
 _SCHEMA_VERSION = 4
+# Parallel work is limited to one case-list read per process.
+_CASE_LIST_PARALLEL_GATE = threading.BoundedSemaphore(1)
+_CASE_LIST_WORKERS = 8
+_CASE_LIST_BATCH_CIPHERTEXT_BYTES = 8 * 1024 * 1024
 # Schema 4: encrypted library metadata (display name, tags, change events) per
 # document or case, kept apart from the record so its hash and review history stay valid.
 _LIBRARY_TABLE_SQL = (
@@ -1107,6 +1112,88 @@ class LocalDocumentStore:
             raise StoreIntegrityError("case OCR output exceeds its committed result-byte accounting")
         return ownership
 
+    def _validate_case_references_parallel(
+        self, connection: sqlite3.Connection, case: dict, case_index: str,
+    ) -> dict[str, bool]:
+        """Validate every reference within the caller's SQLite read snapshot.
+
+        Only the Windows DPAPI case-list path calls this helper. Ciphertexts
+        are batched before decryption; one oversized record is handled alone.
+        The batch budget is not a bound on total process memory.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        expected = {self._document_id_index(item['document_id']): item for item in self._manifest_document_refs(case)}
+        bindings = connection.execute(
+            "SELECT document_id_index FROM case_documents WHERE case_id_index = ?", (case_index,),
+        ).fetchall()
+        if len(bindings) != len(expected) or {row[0] for row in bindings} != set(expected):
+            raise StoreIntegrityError("case-document references do not match the encrypted case manifest")
+
+        def check(row):
+            document_index, binding_payload, entry_id, stored_index, record_payload, source_type, source_length = row
+            binding = self._decode_case_reference(binding_payload)
+            ref = expected[document_index]
+            if binding['source_sha256'].lower() != ref['source_sha256'].lower() or binding['role'] != ref['role']:
+                raise StoreIntegrityError("case-document reference binding does not match the manifest")
+            if entry_id is None:
+                raise StoreIntegrityError("case references a missing local document")
+            record, _ = self._decode_record(record_payload)
+            doc_id, source_hash = record['document_id'], record['source']['sha256'].lower()
+            if self._document_id_index(doc_id) != stored_index or stored_index != document_index:
+                raise StoreIntegrityError("case document index points to a different record")
+            if doc_id != ref['document_id'] or source_hash != ref['source_sha256'].lower():
+                raise StoreIntegrityError("case source hash does not match the archived document")
+            if source_type != 'blob' or not isinstance(source_length, int) or source_length < 1:
+                raise StoreIntegrityError("case source ciphertext is missing")
+            metadata = self._case_record_metadata_size_validated(record, doc_id)
+            if metadata > _MAX_CASE_RECORD_METADATA_BYTES:
+                raise StoreIntegrityError("case document metadata exceeds its configured limit")
+            processed = (
+                len(self._canonical_json(record))
+                if record.get('processing', {}).get('ocr', {}).get('status') == 'completed'
+                else 0
+            )
+            return doc_id, binding['case_owned'], record['source']['byte_length'], metadata, processed
+
+        checked = []
+        pending = []
+        pending_bytes = 0
+        with ThreadPoolExecutor(max_workers=_CASE_LIST_WORKERS) as pool:
+            for (document_index,) in bindings:
+                meta = connection.execute(
+                    "SELECT length(cd.binding_payload), d.entry_id, length(d.record_payload) "
+                    "FROM case_documents cd LEFT JOIN documents d ON d.document_id_index=cd.document_id_index "
+                    "WHERE cd.case_id_index=? AND cd.document_id_index=?", (case_index, document_index),
+                ).fetchone()
+                if meta is None or meta[1] is None or not isinstance(meta[0], int) or not isinstance(meta[2], int):
+                    raise StoreIntegrityError("case references a missing or invalid local document")
+                size = meta[0] + meta[2]
+                if pending and (len(pending) >= _CASE_LIST_WORKERS
+                                or pending_bytes + size > _CASE_LIST_BATCH_CIPHERTEXT_BYTES):
+                    checked.extend(pool.map(check, pending))
+                    pending = []
+                    pending_bytes = 0
+                row = connection.execute(
+                    "SELECT cd.binding_payload, d.entry_id, d.document_id_index, d.record_payload, "
+                    "typeof(d.source_payload), length(d.source_payload) FROM case_documents cd "
+                    "JOIN documents d ON d.document_id_index=cd.document_id_index "
+                    "WHERE cd.case_id_index=? AND cd.document_id_index=?", (case_index, document_index),
+                ).fetchone()
+                if row is None or not isinstance(row[0], bytes) or not isinstance(row[3], bytes):
+                    raise StoreIntegrityError("invalid protected payload type")
+                pending.append((document_index, *row))
+                pending_bytes += size
+            if pending:
+                checked.extend(pool.map(check, pending))
+        if sum(x[2] for x in checked) != case.get('retained_source_bytes'):
+            raise StoreIntegrityError("case retained-source byte count does not match archived documents")
+        if sum(x[3] for x in checked) > _MAX_CASE_TOTAL_METADATA_BYTES:
+            raise StoreIntegrityError("case retained metadata exceeds its configured limit")
+        if sum(x[4] for x in checked) > case.get('processing', {}).get('result_bytes', 0):
+            raise StoreIntegrityError("case OCR output exceeds its committed result-byte accounting")
+        return {x[0]: x[1] for x in checked}
+
     def _verify_case_index_integrity(self) -> None:
         try:
             with self._connect() as connection:
@@ -1346,7 +1433,13 @@ class LocalDocumentStore:
                     if self._case_id_index(case["case_id"]) != case_index:
                         raise StoreIntegrityError("case ID index failed integrity validation")
                     self._known_case_entries[case_index] = entry_id
-                    self._validate_case_references(connection, case, case_index)
+                    if type(self._protector) is WindowsDpapiProtector and _CASE_LIST_PARALLEL_GATE.acquire(blocking=False):
+                        try:
+                            self._validate_case_references_parallel(connection, case, case_index)
+                        finally:
+                            _CASE_LIST_PARALLEL_GATE.release()
+                    else:
+                        self._validate_case_references(connection, case, case_index)
                     searchable = f"{case['case_id']} {case.get('status', '')} {case.get('processing', {}).get('state', '')}".casefold()
                     if not needle or needle in searchable:
                         matches.append(case)

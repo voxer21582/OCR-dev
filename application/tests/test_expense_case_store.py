@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import os
 import sqlite3
 import tempfile
 import threading
@@ -11,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import alfa_document_intelligence.local_document_store as store_module
 
 from alfa_document_intelligence.local_document_store import (
     LocalDocumentStore,
@@ -66,9 +68,210 @@ def _case(statement_record):
     }
 
 
+@pytest.fixture
+def parallel_case_store(tmp_path, monkeypatch):
+    # Force the isolated parallel branch with an authenticated synthetic protector.
+    monkeypatch.setattr(store_module, 'WindowsDpapiProtector', SyntheticProtector)
+    store = LocalDocumentStore(tmp_path / 'parallel-case.sqlite', protector=SyntheticProtector())
+    with sqlite3.connect(store.path) as connection:
+        connection.execute('PRAGMA journal_mode=WAL')
+    source = b'%PDF synthetic only'
+    record = _source_record('parallel-record', source)
+    return store, store.create_case(_case(record), record, source)
+
+
+def test_parallel_case_gate_busy_falls_back_without_waiting(parallel_case_store):
+    store, case = parallel_case_store
+    gate = store_module._CASE_LIST_PARALLEL_GATE
+    assert gate.acquire(blocking=False)
+    try:
+        with patch.object(store, '_validate_case_references', wraps=store._validate_case_references) as sequential:
+            assert store.list_cases()[0]['case_id'] == case['case_id']
+            assert sequential.call_count == 1
+    finally:
+        gate.release()
+
+
+def test_parallel_case_gate_released_after_error(parallel_case_store):
+    store, _ = parallel_case_store
+    with patch.object(store, '_validate_case_references_parallel', side_effect=StoreIntegrityError('synthetic failure')):
+        with pytest.raises(StoreIntegrityError):
+            store.list_cases()
+    assert store_module._CASE_LIST_PARALLEL_GATE.acquire(blocking=False)
+    store_module._CASE_LIST_PARALLEL_GATE.release()
+    assert len(store.list_cases()) == 1
+
+
+def test_case_writer_does_not_wait_for_parallel_gate(parallel_case_store):
+    store, case = parallel_case_store
+    gate = store_module._CASE_LIST_PARALLEL_GATE
+    assert gate.acquire(blocking=False)
+    done, errors = threading.Event(), []
+    def write():
+        try:
+            store.save_case(copy.deepcopy(case), expected_revision=case['case_revision'])
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            done.set()
+    worker = threading.Thread(target=write)
+    try:
+        worker.start()
+        assert done.wait(5), 'writer waited on the parallel read gate'
+    finally:
+        gate.release()
+        worker.join(10)
+    assert not worker.is_alive() and not errors
+
+
+def test_custom_protector_case_list_stays_sequential(tmp_path):
+    store = LocalDocumentStore(tmp_path / 'custom.sqlite', protector=SyntheticProtector())
+    source = b'%PDF synthetic only'
+    record = _source_record('custom-record', source)
+    store.create_case(_case(record), record, source)
+    with patch.object(store, '_validate_case_references_parallel', side_effect=AssertionError('unexpected parallel')):
+        assert len(store.list_cases()) == 1
+
+
+def test_parallel_case_list_accepts_single_ciphertext_above_batch_limit(tmp_path, monkeypatch):
+    class PaddedProtector(SyntheticProtector):
+        def protect(self, data):
+            raw = super().protect(data)
+            return len(raw).to_bytes(4, 'big') + raw + b'X' * (9 * 1024 * 1024)
+
+        def unprotect(self, data):
+            length = int.from_bytes(data[:4], 'big')
+            return super().unprotect(data[4:4 + length])
+
+    monkeypatch.setattr(store_module, 'WindowsDpapiProtector', PaddedProtector)
+    store = LocalDocumentStore(tmp_path / 'large.sqlite', protector=PaddedProtector())
+    source = b'%PDF synthetic only'
+    record = _source_record('large-record', source)
+    store.create_case(_case(record), record, source)
+    with patch.object(store, '_validate_case_references_parallel', wraps=store._validate_case_references_parallel) as parallel:
+        assert len(store.list_cases()) == 1
+        assert parallel.call_count == 1
+
+
+@pytest.mark.parametrize('parallel', [False, True], ids=['sequential', 'parallel'])
+@pytest.mark.parametrize('damage', [
+    'binding', 'record', 'missing', 'source_type', 'source_total', 'metadata_total', 'processed_total',
+])
+def test_case_list_validation_paths_reject_same_tampering(tmp_path, monkeypatch, parallel, damage):
+    if parallel:
+        monkeypatch.setattr(store_module, 'WindowsDpapiProtector', SyntheticProtector)
+    path = tmp_path / 'equivalence.sqlite'
+    store = LocalDocumentStore(path, protector=SyntheticProtector())
+    source = b'%PDF synthetic only'
+    record = _source_record('equivalence-record', source)
+    case = store.create_case(_case(record), record, source)
+    with sqlite3.connect(path) as connection:
+        if damage in {'binding', 'record'}:
+            table, column = ('case_documents', 'binding_payload') if damage == 'binding' else ('documents', 'record_payload')
+            entry, value = connection.execute(f'SELECT entry_id, {column} FROM {table} LIMIT 1').fetchone()
+            altered = bytearray(value)
+            altered[-1] ^= 1
+            connection.execute(f'UPDATE {table} SET {column} = ? WHERE entry_id = ?', (bytes(altered), entry))
+        elif damage == 'missing':
+            connection.execute('DELETE FROM documents')
+        elif damage == 'source_type':
+            connection.execute('UPDATE documents SET source_payload = ?', ('invalid text',))
+        elif damage == 'source_total':
+            altered = copy.deepcopy(case)
+            altered['retained_source_bytes'] += 1
+            sealed = store._seal_case(altered)
+            connection.execute('UPDATE cases SET case_payload = ?', (store._protect_case_payload(sealed),))
+    if damage == 'metadata_total':
+        monkeypatch.setattr(store_module, '_MAX_CASE_TOTAL_METADATA_BYTES', 0)
+    elif damage == 'processed_total':
+        updated = store.get('equivalence-record').record
+        updated['processing']['ocr']['status'] = 'completed'
+        store.save(updated, source)
+    with patch.object(store, '_validate_case_references_parallel', wraps=store._validate_case_references_parallel) as path_spy:
+        with pytest.raises(StoreIntegrityError):
+            store.list_cases()
+        assert path_spy.call_count == int(parallel)
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows DPAPI required')
+def test_dpapi_case_list_parallel_rejects_altered_record(tmp_path):
+    path = tmp_path / 'dpapi-parallel.sqlite'
+    store = LocalDocumentStore(path)
+    source = b'%PDF synthetic statement'
+    statement = _source_record('dpapi-statement', source)
+    case = store.create_case(_case(statement), statement, source)
+    attachments = []
+    for i in range(3):
+        data = f'%PDF synthetic receipt {i}'.encode('ascii')
+        attachments.append({'record': _source_record(f'dpapi-receipt-{i}', data, family='fiscal_receipt'), 'source_bytes': data})
+    case = store.append_case_chunk(case['case_id'], case['case_revision'], 'dpapi-chunk', store.case_chunk_digest(attachments), attachments)
+    with patch.object(store, '_validate_case_references_parallel', wraps=store._validate_case_references_parallel) as parallel:
+        assert store.list_cases()[0]['case_revision'] == case['case_revision']
+        assert parallel.call_count == 1
+    with sqlite3.connect(path) as connection:
+        entry, payload = connection.execute('SELECT entry_id, record_payload FROM documents ORDER BY entry_id LIMIT 1').fetchone()
+        altered = bytearray(payload)
+        altered[-1] ^= 1
+        connection.execute('UPDATE documents SET record_payload = ? WHERE entry_id = ?', (bytes(altered), entry))
+    with patch.object(store, '_validate_case_references_parallel', wraps=store._validate_case_references_parallel) as parallel:
+        with pytest.raises(StoreIntegrityError):
+            store.list_cases()
+        assert parallel.call_count == 1
+    assert store_module._CASE_LIST_PARALLEL_GATE.acquire(blocking=False)
+    store_module._CASE_LIST_PARALLEL_GATE.release()
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows DPAPI required')
+def test_dpapi_parallel_list_keeps_wal_snapshot_during_write(tmp_path):
+    path = tmp_path / 'dpapi-parallel-wal.sqlite'
+    store = LocalDocumentStore(path)
+    with sqlite3.connect(path) as connection:
+        assert connection.execute('PRAGMA journal_mode=WAL').fetchone()[0] == 'wal'
+    source = b'%PDF synthetic statement'
+    record = _source_record('dpapi-wal-statement', source)
+    case = store.create_case(_case(record), record, source)
+    entered, release = threading.Event(), threading.Event()
+    result, errors = [], []
+    original_decode = store._decode_record
+
+    def hold_parallel_record(payload):
+        if threading.current_thread().name.startswith('ThreadPoolExecutor'):
+            entered.set()
+            if not release.wait(10):
+                raise AssertionError('parallel read was not released')
+        return original_decode(payload)
+
+    def read():
+        try:
+            result.extend(store.list_cases())
+        except Exception as exc:
+            errors.append(exc)
+
+    reader = threading.Thread(target=read)
+    try:
+        with patch.object(store, '_decode_record', side_effect=hold_parallel_record):
+            reader.start()
+            assert entered.wait(5), 'parallel DPAPI branch did not start'
+            updated = copy.deepcopy(case)
+            updated['processing']['state'] = 'processing'
+            saved = store.save_case(updated, expected_revision=case['case_revision'])
+            assert saved['case_revision'] != case['case_revision']
+            release.set()
+            reader.join(10)
+    finally:
+        release.set()
+        reader.join(10)
+    assert not reader.is_alive() and not errors
+    assert result[0]['case_revision'] == case['case_revision']
+    assert store.list_cases()[0]['case_revision'] == saved['case_revision']
+
+
 @pytest.mark.parametrize('read_method', ['get_case', 'list_cases'])
-def test_case_read_uses_one_snapshot_during_concurrent_ocr_commit(tmp_path, read_method):
+@pytest.mark.parametrize('parallel', [False, True], ids=['sequential', 'parallel'])
+def test_case_read_uses_one_snapshot_during_concurrent_ocr_commit(tmp_path, read_method, parallel, monkeypatch):
     """Readers see one consistent case version while an OCR commit is published."""
+    if parallel:
+        monkeypatch.setattr(store_module, 'WindowsDpapiProtector', SyntheticProtector)
     path = tmp_path / 'snapshot.sqlite3'
     store = LocalDocumentStore(path, protector=SyntheticProtector())
     with sqlite3.connect(path) as connection:
@@ -105,7 +308,10 @@ def test_case_read_uses_one_snapshot_during_concurrent_ocr_commit(tmp_path, read
     assert store.get_case(case['case_id'])['processing']['cursor'] == '1'
 
 
-def test_case_read_in_default_journal_releases_writer_after_snapshot(tmp_path):
+@pytest.mark.parametrize('parallel', [False, True], ids=['sequential', 'parallel'])
+def test_case_read_in_default_journal_releases_writer_after_snapshot(tmp_path, parallel, monkeypatch):
+    if parallel:
+        monkeypatch.setattr(store_module, 'WindowsDpapiProtector', SyntheticProtector)
     path = tmp_path / 'snapshot-delete.sqlite3'
     store = LocalDocumentStore(path, protector=SyntheticProtector())
     with sqlite3.connect(path) as connection:
