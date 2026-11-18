@@ -6,6 +6,8 @@ Un riesame automatico indipendente ha esaminato staticamente il diff fra la base
 
 Restano i limiti documentati su handle o file nativi non coperti, bootstrap precedente agli import applicativi, navigazione e browser non tutti provati, rete osservata parzialmente e ripristino concorrente tra istanze. Le cache sperimentali non sono nel prodotto. La firma e l'approvazione R7 riportate sotto precedono una parte del diff riesaminato; non costituiscono approvazione delle modifiche successive. La verifica della latenza resta aperta.
 
+Un successivo controllo automatico indipendente dei file di evidenza aggiunti fino a `17f3da41fe2d3f699a7d29e79a2227ce89e9ce52` non ha rilevato testo, identificativi o hash di documenti nei nuovi JSON, né incoerenze nei calcoli statistici verificati, compresa la stima prudenziale per i due campioni mancanti. Non ha verificato i log grezzi locali, l'identità degli installer o la raccolta delle misure; non sostituisce una nuova firma del proprietario sulla revisione di sicurezza del codice.
+
 ## Revisione e firma precedenti
 
 Il proprietario ha firmato la revisione automatica indipendente descritta in questa sezione; tale firma precede il riesame e le modifiche successive. La revisione è statica e automatica: non sostituisce una verifica umana esterna.
