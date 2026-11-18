@@ -1,6 +1,6 @@
 # M7 — Revisione di sicurezza
 
-Stato: **revisione automatica indipendente eseguita; firma del proprietario non ancora acquisita**. Questa pagina non attesta il completamento della milestone. La revisione è statica e automatica: non sostituisce una verifica umana esterna.
+Stato: **revisione automatica indipendente eseguita e firmata dal proprietario**. La revisione è statica e automatica: non sostituisce una verifica umana esterna.
 
 Il revisore indipendente ha esaminato il modello delle minacce, il diff M7, la protezione dei registri, la diagnostica, l'archivio R7, il riuso delle funzioni DPAPI, la configurazione OCR e gli strumenti di osservazione. I rilievi su registri, errori del catalogo, letture concorrenti e limiti delle prove sono stati corretti o documentati nei rispettivi file di evidenza. Nel riesame del diff residuo non ha individuato ulteriori difetti concreti; non ha eseguito personalmente i test né osservato direttamente ogni prova installata.
 
@@ -8,7 +8,7 @@ Le prove sono locali e usano esclusivamente dati sintetici. La suite applicativa
 
 La lista dei fascicoli sulla versione installata ha raggiunto p95 HTTP di 161,72 e 150,74 ms nelle due prove sintetiche; queste misure non includono il rendering e riguardano un solo PC. Il ripristino concorrente fra istanze o processi che usano lo stesso archivio rimane un limite preesistente. In due avvii strumentati il primo heartbeat della pagina è arrivato dopo 3,315 e 2,992 secondi; il segnale non dimostra che la finestra fosse visivamente pronta e utilizzabile, misura che rimane incompleta.
 
-La PR tocca **R7 (archivio e ripristino)**: DEC-001 richiede l'approvazione esplicita del proprietario prima del merge. La firma sulla revisione richiesta da DEC-008 è separata dall'approvazione R7 e non è implicita nel fatto che la PR sia in bozza.
+La PR tocca **R7 (archivio e ripristino)**. Il proprietario ha approvato esplicitamente queste modifiche per la PR #153 ai sensi di DEC-001, separatamente dalla firma della revisione ai sensi di DEC-008. Ha inoltre accettato il limite della prova visiva di avvio.
 
-**Firma/approvazione del proprietario:** non acquisita.
-**Data:** non acquisita.
+**Firma/approvazione del proprietario:** dichiarazione esplicita nella conversazione del progetto: «Approvo le modifiche R7, firmo la revisione di sicurezza e accetto il limite della prova visiva di avvio. Procedi con la chiusura della M7.»
+**Data:** 2026-11-18.
