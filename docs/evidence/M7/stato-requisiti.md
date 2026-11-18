@@ -11,6 +11,6 @@ Stato: **in corso**, non è un'accettazione della milestone. Le prove sono local
 | REQ-127 | Sull'ultima versione installata, 104 intervalli di avanzamento pagina osservati: mediana 1,271 s, massimo 12,856 s; polling ogni 0,2 s circa. | Validare metodo e rappresentatività; gli intervalli sono stime, non tempi interni esatti. |
 | REQ-128 | 104 pagine in 158,8 s, avanzamento visibile; annullamento e ripresa su 31 documenti; dopo terminazione del server, recupero di 20 documenti già salvati e completamento di 36/36. | La terminazione del processo non simula perdita di alimentazione o riavvio del PC. |
 | REQ-129 | 728,6 MiB massimo campionato nei processi figli; due prove installate hanno misurato p95 lista 161,72 e 150,74 ms, con 279 e 283 risposte 200. | La misura HTTP non include il rendering del browser e la memoria è campionata; un PC e un set sintetico. [Diagnosi](letture-concorrenti.md). |
-| REQ-130 | Server disponibile in 2,533 s; PDF sintetico di 100 pagine elaborato sulla versione aggiornata in 116,6 s. | Misura fino alla finestra usabile; prova rappresentativa di un solo PDF leggero. |
+| REQ-130 | PDF sintetico di 100 pagine elaborato in 116,6 s; due primi heartbeat della pagina a 3,315 e 2,992 s su copia strumentata. | Il heartbeat non dimostra che la finestra fosse visivamente pronta o usabile; prova PDF rappresentativa di un solo file leggero. |
 
 I numeri e i limiti delle misure sono in [benchmark-installato.md](benchmark-installato.md). Le misure non rappresentano prestazioni o accuratezza su documenti reali.
