@@ -124,13 +124,30 @@ def test_spawned_ocr_worker_filters_pillow_warning_before_reading_input(tmp_path
     script = '''
 import multiprocessing
 import os
+import sys
 import warnings
+from pathlib import Path
 from alfa_document_intelligence.ocr_processing import OCRProcessLimits, _ocr_worker_entry
 class Receiver:
     def recv_bytes(self, **kwargs):
         os.write(1, b"SYNTHETIC_OCR_STDOUT\\n")
         os.write(2, b"SYNTHETIC_OCR_STDERR\\n")
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+            kernel32.GetStdHandle.restype = wintypes.HANDLE
+            kernel32.WriteFile.argtypes = [wintypes.HANDLE, wintypes.LPCVOID, wintypes.DWORD,
+                                           ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID]
+            kernel32.WriteFile.restype = wintypes.BOOL
+            marker = b"SYNTHETIC_OCR_NATIVE\\n"
+            count = wintypes.DWORD()
+            assert kernel32.WriteFile(kernel32.GetStdHandle(-12 & 0xffffffff), marker, len(marker),
+                                      ctypes.byref(count), None)
+            assert count.value == len(marker)
         warnings.warn_explicit("synthetic warning", UserWarning, "synthetic-path.py", 1, module="PIL.synthetic")
+        Path(sys.argv[1]).write_text("reached", encoding="ascii")
         raise EOFError()
     def close(self): pass
 class Sender:
@@ -148,11 +165,94 @@ if __name__ == "__main__":
     script_path = tmp_path / "ocr_probe.py"
     script_path.write_text(script, encoding="utf-8")
     environment = dict(os.environ, PYTHONWARNINGS="always")
-    result = subprocess.run([sys.executable, "-B", str(script_path)], env=environment,
+    marker_path = tmp_path / "worker_reached.txt"
+    result = subprocess.run([sys.executable, "-B", str(script_path), str(marker_path)], env=environment,
                             capture_output=True, text=True, timeout=40, check=False)
     assert result.returncode == 0
+    assert marker_path.read_text(encoding="ascii") == "reached"
     assert result.stdout == ""
     assert result.stderr == ""
+
+
+def test_workers_fail_closed_if_output_isolation_fails(monkeypatch):
+    from alfa_document_intelligence import isolated_decoder, ocr_processing
+
+    def fail_isolation():
+        raise OSError('SYNTHETIC_PRIVATE_ISOLATION_ERROR')
+
+    class Gate:
+        def wait(self): pass
+
+    class Connection:
+        def __init__(self):
+            self.messages = []
+            self.closed = False
+            self.received = False
+        def send(self, value): self.messages.append(value)
+        def send_bytes(self, value): self.messages.append(value)
+        def recv_bytes(self, **kwargs):
+            self.received = True
+            raise AssertionError('input must not be read')
+        def close(self): self.closed = True
+
+    invoked = []
+    def decoder(*args, **kwargs):
+        invoked.append(True)
+        return iter(())
+
+    monkeypatch.setattr(isolated_decoder, '_isolate_worker_standard_output', fail_isolation)
+    output = Connection()
+    isolated_decoder._decode_worker(output, Gate(), b'synthetic', 'pdf', '0' * 64,
+                                    DecodeLimits(), decoder, 512 * 1024 * 1024, 5)
+    assert not invoked
+    assert output.messages == [('error', 'isolated document decoding failed')]
+    assert output.closed
+
+    monkeypatch.setattr(ocr_processing, '_apply_worker_os_limits', lambda limits: None)
+    incoming, outgoing = Connection(), Connection()
+    limits = ocr_processing.OCRProcessLimits(60, 2, 1024 * 1024 * 1024, 4096,
+                                             4096, 4096, 4096, 4096, 20)
+    ocr_processing._ocr_worker_entry(incoming, outgoing, Gate(), 'unused:factory', limits)
+    assert not incoming.received
+    assert incoming.closed and outgoing.closed
+    assert outgoing.messages == []
+
+
+def test_spawned_decoder_reports_isolation_failure_to_parent(tmp_path):
+    script = '''
+import hashlib
+from pathlib import Path
+import sys
+from alfa_document_intelligence import isolated_decoder as isolated
+from alfa_document_intelligence.document_decoder import DecodeLimits, DocumentDecodeError
+
+def failed():
+    raise OSError('SYNTHETIC_PRIVATE_ISOLATION_ERROR')
+def decoder(*args, **kwargs):
+    Path(sys.argv[1]).write_text('unexpected', encoding='ascii')
+    return iter(())
+isolated._isolate_worker_standard_output = failed
+
+if __name__ == '__main__':
+    data = b'synthetic'
+    try:
+        list(isolated.iter_decoded_pages_isolated(data, 'pdf', source_sha256=hashlib.sha256(data).hexdigest(),
+             limits=DecodeLimits(), decoder=decoder, timeout_seconds=30))
+    except DocumentDecodeError as exc:
+        assert str(exc) == 'isolated document decoding failed'
+        print('rejected')
+    else:
+        raise AssertionError('worker unexpectedly succeeded')
+'''
+    script_path = tmp_path / 'isolation_failure_probe.py'
+    script_path.write_text(script, encoding='utf-8')
+    marker_path = tmp_path / 'unexpected_decoder.txt'
+    result = subprocess.run([sys.executable, '-B', str(script_path), str(marker_path)],
+                            capture_output=True, text=True, timeout=40, check=False)
+    assert result.returncode == 0
+    assert result.stdout.strip() == 'rejected'
+    assert result.stderr == ''
+    assert not marker_path.exists()
 
 
 def _one_synthetic_page(source_bytes, media_kind, *, source_sha256, limits):
