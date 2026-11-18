@@ -230,7 +230,7 @@ Una seconda ottimizzazione basata su riepiloghi in memoria è stata esplorata ma
 
 Il riesame indipendente del diff residuo non ha individuato regressioni concrete. Resta un limite preesistente separato: il ripristino non coordina altre istanze o processi già aperti sullo stesso archivio; la prova non dimostra la sicurezza del ripristino concorrente.
 
-La modifica interessa **R7, l'archivio locale**: deve essere esplicitamente indicata e approvata dal proprietario prima di un eventuale merge, secondo DEC-001. Non è stata modificata o letta alcuna banca dati reale.
+La modifica interessa **R7, l'archivio locale**; il proprietario ha approvato esplicitamente il perimetro attuale il 2026-11-18 secondo DEC-001. Non è stata modificata o letta alcuna banca dati reale. [Firma e perimetro](revisione-sicurezza.md).
 
 Una nuova prova nella scheda Chrome dedicata ha raccolto 30 interazioni sulla lista della copia strumentata mentre il fascicolo sintetico riportava `processing`; la sonda indicava pagina visibile e con fuoco. La mediana dal clic al marcatore visivo è **106,5 ms**, la p95 nearest-rank **130,6 ms** e il massimo **865,4 ms**; quest'ultimo coincide con due fotogrammi lunghi rilevati, il maggiore dei quali di **698,1 ms**. L'osservazione non ne identifica la causa. I [campioni](latenza-visibile-v100.json) non includono identificativi. La calibrazione statica separata, senza OCR, ha dato dieci tempi visivi tra **22,5 e 56,0 ms**. Le misure riguardano una copia strumentata su un PC e Chrome, non la finestra Edge di rilascio; non spiegano la serie precedente sopra soglia né dimostrano l'assenza di picchi.
 
