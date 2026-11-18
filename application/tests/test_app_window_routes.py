@@ -349,6 +349,20 @@ def test_script_respects_csp_nonce(app_mode):
     assert "connect-src 'self'" in csp
 
 
+def test_case_navigation_is_confined_to_app_mode_and_fixed_pages(app_mode):
+    app = app_mode[0]
+    for path in ('/', '/cases'):
+        status, headers, page = _invoke(app, 'GET', path)
+        assert status.startswith('200')
+        assert 'data-ocr2-navigation' in page
+        assert 'data-ocr2-lifecycle' in page
+        assert "connect-src 'self'" in headers['Content-Security-Policy']
+    status, _, page = _invoke(app, 'GET', '/archive')
+    assert status.startswith('200')
+    assert 'data-ocr2-navigation' not in page
+    assert 'data-ocr2-lifecycle' in page
+
+
 def test_script_tag_parser_handles_uppercase():
     assert _script_start_tags('<SCRIPT nonce="x"></SCRIPT>') == ['<SCRIPT nonce="x">']
 

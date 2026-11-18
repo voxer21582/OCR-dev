@@ -105,6 +105,7 @@ jobs:
           tests/test_expense_case_intake_routes.py
           tests/test_expense_case_processing.py
           tests/test_expense_case_store.py
+          tests/test_case_navigation.py
           tests/test_expense_line_extraction.py
           tests/test_expense_reconciliation.py
           tests/test_expense_reconciliation_ui.py
@@ -247,6 +248,7 @@ jobs:
           tests/test_expense_case_intake_routes.py
           tests/test_expense_case_processing.py
           tests/test_expense_case_store.py
+          tests/test_case_navigation.py
           tests/test_expense_line_extraction.py
           tests/test_expense_reconciliation.py
           tests/test_expense_reconciliation_ui.py
