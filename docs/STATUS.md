@@ -1,5 +1,7 @@
 STATO: M7 IN CORSO — [PR #153 in bozza](https://github.com/voxer21582/OCR-dev/pull/153); prove sintetiche e revisione automatica indipendente documentate. Il proprietario ha approvato R7, firmato la revisione e accettato il limite della prova visiva di avvio il 2026-11-18; la successiva proposta di lettura parallela R7 richiede nuova valutazione esplicita prima del merge. Restano da valutare rispetto ai criteri obbligatori i limiti delle prove, inclusi log nativi e latenza dell'interazione comprensiva del rendering. [Piano](superpowers/plans/2026-11-17-m7-sicurezza-prestazioni.md), [log](evidence/M7/log-review.md), [benchmark](evidence/M7/benchmark-installato.md), [revisione](evidence/M7/revisione-sicurezza.md), [stato requisiti](evidence/M7/stato-requisiti.md).
 
+Le annotazioni datate successive conservano lo stato e le decisioni noti al momento in cui furono scritte; per lo stato corrente valgono l'intestazione e la tabella delle milestone.
+
 M6 COMPLETATA (2026-11-17, PR #152) con limiti dichiarati — firma rinviata (DEC-034), collaudo con secondo account sullo stesso PC, completezza legale delle licenze non garantita; piano in [2026-11-15-m6-applicazione-installabile.md](superpowers/plans/2026-11-15-m6-applicazione-installabile.md)
 2026-11-17 — REQ-103 verificato: in un'installazione di prova isolata un file alterato blocca l'avvio con «Installazione non valida: File modificato: …», mentre l'installazione intatta parte ([prova](evidence/M6/req-103-alterazione.md)). REQ-107 accettato come limite dichiarato (completezza legale delle licenze non garantita). Il proprietario ha dato l'OK all'unione della PR #152, comprese le modifiche R7/R8. [Accettazione](evidence/M6/acceptance.md).
 2026-11-17 — Collaudo del proprietario eseguito con un secondo account Windows standard sul PC di sviluppo (l'altro PC non era disponibile), con gli installer `5e347e2`. Esito dichiarato: B1–B16 riusciti, nessun errore bloccante; unico residuo OCR2 `OCR2.instance.lock`, più 1533 differenze non OCR2 (profilo nuovo). Limiti: stessi Windows ed Edge del PC di sviluppo, reputazione SmartScreen condivisa, assenza di elevazione dedotta e non osservata, nessuno screenshot, installer non firmati (DEC-034). Requisiti: REQ-100, 101, 102, 104 e 106 verificati dal proprietario con questi limiti; REQ-105 resta rinviato; REQ-103 e REQ-107 restano aperti perché non esercitati dal collaudo. Restano aperti anche la disinstallazione con OCR2 aperto e i limiti dichiarati. Prima del merge servono l'OK esplicito del proprietario su R7 e R8 e la decisione di merge; M6 non è completata né fusa. [Esito](evidence/M6/collaudo-secondo-account.md), [matrice](evidence/M6/lifecycle-matrix.md), [accettazione](evidence/M6/acceptance.md).
@@ -255,8 +257,8 @@ Design approvato dal proprietario il 2026-11-15: [`superpowers/specs/2026-11-15-
 | M3 Classificazione ed estrazione | **completata** (2026-11-15, #148) |
 | M4 Revisione | **completata** (2026-11-15, #149) |
 | M5 Libreria | **completata** (2026-11-15, #150) |
-| M6 Applicazione installabile | in corso |
-| M7 Sicurezza e prestazioni | non iniziata |
+| M6 Applicazione installabile | **completata con limiti dichiarati** (2026-11-17, #152; firma rinviata) |
+| M7 Sicurezza e prestazioni | **in corso** (#153 in bozza; verifiche e approvazioni finali aperte) |
 | M8 Prova sul campo e collaudo | non iniziata |
 
 Il prodotto **non** è completo. Il codice esistente è un prototipo (vedi `requirements.md`, colonna «Stato oggi»).
