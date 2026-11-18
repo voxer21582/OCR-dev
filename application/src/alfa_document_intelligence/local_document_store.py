@@ -19,6 +19,7 @@ import re
 import shutil
 import sqlite3
 import threading
+import time
 import secrets
 import uuid
 from typing import Iterator, Protocol
@@ -152,24 +153,43 @@ def _get_case_list_executor() -> ThreadPoolExecutor:
 
 
 class _VerifiedReferenceCache:
-    """Per-process LRU of case-list reference checks that already succeeded.
+    """Per-process cache of case-list reference checks that already succeeded.
 
-    R7: the key is a SHA-256 over the exact binding and record ciphertext bytes
-    (length-prefixed) plus the protector type, schema version and check version.
-    The value holds only a tag keyed with a random per-process secret over the
-    verified document ID, source hash and role, the ownership flag and three
-    sizes: no identifiers, hashes or plaintext. A hit is accepted only when the
-    tag matches the reference expected by the manifest read in the same snapshot;
-    anything else runs the full DPAPI decrypt and validation again. Failures are
-    never stored. Results depend only on the bytes, so entries need no
-    invalidation for correctness; delete and restore clear them for hygiene.
+    R7: the key is a SHA-256 over a per-store component, the protector type,
+    schema and check versions and the exact binding and record ciphertext bytes
+    (all length-prefixed). The value holds only a tag keyed with a random
+    per-process secret over the verified document ID, source hash and role, the
+    ownership flag and three sizes: no identifiers, hashes or plaintext. A hit
+    is accepted only when the tag matches the reference expected by the manifest
+    read in the same snapshot; anything else runs the full DPAPI decrypt and
+    validation again. Failures are never stored, and any error inside the cache
+    is treated as a miss.
+
+    Invariants: the cache is never persisted, and the cached checks must stay
+    pure functions of the ciphertext bytes, the protector and the code, never of
+    per-store state; a pinned test forces a check-version bump when they change.
+
+    A hit skips DPAPI, so a loss of decryptability for identical bytes (a
+    partial master-key loss) is masked for at most the entry lifetime: entries
+    expire after _CASE_LIST_REFERENCE_TTL_SECONDS minus a random jitter of up
+    to _CASE_LIST_REFERENCE_TTL_JITTER_SECONDS, which forces a fresh DPAPI
+    decrypt. Eviction is scan resistant: when full, an entry used in the
+    current list is never evicted to admit another one, so archives above
+    capacity keep the first entries resident instead of thrashing.
     """
 
     def __init__(self, max_entries: int) -> None:
         self._max_entries = max_entries
         self._lock = threading.Lock()
-        self._entries: OrderedDict[bytes, tuple[bytes, bool, int, int, int]] = OrderedDict()
+        # key -> [value, expires_at (monotonic), generation of last use]
+        self._entries: OrderedDict[bytes, list] = OrderedDict()
         self._tag_key = secrets.token_bytes(32)
+        self._generation = 0
+        self._clock = time.monotonic
+        self._random = secrets.SystemRandom()
+
+    def _jitter(self) -> float:
+        return self._random.uniform(0.0, _CASE_LIST_REFERENCE_TTL_JITTER_SECONDS)
 
     def __len__(self) -> int:
         with self._lock:
@@ -179,14 +199,19 @@ class _VerifiedReferenceCache:
         with self._lock:
             self._entries.clear()
 
+    def begin_list(self) -> int:
+        with self._lock:
+            self._generation += 1
+            return self._generation
+
     @staticmethod
-    def key(protector_type: type, binding_payload: bytes, record_payload: bytes) -> bytes:
+    def key(store_component: bytes, protector_type: type, binding_payload: bytes, record_payload: bytes) -> bytes:
         digest = hashlib.sha256()
         context = (
             f"ocr2-case-list-ref|{_CASE_LIST_REFERENCE_CHECK_VERSION}|{_SCHEMA_VERSION}|"
             f"{protector_type.__module__}.{protector_type.__qualname__}|"
         ).encode("utf-8")
-        for part in (context, binding_payload, record_payload):
+        for part in (context, store_component, binding_payload, record_payload):
             digest.update(len(part).to_bytes(8, "big"))
             digest.update(part)
         return digest.digest()
@@ -195,23 +220,43 @@ class _VerifiedReferenceCache:
         message = json.dumps([document_id, source_sha256.lower(), role], ensure_ascii=False, separators=(",", ":"))
         return hmac.new(self._tag_key, message.encode("utf-8"), hashlib.sha256).digest()
 
-    def get(self, key: bytes):
+    def get(self, key: bytes, generation: int):
         with self._lock:
-            value = self._entries.get(key)
-            if value is not None:
-                self._entries.move_to_end(key)
-            return value
-
-    def put(self, key: bytes, value: tuple[bytes, bool, int, int, int]) -> None:
-        with self._lock:
-            self._entries[key] = value
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            if self._clock() >= entry[1]:
+                del self._entries[key]
+                return None
+            entry[2] = generation
             self._entries.move_to_end(key)
-            while len(self._entries) > self._max_entries:
-                self._entries.popitem(last=False)
+            return entry[0]
+
+    def put(self, key: bytes, value: tuple[bytes, bool, int, int, int], generation: int) -> None:
+        expires_at = float(self._clock() + _CASE_LIST_REFERENCE_TTL_SECONDS - self._jitter())
+        with self._lock:
+            if key not in self._entries:
+                now = self._clock()
+                while len(self._entries) >= self._max_entries:
+                    oldest_key, oldest = next(iter(self._entries.items()))
+                    if oldest[2] == generation and now < oldest[1]:
+                        return  # full of entries used by this list: do not thrash
+                    del self._entries[oldest_key]
+            self._entries[key] = [value, expires_at, generation]
+            self._entries.move_to_end(key)
 
 
-# Bump whenever a check performed by the case-list reference validation changes.
+# Bump whenever a check performed by the case-list reference validation changes;
+# test_cached_checks_are_pinned_to_check_version pins the relevant sources.
 _CASE_LIST_REFERENCE_CHECK_VERSION = 1
+# Ten minutes bounds how long a partial DPAPI master-key loss can stay hidden
+# from the list (opening a case always decrypts). With OCR saving a group every
+# few seconds and the list polled about every 2 s, re-verifying each of ~100
+# references once per 8-10 minutes adds well under one full check per list.
+# The jitter (up to 2 minutes) spreads re-verification so entries cached by the
+# same list do not all expire on the same request.
+_CASE_LIST_REFERENCE_TTL_SECONDS = 600.0
+_CASE_LIST_REFERENCE_TTL_JITTER_SECONDS = 120.0
 _CASE_LIST_REFERENCE_CACHE = _VerifiedReferenceCache(4096)
 
 
@@ -354,6 +399,8 @@ class LocalDocumentStore:
         self._max_document_bytes = max_document_bytes
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._index_key = b""
+        # The pre-swap check of a restore candidate must never reuse cached results.
+        self._use_reference_cache = True
         self._known_index_entries: dict[str, str] = {}
         self._known_case_entries: dict[str, str] = {}
         self._initialize()
@@ -792,6 +839,7 @@ class LocalDocumentStore:
         try:
             try:
                 candidate = LocalDocumentStore(staging, protector=self._protector, max_document_bytes=self._max_document_bytes)
+                candidate._use_reference_cache = False
                 candidate.search_library(limit=1)
                 candidate.list_cases(limit=100)
             except StoreError as exc:
@@ -1209,7 +1257,7 @@ class LocalDocumentStore:
         return ownership
 
     def _validate_case_references_parallel(
-        self, connection: sqlite3.Connection, case: dict, case_index: str,
+        self, connection: sqlite3.Connection, case: dict, case_index: str, *, cache_generation: int | None = None,
     ) -> dict[str, bool]:
         """Validate every reference within the caller's SQLite read snapshot.
 
@@ -1224,8 +1272,9 @@ class LocalDocumentStore:
         if len(bindings) != len(expected) or {row[0] for row in bindings} != set(expected):
             raise StoreIntegrityError("case-document references do not match the encrypted case manifest")
 
-        cache = _CASE_LIST_REFERENCE_CACHE
+        cache = _CASE_LIST_REFERENCE_CACHE if cache_generation is not None else None
         protector_type = type(self._protector)
+        store_component = hashlib.sha256(b'ocr2-case-list-store|' + self._index_key).digest()
 
         def check(row):
             document_index, binding_payload, entry_id, stored_index, record_payload, source_type, source_length, cache_key = row
@@ -1233,26 +1282,45 @@ class LocalDocumentStore:
                 document_index, binding_payload, entry_id, stored_index, record_payload, source_type, source_length,
             )
             doc_id, case_owned, byte_length, metadata, processed = result
-            ref = expected[document_index]
-            # Only a fully authenticated and validated result is stored.
-            cache.put(cache_key, (cache.tag(ref['document_id'], ref['source_sha256'], ref['role']), case_owned, byte_length, metadata, processed))
+            if cache_key is not None:
+                ref = expected[document_index]
+                try:
+                    # Only a fully authenticated and validated result is stored.
+                    cache.put(cache_key, (cache.tag(ref['document_id'], ref['source_sha256'], ref['role']),
+                                          case_owned, byte_length, metadata, processed), cache_generation)
+                except Exception:
+                    pass  # Not caching is always safe.
             return result
 
-        def cached_check(document_index, row, cache_key):
-            entry_id, stored_index, source_type, source_length = row[1], row[2], row[4], row[5]
-            cached = cache.get(cache_key)
-            if cached is None:
+        def cache_key_for(row):
+            if cache is None:
                 return None
-            tag, case_owned, byte_length, metadata, processed = cached
-            ref = expected[document_index]
+            try:
+                return cache.key(store_component, protector_type, row[0], row[3])
+            except Exception:
+                return None
+
+        def cached_check(document_index, row, cache_key):
+            if cache_key is None:
+                return None
+            entry_id, stored_index, source_type, source_length = row[1], row[2], row[4], row[5]
+            try:
+                cached = cache.get(cache_key, cache_generation)
+                if cached is None:
+                    return None
+                tag, case_owned, byte_length, metadata, processed = cached
+                ref = expected[document_index]
+                expected_tag = cache.tag(ref['document_id'], ref['source_sha256'], ref['role'])
+            except Exception:
+                return None  # A cache error is a miss: the full check runs.
             if (
                 entry_id is None
                 or stored_index != document_index
-                or not hmac.compare_digest(tag, cache.tag(ref['document_id'], ref['source_sha256'], ref['role']))
+                or not hmac.compare_digest(tag, expected_tag)
                 or source_type != 'blob' or not isinstance(source_length, int) or source_length < 1
                 or metadata > _MAX_CASE_RECORD_METADATA_BYTES
             ):
-                return None  # Recheck fully so failures keep today's errors.
+                return None  # Recheck fully so failures keep the existing errors.
             return ref['document_id'], case_owned, byte_length, metadata, processed
 
         def full_check(document_index, binding_payload, entry_id, stored_index, record_payload, source_type, source_length):
@@ -1302,7 +1370,7 @@ class LocalDocumentStore:
                 raise StoreIntegrityError("invalid protected payload type")
             # The bytes were read in this snapshot; reuse only an earlier
             # successful check of exactly the same bytes.
-            cache_key = cache.key(protector_type, row[0], row[3])
+            cache_key = cache_key_for(row)
             hit = cached_check(document_index, row, cache_key)
             if hit is not None:
                 checked.append(hit)
@@ -1573,6 +1641,12 @@ class LocalDocumentStore:
                 # Keep case payloads, bindings and document records consistent.
                 connection.execute("BEGIN")
                 rows = connection.execute("SELECT entry_id, case_id_index, case_payload FROM cases ORDER BY entry_id").fetchall()
+                generation = None
+                if self._use_reference_cache:
+                    try:
+                        generation = _CASE_LIST_REFERENCE_CACHE.begin_list()
+                    except Exception:
+                        generation = None
                 for entry_id, case_index, payload in rows:
                     case = self._decode_case_payload(payload)
                     if self._case_id_index(case["case_id"]) != case_index:
@@ -1580,7 +1654,9 @@ class LocalDocumentStore:
                     self._known_case_entries[case_index] = entry_id
                     if type(self._protector) is WindowsDpapiProtector and _CASE_LIST_PARALLEL_GATE.acquire(blocking=False):
                         try:
-                            self._validate_case_references_parallel(connection, case, case_index)
+                            self._validate_case_references_parallel(
+                                connection, case, case_index, cache_generation=generation,
+                            )
                         finally:
                             _CASE_LIST_PARALLEL_GATE.release()
                     else:
