@@ -52,6 +52,18 @@ class _TemporaryEnginePackage:
 
 
 class EngineRegistryTests(unittest.TestCase):
+    def test_startup_discovery_and_runtime_check_do_not_import_native_engines(self):
+        code = (
+            "import sys\n"
+            "from alfa_document_intelligence import __main__ as launcher\n"
+            "launcher._runtime_check(launcher.discover_engines()['rapidocr-v6'])\n"
+            "native = ('PIL', 'pypdfium2', 'rapidocr', 'onnxruntime', 'numpy', 'cv2')\n"
+            "assert not [name for name in sys.modules if any(name == p or name.startswith(p + '.') for p in native)]\n"
+        )
+        src = Path(__file__).resolve().parents[1] / 'src'
+        result = subprocess.run([sys.executable, '-B', '-c', code], cwd=str(src), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_discovers_rapidocr_manifest_without_importing_rapidocr(self):
         code = (
             "import sys\n"
