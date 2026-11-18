@@ -1,0 +1,25 @@
+E       AttributeError: module 'alfa_document_intelligence.local_document_store' has no attribute '_CASE_LIST_REFERENCE_CACHE'
+
+tests\conftest.py:11: AttributeError
+=========================== short test summary info ===========================
+ERROR tests/test_case_list_reference_cache.py::test_repeat_list_skips_checks_of_unchanged_bytes
+ERROR tests/test_case_list_reference_cache.py::test_only_changed_bytes_are_checked_again
+ERROR tests/test_case_list_reference_cache.py::test_warm_cache_rejects_same_tampering_as_uncached_paths[binding]
+ERROR tests/test_case_list_reference_cache.py::test_warm_cache_rejects_same_tampering_as_uncached_paths[record]
+ERROR tests/test_case_list_reference_cache.py::test_warm_cache_rejects_same_tampering_as_uncached_paths[missing]
+ERROR tests/test_case_list_reference_cache.py::test_warm_cache_rejects_same_tampering_as_uncached_paths[source_type]
+ERROR tests/test_case_list_reference_cache.py::test_warm_cache_rejects_same_tampering_as_uncached_paths[source_total]
+ERROR tests/test_case_list_reference_cache.py::test_warm_cache_rejects_same_tampering_as_uncached_paths[metadata_total]
+ERROR tests/test_case_list_reference_cache.py::test_warm_cache_rejects_same_tampering_as_uncached_paths[processed_total]
+ERROR tests/test_case_list_reference_cache.py::test_warm_cache_rejects_same_tampering_as_uncached_paths[archive_reference]
+ERROR tests/test_case_list_reference_cache.py::test_warm_cache_rejects_record_metadata_above_current_limit
+ERROR tests/test_case_list_reference_cache.py::test_swapped_authentic_ciphertexts_are_rejected[record_payload]
+ERROR tests/test_case_list_reference_cache.py::test_swapped_authentic_ciphertexts_are_rejected[binding_payload]
+ERROR tests/test_case_list_reference_cache.py::test_failed_checks_are_not_cached
+ERROR tests/test_case_list_reference_cache.py::test_rolled_back_record_matches_uncached_outcome
+ERROR tests/test_case_list_reference_cache.py::test_cache_holds_no_identifiers_and_is_bounded
+ERROR tests/test_case_list_reference_cache.py::test_custom_protector_does_not_use_cache
+ERROR tests/test_case_list_reference_cache.py::test_cache_is_cleared_after_delete_and_restore
+ERROR tests/test_case_list_reference_cache.py::test_warm_cache_keeps_one_snapshot_during_concurrent_ocr_commit
+ERROR tests/test_case_list_reference_cache.py::test_dpapi_cache_skips_repeat_unprotect_and_rejects_alteration
+20 errors in 0.29s

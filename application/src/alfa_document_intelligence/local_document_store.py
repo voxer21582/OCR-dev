@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+from collections import OrderedDict
 import copy
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -148,6 +149,70 @@ def _get_case_list_executor() -> ThreadPoolExecutor:
         if _CASE_LIST_EXECUTOR is None:
             _CASE_LIST_EXECUTOR = ThreadPoolExecutor(max_workers=_CASE_LIST_WORKERS)
         return _CASE_LIST_EXECUTOR
+
+
+class _VerifiedReferenceCache:
+    """Per-process LRU of case-list reference checks that already succeeded.
+
+    R7: the key is a SHA-256 over the exact binding and record ciphertext bytes
+    (length-prefixed) plus the protector type, schema version and check version.
+    The value holds only a tag keyed with a random per-process secret over the
+    verified document ID, source hash and role, the ownership flag and three
+    sizes: no identifiers, hashes or plaintext. A hit is accepted only when the
+    tag matches the reference expected by the manifest read in the same snapshot;
+    anything else runs the full DPAPI decrypt and validation again. Failures are
+    never stored. Results depend only on the bytes, so entries need no
+    invalidation for correctness; delete and restore clear them for hygiene.
+    """
+
+    def __init__(self, max_entries: int) -> None:
+        self._max_entries = max_entries
+        self._lock = threading.Lock()
+        self._entries: OrderedDict[bytes, tuple[bytes, bool, int, int, int]] = OrderedDict()
+        self._tag_key = secrets.token_bytes(32)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+    @staticmethod
+    def key(protector_type: type, binding_payload: bytes, record_payload: bytes) -> bytes:
+        digest = hashlib.sha256()
+        context = (
+            f"ocr2-case-list-ref|{_CASE_LIST_REFERENCE_CHECK_VERSION}|{_SCHEMA_VERSION}|"
+            f"{protector_type.__module__}.{protector_type.__qualname__}|"
+        ).encode("utf-8")
+        for part in (context, binding_payload, record_payload):
+            digest.update(len(part).to_bytes(8, "big"))
+            digest.update(part)
+        return digest.digest()
+
+    def tag(self, document_id: str, source_sha256: str, role: str) -> bytes:
+        message = json.dumps([document_id, source_sha256.lower(), role], ensure_ascii=False, separators=(",", ":"))
+        return hmac.new(self._tag_key, message.encode("utf-8"), hashlib.sha256).digest()
+
+    def get(self, key: bytes):
+        with self._lock:
+            value = self._entries.get(key)
+            if value is not None:
+                self._entries.move_to_end(key)
+            return value
+
+    def put(self, key: bytes, value: tuple[bytes, bool, int, int, int]) -> None:
+        with self._lock:
+            self._entries[key] = value
+            self._entries.move_to_end(key)
+            while len(self._entries) > self._max_entries:
+                self._entries.popitem(last=False)
+
+
+# Bump whenever a check performed by the case-list reference validation changes.
+_CASE_LIST_REFERENCE_CHECK_VERSION = 1
+_CASE_LIST_REFERENCE_CACHE = _VerifiedReferenceCache(4096)
 
 
 def _checked_case_list_batch(check, rows):
@@ -753,6 +818,8 @@ class LocalDocumentStore:
         finally:
             if staging.exists():
                 staging.unlink()
+            # Hygiene only: drop entries from the replaced or rejected archive.
+            _CASE_LIST_REFERENCE_CACHE.clear()
         return {**manifest, "previous_copy": previous.name}
 
     def _protect_index_key(self, key: bytes) -> bytes:
@@ -1157,8 +1224,38 @@ class LocalDocumentStore:
         if len(bindings) != len(expected) or {row[0] for row in bindings} != set(expected):
             raise StoreIntegrityError("case-document references do not match the encrypted case manifest")
 
+        cache = _CASE_LIST_REFERENCE_CACHE
+        protector_type = type(self._protector)
+
         def check(row):
-            document_index, binding_payload, entry_id, stored_index, record_payload, source_type, source_length = row
+            document_index, binding_payload, entry_id, stored_index, record_payload, source_type, source_length, cache_key = row
+            result = full_check(
+                document_index, binding_payload, entry_id, stored_index, record_payload, source_type, source_length,
+            )
+            doc_id, case_owned, byte_length, metadata, processed = result
+            ref = expected[document_index]
+            # Only a fully authenticated and validated result is stored.
+            cache.put(cache_key, (cache.tag(ref['document_id'], ref['source_sha256'], ref['role']), case_owned, byte_length, metadata, processed))
+            return result
+
+        def cached_check(document_index, row, cache_key):
+            entry_id, stored_index, source_type, source_length = row[1], row[2], row[4], row[5]
+            cached = cache.get(cache_key)
+            if cached is None:
+                return None
+            tag, case_owned, byte_length, metadata, processed = cached
+            ref = expected[document_index]
+            if (
+                entry_id is None
+                or stored_index != document_index
+                or not hmac.compare_digest(tag, cache.tag(ref['document_id'], ref['source_sha256'], ref['role']))
+                or source_type != 'blob' or not isinstance(source_length, int) or source_length < 1
+                or metadata > _MAX_CASE_RECORD_METADATA_BYTES
+            ):
+                return None  # Recheck fully so failures keep today's errors.
+            return ref['document_id'], case_owned, byte_length, metadata, processed
+
+        def full_check(document_index, binding_payload, entry_id, stored_index, record_payload, source_type, source_length):
             binding = self._decode_case_reference(binding_payload)
             ref = expected[document_index]
             if binding['source_sha256'].lower() != ref['source_sha256'].lower() or binding['role'] != ref['role']:
@@ -1203,7 +1300,14 @@ class LocalDocumentStore:
             ).fetchone()
             if row is None or not isinstance(row[0], bytes) or not isinstance(row[3], bytes):
                 raise StoreIntegrityError("invalid protected payload type")
-            pending.append((document_index, *row))
+            # The bytes were read in this snapshot; reuse only an earlier
+            # successful check of exactly the same bytes.
+            cache_key = cache.key(protector_type, row[0], row[3])
+            hit = cached_check(document_index, row, cache_key)
+            if hit is not None:
+                checked.append(hit)
+                continue
+            pending.append((document_index, *row, cache_key))
             pending_bytes += size
         if pending:
             checked.extend(_checked_case_list_batch(check, pending))
@@ -1541,6 +1645,8 @@ class LocalDocumentStore:
                         self._known_index_entries.pop(document_index, None)
                 connection.commit()
                 self._known_case_entries.pop(case_index, None)
+            # Hygiene only: cached results depend on exact bytes, not on rows.
+            _CASE_LIST_REFERENCE_CACHE.clear()
             return True
         except StoreError:
             raise
