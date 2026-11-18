@@ -329,6 +329,7 @@ def test_parallel_case_list_accepts_single_ciphertext_above_batch_limit(tmp_path
 @pytest.mark.parametrize('parallel', [False, True], ids=['sequential', 'parallel'])
 @pytest.mark.parametrize('damage', [
     'binding', 'record', 'missing', 'source_type', 'source_total', 'metadata_total', 'processed_total',
+    'archive_reference',
 ])
 def test_case_list_validation_paths_reject_same_tampering(tmp_path, monkeypatch, parallel, damage):
     if parallel:
@@ -354,16 +355,25 @@ def test_case_list_validation_paths_reject_same_tampering(tmp_path, monkeypatch,
             altered['retained_source_bytes'] += 1
             sealed = store._seal_case(altered)
             connection.execute('UPDATE cases SET case_payload = ?', (store._protect_case_payload(sealed),))
+        elif damage == 'archive_reference':
+            entry, payload = connection.execute('SELECT entry_id, record_payload FROM documents LIMIT 1').fetchone()
+            envelope = json.loads(store._protector.unprotect(payload).decode('utf-8'))
+            envelope['record']['source']['storage_ref'] = 'local-archive://different-document'
+            protected = store._protector.protect(store._canonical_json(envelope))
+            connection.execute('UPDATE documents SET record_payload = ? WHERE entry_id = ?', (protected, entry))
     if damage == 'metadata_total':
         monkeypatch.setattr(store_module, '_MAX_CASE_TOTAL_METADATA_BYTES', 0)
     elif damage == 'processed_total':
         updated = store.get('equivalence-record').record
         updated['processing']['ocr']['status'] = 'completed'
         store.save(updated, source)
-    with patch.object(store, '_validate_case_references_parallel', wraps=store._validate_case_references_parallel) as path_spy:
+    with patch.object(store, '_validate_case_references_parallel', wraps=store._validate_case_references_parallel) as path_spy, \
+         patch.object(store, '_case_record_sizes_validated', wraps=store._case_record_sizes_validated) as accounting_spy:
         with pytest.raises(StoreIntegrityError):
             store.list_cases()
         assert path_spy.call_count == int(parallel)
+        if damage == 'archive_reference':
+            assert accounting_spy.call_count == 0
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='Windows DPAPI required')
