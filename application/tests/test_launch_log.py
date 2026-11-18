@@ -5,9 +5,11 @@ Every test points LOCALAPPDATA at a temporary folder: the real profile is never 
 from __future__ import annotations
 
 import builtins
+from enum import IntEnum
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import types
 
@@ -17,6 +19,90 @@ import alfa_document_intelligence.__main__ as launcher
 
 HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher-safe.log"
 TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+
+
+@pytest.mark.parametrize('window', [False, True])
+def test_cli_unexpected_exception_never_prints_private_traceback(tmp_path, window):
+    script = '''
+import sys
+from alfa_document_intelligence import __main__ as launcher
+def failed(argv):
+    raise RuntimeError("SYNTHETIC_PRIVATE_PATH_AND_DOCUMENT")
+launcher.main = failed
+launcher._show_startup_error = lambda message: None
+sys.argv = ["ocr2"] + (["--app-window"] if sys.argv[1] == "window" else [])
+launcher._cli_entrypoint()
+'''
+    environment = dict(os.environ, LOCALAPPDATA=str(tmp_path))
+    result = subprocess.run([sys.executable, '-B', '-c', script, 'window' if window else 'console'],
+                            env=environment, capture_output=True, text=True, timeout=20, check=False)
+    assert result.returncode == 1
+    assert 'OCR2_UNEXPECTED_ERROR' in result.stderr
+    assert 'SYNTHETIC_PRIVATE_PATH_AND_DOCUMENT' not in result.stderr + result.stdout
+    assert 'Traceback' not in result.stderr
+    log = tmp_path / 'OCR2' / 'logs' / 'launcher-safe.log'
+    if window:
+        assert 'OCR2_START_EXCEPTION' in log.read_text(encoding='utf-8')
+        assert 'SYNTHETIC_PRIVATE_PATH_AND_DOCUMENT' not in log.read_text(encoding='utf-8')
+
+
+def test_cli_redacts_non_numeric_exit_message(tmp_path):
+    script = '''
+from alfa_document_intelligence import __main__ as launcher
+def failed():
+    raise SystemExit("SYNTHETIC_PRIVATE_EXIT")
+launcher._run_entrypoint = failed
+launcher._cli_entrypoint()
+'''
+    result = subprocess.run([sys.executable, '-B', '-c', script], capture_output=True,
+                            text=True, timeout=20, check=False)
+    assert result.returncode == 1
+    assert 'SYNTHETIC_PRIVATE_EXIT' not in result.stderr + result.stdout
+    assert 'Traceback' not in result.stderr
+
+
+class _ExitEnum(IntEnum):
+    OK = 0
+    FAILED = 3
+
+
+class _ExitInt(int):
+    def __eq__(self, other):
+        raise RuntimeError('synthetic comparison must not run')
+    def __int__(self):
+        raise RuntimeError('synthetic conversion must not run')
+
+
+@pytest.mark.parametrize('exit_code, expected', [(None, 0), (0, 0), (1, 1), (False, 0), (True, 1),
+                                                (_ExitEnum.OK, 0), (_ExitEnum.FAILED, 3), (_ExitInt(0), 0)])
+def test_cli_preserves_numeric_exit_status(exit_code, expected, monkeypatch):
+    def exit_now():
+        raise SystemExit(exit_code)
+    monkeypatch.setattr(launcher, '_run_entrypoint', exit_now)
+    with pytest.raises(SystemExit) as caught:
+        launcher._cli_entrypoint()
+    assert (0 if caught.value.code is None else int(caught.value.code)) == expected
+
+
+@pytest.mark.parametrize('source', ['argument', 'runtime'])
+def test_cli_does_not_echo_untrusted_startup_detail(tmp_path, source):
+    script = '''
+import sys
+from types import SimpleNamespace
+from alfa_document_intelligence import __main__ as launcher
+if sys.argv[1] == 'argument':
+    sys.argv = ['ocr2', '--ocr-engine', 'SYNTHETIC_PRIVATE_ARGUMENT']
+else:
+    launcher._runtime_check = lambda manifest: SimpleNamespace(
+        problems=('SYNTHETIC_PRIVATE_RUNTIME_PATH',), warnings=(), ok=False)
+    sys.argv = ['ocr2', '--ocr-engine', 'rapidocr-v6']
+launcher._cli_entrypoint()
+'''
+    result = subprocess.run([sys.executable, '-B', '-c', script, source], capture_output=True,
+                            text=True, timeout=20, check=False)
+    assert result.returncode == 2
+    assert 'OCR2_' in result.stderr
+    assert 'SYNTHETIC_PRIVATE_' not in result.stderr + result.stdout
 
 
 @pytest.fixture
@@ -103,6 +189,25 @@ def test_failed_exit_is_logged_without_console_messages(local_app_data, monkeypa
     assert TIMESTAMP.search(text)
     assert "OCR2_START_EXIT" in text
     assert "synthetic reason on stderr" not in text
+
+
+def test_window_exit_does_not_format_untrusted_exit_object(local_app_data, monkeypatch):
+    shown = _dialogs(monkeypatch)
+    class ExitValue:
+        @property
+        def __class__(self):
+            return int
+        def __repr__(self):
+            raise RuntimeError("SYNTHETIC_PRIVATE_REPR")
+        def __eq__(self, other):
+            raise RuntimeError("SYNTHETIC_PRIVATE_COMPARISON")
+    def failed(argv):
+        raise SystemExit(ExitValue())
+    monkeypatch.setattr(launcher, 'main', failed)
+    with pytest.raises(SystemExit):
+        launcher._run_entrypoint(['--app-window'])
+    assert len(shown) == 1
+    assert 'OCR2_START_EXIT' in _log(local_app_data).read_text(encoding='utf-8')
 
 
 def test_integrity_failure_is_logged_once(local_app_data, monkeypatch, tmp_path):

@@ -23,6 +23,17 @@ _START_FAILURE_MESSAGE = (
 )
 
 
+class _SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        # argparse errors can echo untrusted argument values and program paths.
+        safe_messages = {
+            "La finestra dell'app è disponibile solo su Windows",
+            "LOCALAPPDATA non è disponibile: archivio locale non inizializzabile",
+        }
+        detail = message if message in safe_messages else "argomenti o configurazione non validi"
+        self.exit(2, f"OCR2_ARGUMENT_ERROR: {detail}.\n")
+
+
 # The dialogs stay generic; the launch log contains stable, non-sensitive codes.
 _LAUNCH_LOG_HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher-safe.log"
 _LAUNCH_LOG_LIMIT_BYTES = 256 * 1024
@@ -226,7 +237,7 @@ def _show_startup_error(message: str) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Start the loopback-only expense document review app.")
+    parser = _SafeArgumentParser(description="Start the loopback-only expense document review app.")
     parser.add_argument("--port", type=_port, default=None, help="loopback TCP port (default: 8000; 0 selects a free port)")
     try:
         engines = {engine_id: manifest for engine_id, manifest in discover_engines().items() if manifest.selectable}
@@ -299,9 +310,12 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="n
         runtime = _runtime_check(manifest)
         if runtime is not None:
             for warning in runtime.warnings:
-                print(f"Attenzione: {warning}.", file=sys.stderr)
+                if warning == "pypdfium2 non è installato: i PDF non possono essere letti":
+                    print("Attenzione: pypdfium2 non è installato: i PDF non possono essere letti.", file=sys.stderr)
+                else:
+                    print("OCR2_OCR_RUNTIME_WARNING", file=sys.stderr)
             if not runtime.ok:
-                parser.error("OCR locale non utilizzabile: " + "; ".join(runtime.problems))
+                parser.exit(2, "OCR2_OCR_RUNTIME_ERROR: OCR locale non utilizzabile.\n")
 
     archive_store = None
     family_catalog_store = None
@@ -417,13 +431,15 @@ def _run_entrypoint(argv: Sequence[str] | None = None) -> None:
     try:
         main(arguments)
     except SystemExit as exc:
-        if exc.code not in (None, 0) and window and not _startup_error_shown:
-            _write_launch_log("uscita anomala", f"Codice di uscita: {exc.code!r}\n{stderr_tail.text}", exc)
+        code = exc.code
+        successful_exit = code is None or (issubclass(type(code), int) and int.__int__(code) == 0)
+        if not successful_exit and window and not _startup_error_shown:
+            _write_launch_log("uscita anomala")
             _show_startup_error(_START_FAILURE_MESSAGE)
         raise
     except Exception as exc:
         if window:
-            _write_launch_log("eccezione", stderr_tail.text, exc)
+            _write_launch_log("eccezione")
             if not _startup_error_shown:
                 _show_startup_error(_START_FAILURE_MESSAGE)
         raise
@@ -432,5 +448,24 @@ def _run_entrypoint(argv: Sequence[str] | None = None) -> None:
             sys.stderr = stderr_tail.target
 
 
+def _cli_entrypoint() -> None:
+    """Keep unexpected exception details out of the process output."""
+    try:
+        _run_entrypoint()
+    except SystemExit as exc:
+        if exc.code is None:
+            raise
+        if issubclass(type(exc.code), int):
+            raise SystemExit(int.__int__(exc.code)) from None
+        raise SystemExit(1) from None
+    except Exception:
+        try:
+            if sys.stderr is not None:
+                print("OCR2_UNEXPECTED_ERROR", file=sys.stderr)
+        except Exception:
+            pass
+        raise SystemExit(1) from None
+
+
 if __name__ == "__main__":
-    _run_entrypoint()
+    _cli_entrypoint()
