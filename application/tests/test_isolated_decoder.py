@@ -258,6 +258,64 @@ if __name__ == '__main__':
     assert failure_marker.read_text(encoding='ascii') == 'reached'
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='Windows OCR worker uses a Job Object')
+def test_ocr_supervisor_reports_spawned_isolation_failure(tmp_path):
+    script = '''
+import os
+import sys
+import time
+from io import BytesIO
+from pathlib import Path
+from alfa_document_intelligence import isolated_decoder
+from alfa_document_intelligence.document_decoder import DecodeLimits
+from alfa_document_intelligence.expense_reports import create_expense_report_intake_session
+from alfa_document_intelligence.ingestion import materialize_stream_batch
+from alfa_document_intelligence.ocr_processing import OCRProcessLimits, OCRProcessingManager
+
+def failed():
+    Path(os.environ['OCR2_SYNTHETIC_FAILURE_MARKER']).write_text('reached', encoding='ascii')
+    raise OSError('SYNTHETIC_PRIVATE_ISOLATION_ERROR')
+isolated_decoder._isolate_worker_standard_output = failed
+
+if __name__ == '__main__':
+    intake = create_expense_report_intake_session(
+        materialize_stream_batch([('synthetic.pdf', BytesIO(b'%PDF-1.7\\nsynthetic'))]),
+        expense_report_id='synthetic-report', note_document_id='synthetic-doc',
+        document_ids=['synthetic-doc'], session_id='synthetic-session',
+        received_at='2026-11-11T10:00:00+00:00')
+    limits = OCRProcessLimits(30, 2, 1024 * 1024 * 1024, 1024 * 1024,
+                              4096, 1024 * 1024, 1024 * 1024, 4096, 100)
+    manager = OCRProcessingManager('alfa_document_intelligence.rapidocr_runtime_factory:create_rapidocr_v6_multilingual_adapter', limits)
+    try:
+        job_id = manager.start('synthetic-generation', intake, decode_limits=DecodeLimits())
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            status = manager.snapshot(job_id)
+            if status and status.phase in ('failed', 'cancelled', 'succeeded'):
+                break
+            time.sleep(.02)
+        else:
+            raise AssertionError('worker did not terminate')
+        assert status.phase == 'failed'
+        assert status.error_code == 'worker_protocol_failed'
+        assert manager.result_frame('synthetic-generation', job_id) is None
+        assert not manager._job.process.is_alive()
+        print('rejected')
+    finally:
+        manager.close()
+'''
+    script_path = tmp_path / 'ocr_isolation_failure_probe.py'
+    script_path.write_text(script, encoding='utf-8')
+    failure_marker = tmp_path / 'ocr_isolation_failure_reached.txt'
+    env = dict(os.environ, OCR2_SYNTHETIC_FAILURE_MARKER=str(failure_marker))
+    result = subprocess.run([sys.executable, '-B', str(script_path)], env=env,
+                            capture_output=True, text=True, timeout=40, check=False)
+    assert result.returncode == 0
+    assert result.stdout.strip() == 'rejected'
+    assert result.stderr == ''
+    assert failure_marker.read_text(encoding='ascii') == 'reached'
+
+
 def _one_synthetic_page(source_bytes, media_kind, *, source_sha256, limits):
     del source_bytes, media_kind, source_sha256, limits
     yield DecodedPage(RasterPage(1, 1, 1, b"\x00\x00\x00"), 1)
