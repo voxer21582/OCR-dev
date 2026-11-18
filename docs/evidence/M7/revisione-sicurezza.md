@@ -10,6 +10,8 @@ Restano i limiti documentati su handle o file nativi non coperti, bootstrap prec
 
 Un successivo controllo automatico indipendente dei file di evidenza aggiunti fino a `17f3da41fe2d3f699a7d29e79a2227ce89e9ce52` non ha rilevato testo, identificativi o hash di documenti nei nuovi JSON, né incoerenze nei calcoli statistici verificati, compresa la stima prudenziale per i due campioni mancanti. Non ha verificato i log grezzi locali, l'identità degli installer o la raccolta delle misure.
 
+**Modifica R7 successiva alla firma (2026-11-19), non coperta.** La cache per processo delle verifiche della lista dei fascicoli (`_VerifiedReferenceCache` in `local_document_store.py`) cambia il modo in cui la lista verifica i riferimenti: un esito già autenticato con DPAPI viene riutilizzato per byte identici senza nuova decifratura. È una modifica R7 sostanziale dell'autenticazione: la firma e l'approvazione del 2026-11-18 non la coprono. Richiede approvazione esplicita del proprietario ai sensi di DEC-001 e una revisione indipendente adeguata prima del merge; disegno, limiti e misure in [letture concorrenti](letture-concorrenti.md#cache-per-processo-delle-verifiche-indicizzata-sui-byte-autenticati-proposta-r7-in-attesa-di-approvazione).
+
 ## Revisione e firma precedenti
 
 Il proprietario ha firmato la revisione automatica indipendente descritta in questa sezione; tale firma precede il riesame e le modifiche successive. La revisione è statica e automatica: non sostituisce una verifica umana esterna.
