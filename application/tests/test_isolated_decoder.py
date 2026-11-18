@@ -1,4 +1,7 @@
 import hashlib
+import os
+import subprocess
+import sys
 import time
 
 import pytest
@@ -10,6 +13,63 @@ from alfa_document_intelligence.document_decoder import (
 )
 from alfa_document_intelligence.ocr_adapter import RasterPage
 from alfa_document_intelligence.isolated_decoder import iter_decoded_pages_isolated
+
+
+def test_spawned_decoder_does_not_emit_pillow_runtime_path_on_corrupt_tiff(tmp_path):
+    pytest.importorskip("PIL.Image")
+    script = '''
+import hashlib
+from alfa_document_intelligence.document_decoder import DecodeLimits, DocumentDecodeError
+from alfa_document_intelligence.isolated_decoder import iter_decoded_pages_isolated
+if __name__ == "__main__":
+    data = b"II\\x2a\\x00\\x08\\x00\\x00\\x00OCR2SYNTHETICMARKER0123456789"
+    try:
+        list(iter_decoded_pages_isolated(data, "tiff", source_sha256=hashlib.sha256(data).hexdigest(),
+                                        limits=DecodeLimits(), timeout_seconds=30))
+    except DocumentDecodeError:
+        print("rejected")
+    else:
+        raise AssertionError("corrupt TIFF accepted")
+'''
+    script_path = tmp_path / "probe.py"
+    script_path.write_text(script, encoding="utf-8")
+    environment = dict(os.environ, PYTHONWARNINGS="always")
+    result = subprocess.run([sys.executable, "-B", str(script_path)], env=environment,
+                            capture_output=True, text=True, timeout=30, check=False)
+    assert result.returncode == 0
+    assert result.stdout.strip() == "rejected"
+    assert result.stderr == ""
+
+
+def test_spawned_ocr_worker_filters_pillow_warning_before_reading_input(tmp_path):
+    script = '''
+import multiprocessing
+import warnings
+from alfa_document_intelligence.ocr_processing import OCRProcessLimits, _ocr_worker_entry
+class Receiver:
+    def recv_bytes(self, **kwargs):
+        warnings.warn_explicit("synthetic warning", UserWarning, "synthetic-path.py", 1, module="PIL.synthetic")
+        raise EOFError()
+    def close(self): pass
+class Sender:
+    def close(self): pass
+class Gate:
+    def wait(self): pass
+if __name__ == "__main__":
+    limits = OCRProcessLimits(60, 2, 1024 * 1024 * 1024, 4096, 4096, 4096, 4096, 4096, 20)
+    process = multiprocessing.get_context("spawn").Process(
+        target=_ocr_worker_entry, args=(Receiver(), Sender(), Gate(), "unused:factory", limits))
+    process.start()
+    process.join(30)
+    assert process.exitcode == 0
+'''
+    script_path = tmp_path / "ocr_probe.py"
+    script_path.write_text(script, encoding="utf-8")
+    environment = dict(os.environ, PYTHONWARNINGS="always")
+    result = subprocess.run([sys.executable, "-B", str(script_path)], env=environment,
+                            capture_output=True, text=True, timeout=40, check=False)
+    assert result.returncode == 0
+    assert result.stderr == ""
 
 
 def _one_synthetic_page(source_bytes, media_kind, *, source_sha256, limits):

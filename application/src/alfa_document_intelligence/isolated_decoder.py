@@ -10,6 +10,7 @@ import math
 import multiprocessing
 import os
 import time
+import warnings
 from typing import Callable, Iterator
 
 from .document_decoder import (
@@ -22,6 +23,11 @@ from .document_decoder import (
 
 _DEFAULT_TIMEOUT_SECONDS = 60.0
 _DEFAULT_MEMORY_LIMIT_BYTES = 1024 * 1024 * 1024
+
+
+def _configure_worker_warning_filter() -> None:
+    """Mute Pillow warnings only in a dedicated spawned worker process."""
+    warnings.filterwarnings("ignore", module=r"^PIL(\.|$)")
 
 
 def _apply_posix_limits(memory_limit_bytes: int, timeout_seconds: float) -> None:
@@ -49,6 +55,7 @@ def _decode_worker(
 ) -> None:
     try:
         start_event.wait()
+        _configure_worker_warning_filter()
         if os.name == "posix":
             _apply_posix_limits(memory_limit_bytes, timeout_seconds)
         for page in decoder(
