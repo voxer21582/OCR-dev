@@ -227,6 +227,7 @@ from alfa_document_intelligence import isolated_decoder as isolated
 from alfa_document_intelligence.document_decoder import DecodeLimits, DocumentDecodeError
 
 def failed():
+    Path(sys.argv[2]).write_text('reached', encoding='ascii')
     raise OSError('SYNTHETIC_PRIVATE_ISOLATION_ERROR')
 def decoder(*args, **kwargs):
     Path(sys.argv[1]).write_text('unexpected', encoding='ascii')
@@ -247,12 +248,14 @@ if __name__ == '__main__':
     script_path = tmp_path / 'isolation_failure_probe.py'
     script_path.write_text(script, encoding='utf-8')
     marker_path = tmp_path / 'unexpected_decoder.txt'
-    result = subprocess.run([sys.executable, '-B', str(script_path), str(marker_path)],
+    failure_marker = tmp_path / 'isolation_failure_reached.txt'
+    result = subprocess.run([sys.executable, '-B', str(script_path), str(marker_path), str(failure_marker)],
                             capture_output=True, text=True, timeout=40, check=False)
     assert result.returncode == 0
     assert result.stdout.strip() == 'rejected'
     assert result.stderr == ''
     assert not marker_path.exists()
+    assert failure_marker.read_text(encoding='ascii') == 'reached'
 
 
 def _one_synthetic_page(source_bytes, media_kind, *, source_sha256, limits):
