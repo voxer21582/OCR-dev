@@ -50,6 +50,10 @@ Una serie precedente di 20 ricariche cronometrate fino al termine della lettura 
 
 Nel medesimo fascicolo il raccoglitore HTTP ha ottenuto 292 risposte 200 su 292 per ciascuna pagina, con p95 di 180,16 ms per `/cases` e 17,94 ms per `/`; l'OCR ha elaborato 104 pagine in 193,3 s. I tempi HTTP escludono le interazioni e il rendering, e le ricariche browser costituivano un carico aggiuntivo.
 
+## Profilo diagnostico della lista
+
+Un profilo `cProfile` locale, senza OCR concorrente, ha eseguito dieci chiamate `list_cases` su un archivio sintetico di 36 documenti: 648 ms complessivi con overhead del profiler. Le 730 chiamate di decifratura DPAPI hanno richiesto 276 ms cumulativi, mentre la validazione dei 360 record ha richiesto 164 ms cumulativi; parte dei tempi è inclusa nelle funzioni chiamanti e non va sommata. Il profilo identifica i percorsi da approfondire, non è una p95 né una prova sul fascicolo da 101 documenti. Non giustifica l'eliminazione dei controlli di autenticazione o validazione; nessuna cache dei dati decifrati è stata introdotta sulla base di questa misura.
+
 Una seconda ottimizzazione basata su riepiloghi in memoria è stata esplorata ma ritirata prima della consegna: la revisione ha individuato corse fra letture, cancellazione e ripristino con più istanze aperte. Non fa parte della soluzione corrente. L'indagine ha inoltre evidenziato che, se la verifica di un ripristino fallisce dopo il caricamento di una chiave diversa, va ripristinata anche la chiave precedente in memoria: la correzione è coperta da una prova di rollback su archivi sintetici.
 
 Il riesame indipendente del diff residuo non ha individuato regressioni concrete. Resta un limite preesistente separato: il ripristino non coordina altre istanze o processi già aperti sullo stesso archivio; la prova non dimostra la sicurezza del ripristino concorrente.
