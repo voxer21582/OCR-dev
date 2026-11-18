@@ -353,3 +353,17 @@ def test_install_cli_invalid_argument_is_sanitized_in_subprocess():
     assert result.returncode == 2
     assert 'SYNTHETIC_PRIVATE_ARGUMENT_843' not in result.stdout + result.stderr
     assert result.stderr.strip() == 'OCR2_INSTALL_ARGUMENT_ERROR'
+
+
+def test_removal_cli_invalid_argument_is_sanitized_in_subprocess(tmp_path):
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, '-B', '-m', 'alfa_document_intelligence.removal_check',
+         '--base', str(tmp_path), '--SYNTHETIC_PRIVATE_ARGUMENT_844'],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 2
+    assert 'SYNTHETIC_PRIVATE_ARGUMENT_844' not in result.stdout + result.stderr
+    assert result.stderr.strip() == 'OCR2_REMOVE_ARGUMENT_ERROR'
