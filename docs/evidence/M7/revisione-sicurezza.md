@@ -1,6 +1,14 @@
 # M7 — Revisione di sicurezza
 
-Stato: **revisione automatica indipendente eseguita e firmata dal proprietario**. La revisione è statica e automatica: non sostituisce una verifica umana esterna.
+## Riesame successivo delle modifiche
+
+Un riesame automatico indipendente ha esaminato staticamente il diff fra la base `0a76d415bf28c0e69b52a7539a88fe73ebe20ee7` e il commit `b8baa044be444558f752e7dc93d39009b3978b8f`, concentrandosi su launcher, isolamento delle uscite, server WSGI, navigazione, diagnostica, archivio R7/DPAPI e conteggio JSON. Non ha individuato ulteriori vulnerabilità concrete nei percorsi esaminati. Non ha eseguito personalmente i test o verificato la CI, né svolto un audit umano esterno, un penetration test o una nuova verifica completa di dipendenze e licenze.
+
+Restano i limiti documentati su handle o file nativi non coperti, bootstrap precedente agli import applicativi, navigazione e browser non tutti provati, rete osservata parzialmente e ripristino concorrente tra istanze. Le cache sperimentali non sono nel prodotto. La firma e l'approvazione R7 riportate sotto precedono una parte del diff riesaminato; non costituiscono approvazione delle modifiche successive. La verifica della latenza resta aperta.
+
+## Revisione e firma precedenti
+
+Il proprietario ha firmato la revisione automatica indipendente descritta in questa sezione; tale firma precede il riesame e le modifiche successive. La revisione è statica e automatica: non sostituisce una verifica umana esterna.
 
 Il revisore indipendente ha esaminato il modello delle minacce, il diff M7, la protezione dei registri, la diagnostica, l'archivio R7, il riuso delle funzioni DPAPI, la configurazione OCR e gli strumenti di osservazione. I rilievi su registri, errori del catalogo, letture concorrenti e limiti delle prove sono stati corretti o documentati nei rispettivi file di evidenza. Nel riesame del diff residuo non ha individuato ulteriori difetti concreti; non ha eseguito personalmente i test né osservato direttamente ogni prova installata.
 
