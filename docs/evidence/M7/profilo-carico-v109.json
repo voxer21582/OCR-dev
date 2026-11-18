@@ -1,0 +1,76 @@
+{
+  "comparison": "36 record sintetici, 20 iterazioni, processi separati; confronto esplorativo non randomizzato",
+  "baseline_5_medians_ms": {
+    "unprotect": [
+      18.34,
+      18.27,
+      17.32,
+      17.25,
+      17.1
+    ],
+    "parse": [
+      4.77,
+      4.74,
+      4.59,
+      4.67,
+      4.58
+    ],
+    "validate": [
+      3.94,
+      3.96,
+      3.83,
+      3.91,
+      3.82
+    ],
+    "size": [
+      7.36,
+      6.99,
+      7.09,
+      6.92,
+      6.85
+    ]
+  },
+  "ocr_8_medians_ms": {
+    "unprotect": [
+      20.37,
+      22.56,
+      18.44,
+      21.06,
+      20.61,
+      22.06,
+      22.23,
+      22.15
+    ],
+    "parse": [
+      5.21,
+      5.99,
+      4.94,
+      5.49,
+      5.47,
+      5.73,
+      5.9,
+      5.88
+    ],
+    "validate": [
+      4.61,
+      5.06,
+      4.11,
+      4.57,
+      4.51,
+      4.83,
+      5.08,
+      4.97
+    ],
+    "size": [
+      8.09,
+      8.78,
+      7.47,
+      8.34,
+      8.07,
+      8.92,
+      8.96,
+      8.79
+    ]
+  },
+  "note": "Il messaggio scope emesso dal vecchio script non rileva lo stato OCR: la seconda serie e stata acquisita tra eventi di elaborazione nella traccia v109."
+}
