@@ -664,7 +664,8 @@ def _ocr_worker_entry(
     try:
         start_gate.wait()
         _apply_worker_os_limits(limits)
-        from .isolated_decoder import _configure_worker_warning_filter
+        from .isolated_decoder import _configure_worker_warning_filter, _isolate_worker_standard_output
+        _isolate_worker_standard_output()
         _configure_worker_warning_filter()
         raw = input_receiver.recv_bytes(maxlength=limits.max_input_frame_bytes)
         envelope = _decode_with_kind(raw, limits.max_input_frame_bytes)

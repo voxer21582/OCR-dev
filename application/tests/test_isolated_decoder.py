@@ -15,6 +15,85 @@ from alfa_document_intelligence.ocr_adapter import RasterPage
 from alfa_document_intelligence.isolated_decoder import iter_decoded_pages_isolated
 
 
+def test_spawned_decoder_does_not_forward_direct_worker_output(tmp_path):
+    script = '''
+import hashlib
+import os
+from alfa_document_intelligence.document_decoder import DecodeLimits, DocumentDecodeError
+from alfa_document_intelligence.isolated_decoder import iter_decoded_pages_isolated
+
+def decoder(source_bytes, media_kind, *, source_sha256, limits):
+    os.write(1, b"SYNTHETIC_PRIVATE_STDOUT\\n")
+    os.write(2, b"SYNTHETIC_PRIVATE_STDERR\\n")
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+        kernel32.GetStdHandle.restype = wintypes.HANDLE
+        kernel32.WriteFile.argtypes = [wintypes.HANDLE, wintypes.LPCVOID, wintypes.DWORD,
+                                       ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID]
+        kernel32.WriteFile.restype = wintypes.BOOL
+        marker = b"SYNTHETIC_NATIVE_HANDLE\\n"
+        count = wintypes.DWORD()
+        assert kernel32.WriteFile(kernel32.GetStdHandle(-12 & 0xffffffff), marker, len(marker),
+                                  ctypes.byref(count), None)
+        assert count.value == len(marker)
+    raise DocumentDecodeError("synthetic rejection")
+    yield
+
+if __name__ == "__main__":
+    data = b"synthetic input"
+    try:
+        list(iter_decoded_pages_isolated(data, "pdf", source_sha256=hashlib.sha256(data).hexdigest(),
+                                        limits=DecodeLimits(), decoder=decoder, timeout_seconds=30))
+    except DocumentDecodeError as exc:
+        assert str(exc) == "synthetic rejection"
+        print("rejected")
+    else:
+        raise AssertionError("expected rejection")
+'''
+    script_path = tmp_path / "direct_output_probe.py"
+    script_path.write_text(script, encoding="utf-8")
+    result = subprocess.run([sys.executable, "-B", str(script_path)], capture_output=True,
+                            text=True, timeout=40, check=False)
+    assert result.returncode == 0
+    assert result.stdout.strip() == "rejected"
+    assert result.stderr == ""
+
+
+def test_output_isolation_with_closed_standard_descriptors(tmp_path):
+    script = '''
+import os
+from alfa_document_intelligence.isolated_decoder import _isolate_worker_standard_output
+os.close(1)
+os.close(2)
+_isolate_worker_standard_output()
+assert os.write(1, b"synthetic") == 9
+assert os.write(2, b"synthetic") == 9
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+    kernel32.GetStdHandle.restype = wintypes.HANDLE
+    kernel32.WriteFile.argtypes = [wintypes.HANDLE, wintypes.LPCVOID, wintypes.DWORD,
+                                   ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID]
+    kernel32.WriteFile.restype = wintypes.BOOL
+    count = wintypes.DWORD()
+    assert kernel32.WriteFile(kernel32.GetStdHandle(-12 & 0xffffffff), b"synthetic", 9,
+                              ctypes.byref(count), None)
+    assert count.value == 9
+'''
+    script_path = tmp_path / "closed_output_probe.py"
+    script_path.write_text(script, encoding="utf-8")
+    result = subprocess.run([sys.executable, "-B", str(script_path)], capture_output=True,
+                            timeout=30, check=False)
+    assert result.returncode == 0
+    assert result.stdout == b""
+    assert result.stderr == b""
+
+
 def test_spawned_decoder_does_not_emit_pillow_runtime_path_on_corrupt_tiff(tmp_path):
     pytest.importorskip("PIL.Image")
     script = '''
@@ -44,10 +123,13 @@ if __name__ == "__main__":
 def test_spawned_ocr_worker_filters_pillow_warning_before_reading_input(tmp_path):
     script = '''
 import multiprocessing
+import os
 import warnings
 from alfa_document_intelligence.ocr_processing import OCRProcessLimits, _ocr_worker_entry
 class Receiver:
     def recv_bytes(self, **kwargs):
+        os.write(1, b"SYNTHETIC_OCR_STDOUT\\n")
+        os.write(2, b"SYNTHETIC_OCR_STDERR\\n")
         warnings.warn_explicit("synthetic warning", UserWarning, "synthetic-path.py", 1, module="PIL.synthetic")
         raise EOFError()
     def close(self): pass
@@ -69,6 +151,7 @@ if __name__ == "__main__":
     result = subprocess.run([sys.executable, "-B", str(script_path)], env=environment,
                             capture_output=True, text=True, timeout=40, check=False)
     assert result.returncode == 0
+    assert result.stdout == ""
     assert result.stderr == ""
 
 

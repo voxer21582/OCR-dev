@@ -25,6 +25,31 @@ _DEFAULT_TIMEOUT_SECONDS = 60.0
 _DEFAULT_MEMORY_LIMIT_BYTES = 1024 * 1024 * 1024
 
 
+def _isolate_worker_standard_output() -> None:
+    """Discard worker output before processing untrusted document data."""
+    null_fd = os.open(os.devnull, os.O_WRONLY)
+    try:
+        # A windowed process may have any standard descriptor closed. Reserve
+        # those slots until the source descriptor is separate from all three.
+        while null_fd <= 2:
+            null_fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(null_fd, 1)
+        os.dup2(null_fd, 2)
+        if os.name == "nt":
+            import ctypes
+            import msvcrt
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.SetStdHandle.argtypes = (wintypes.DWORD, wintypes.HANDLE)
+            kernel32.SetStdHandle.restype = wintypes.BOOL
+            for standard, fd in ((-11, 1), (-12, 2)):
+                if not kernel32.SetStdHandle(standard & 0xFFFFFFFF, msvcrt.get_osfhandle(fd)):
+                    raise OSError(ctypes.get_last_error(), "cannot isolate worker output")
+    finally:
+        os.close(null_fd)
+
+
 def _configure_worker_warning_filter() -> None:
     """Mute Pillow warnings only in a dedicated spawned worker process."""
     warnings.filterwarnings("ignore", module=r"^PIL(\.|$)")
@@ -55,6 +80,7 @@ def _decode_worker(
 ) -> None:
     try:
         start_event.wait()
+        _isolate_worker_standard_output()
         _configure_worker_warning_filter()
         if os.name == "posix":
             _apply_posix_limits(memory_limit_bytes, timeout_seconds)
