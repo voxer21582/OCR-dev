@@ -1,9 +1,12 @@
 """Synthetic storage tests for encrypted local expense-case manifests."""
 import copy
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -68,6 +71,126 @@ def _case(statement_record):
     }
 
 
+@pytest.mark.parametrize('lines', [None, [], {}, False, 0, 'é😀\n"\\', {'z': [-3.25, {'a': '漢字'}], 'a': []}])
+def test_authenticated_record_size_accounting_matches_canonical_bytes(lines):
+    record = _source_record('size-unicode', b'%PDF synthetic')
+    record['source']['storage_ref'] = 'local-archive://size-unicode'
+    record['processing']['ocr']['status'] = 'completed'
+    record['expense_lines'] = lines
+    metadata, processed = LocalDocumentStore._case_record_sizes_validated(record, record['document_id'])
+    assert metadata == LocalDocumentStore._case_record_metadata_size_validated(record, record['document_id'])
+    assert processed == len(LocalDocumentStore._canonical_json(record))
+
+
+def test_authenticated_record_size_accounting_optional_and_nonfinite_content():
+    record = _source_record('size-optional', b'%PDF synthetic')
+    record['source']['storage_ref'] = 'local-archive://size-optional'
+    record['processing']['ocr']['status'] = 'completed'
+    record.pop('expense_lines', None)
+    _, processed = LocalDocumentStore._case_record_sizes_validated(record, record['document_id'])
+    assert processed == len(LocalDocumentStore._canonical_json(record))
+    record['expense_lines'] = [float('nan')]
+    with pytest.raises(ValueError):
+        LocalDocumentStore._case_record_sizes_validated(record, record['document_id'])
+    record['processing']['ocr']['status'] = 'pending'
+    metadata, processed = LocalDocumentStore._case_record_sizes_validated(record, record['document_id'])
+    assert metadata == LocalDocumentStore._case_record_metadata_size_validated(record, record['document_id'])
+    assert processed == 0
+
+
+def test_authenticated_record_size_accounting_exact_metadata_limit():
+    record = _source_record('size-limit', b'%PDF synthetic')
+    record['source']['storage_ref'] = 'local-archive://size-limit'
+    record['processing']['ocr']['status'] = 'completed'
+    record['padding'] = ''
+    base = LocalDocumentStore._case_record_metadata_size_validated(record, record['document_id'])
+    record['padding'] = 'x' * (1024 * 1024 - base)
+    metadata, processed = LocalDocumentStore._case_record_sizes_validated(record, record['document_id'])
+    assert metadata == 1024 * 1024
+    assert processed == len(LocalDocumentStore._canonical_json(record))
+    record['padding'] += 'x'
+    with pytest.raises(StoreRejected):
+        LocalDocumentStore._case_record_sizes_validated(record, record['document_id'])
+
+
+def test_reused_case_workers_drain_before_propagating_validation_error():
+    started, release, errors = threading.Event(), threading.Event(), []
+    def check(row):
+        if row == 'slow':
+            started.set()
+            assert release.wait(5)
+            return row
+        assert started.wait(5)
+        raise ValueError('synthetic failure')
+    def run():
+        try:
+            store_module._checked_case_list_batch(check, ['slow', 'bad'])
+        except Exception as exc:
+            errors.append(exc)
+    reader = threading.Thread(target=run)
+    reader.start()
+    try:
+        assert started.wait(5)
+        reader.join(.1)
+        assert reader.is_alive()
+    finally:
+        release.set()
+        reader.join(5)
+    assert not reader.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], ValueError)
+
+
+def test_closed_case_executor_is_reported_as_store_error(monkeypatch):
+    executor = ThreadPoolExecutor(max_workers=1)
+    executor.shutdown(wait=True)
+    monkeypatch.setattr(store_module, '_get_case_list_executor', lambda: executor)
+    with pytest.raises(StoreError, match='workers are unavailable'):
+        store_module._checked_case_list_batch(lambda _: None, ['record'])
+
+
+def test_case_executor_submission_failure_drains_existing_work(monkeypatch):
+    started, release, errors = threading.Event(), threading.Event(), []
+    executor = ThreadPoolExecutor(max_workers=1)
+    class FailingExecutor:
+        calls = 0
+        def submit(self, fn, row):
+            self.calls += 1
+            if self.calls == 2:
+                assert started.wait(5)
+                raise RuntimeError('synthetic executor failure')
+            return executor.submit(fn, row)
+    monkeypatch.setattr(store_module, '_get_case_list_executor', lambda: FailingExecutor())
+    def check(_):
+        started.set()
+        assert release.wait(5)
+    def run():
+        try:
+            store_module._checked_case_list_batch(check, ['first', 'second'])
+        except Exception as exc:
+            errors.append(exc)
+    reader = threading.Thread(target=run)
+    reader.start()
+    try:
+        assert started.wait(5)
+        reader.join(.1)
+        assert reader.is_alive()
+    finally:
+        release.set()
+        reader.join(5)
+        executor.shutdown(wait=True)
+    assert not reader.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], StoreError)
+
+
+def test_reused_case_executor_does_not_prevent_normal_process_exit():
+    code = (
+        'from alfa_document_intelligence.local_document_store import _checked_case_list_batch; '
+        'assert _checked_case_list_batch(lambda value: value + 1, [1, 2]) == [2, 3]'
+    )
+    result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.fixture
 def parallel_case_store(tmp_path, monkeypatch):
     # Force the isolated parallel branch with an authenticated synthetic protector.
@@ -100,6 +223,56 @@ def test_parallel_case_gate_released_after_error(parallel_case_store):
     assert store_module._CASE_LIST_PARALLEL_GATE.acquire(blocking=False)
     store_module._CASE_LIST_PARALLEL_GATE.release()
     assert len(store.list_cases()) == 1
+
+
+def test_partial_submission_failure_drains_and_releases_gate(parallel_case_store, monkeypatch):
+    store, case = parallel_case_store
+    source = b'%PDF synthetic receipt'
+    record = _source_record('gate-receipt', source, family='fiscal_receipt')
+    chunk = [{'record': record, 'source_bytes': source}]
+    store.append_case_chunk(case['case_id'], case['case_revision'], 'gate-chunk', store.case_chunk_digest(chunk), chunk)
+    started, release, errors = threading.Event(), threading.Event(), []
+    executor = ThreadPoolExecutor(max_workers=1)
+    class FailingExecutor:
+        calls = 0
+        def submit(self, fn, row):
+            self.calls += 1
+            if self.calls == 2:
+                assert started.wait(5)
+                raise RuntimeError('synthetic partial submission failure')
+            def delayed():
+                started.set()
+                assert release.wait(5)
+                return fn(row)
+            return executor.submit(delayed)
+    failing = FailingExecutor()
+    original_get = store_module._get_case_list_executor
+    monkeypatch.setattr(store_module, '_get_case_list_executor', lambda: failing)
+    def read():
+        try:
+            store.list_cases()
+        except Exception as exc:
+            errors.append(exc)
+    reader = threading.Thread(target=read)
+    reader.start()
+    try:
+        assert started.wait(5)
+        reader.join(.1)
+        assert reader.is_alive()
+        unexpectedly_free = store_module._CASE_LIST_PARALLEL_GATE.acquire(blocking=False)
+        if unexpectedly_free:
+            store_module._CASE_LIST_PARALLEL_GATE.release()
+        assert not unexpectedly_free
+    finally:
+        release.set()
+        reader.join(5)
+        executor.shutdown(wait=True)
+    assert not reader.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], StoreError)
+    assert store_module._CASE_LIST_PARALLEL_GATE.acquire(blocking=False)
+    store_module._CASE_LIST_PARALLEL_GATE.release()
+    monkeypatch.setattr(store_module, '_get_case_list_executor', original_get)
+    assert store.list_cases()[0]['case_id'] == case['case_id']
 
 
 def test_case_writer_does_not_wait_for_parallel_gate(parallel_case_store):

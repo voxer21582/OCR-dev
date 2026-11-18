@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import copy
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -27,8 +28,10 @@ DEFAULT_MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
 _SCHEMA_VERSION = 4
 # Parallel work is limited to one case-list read per process.
 _CASE_LIST_PARALLEL_GATE = threading.BoundedSemaphore(1)
-_CASE_LIST_WORKERS = 8
+_CASE_LIST_WORKERS = 12
 _CASE_LIST_BATCH_CIPHERTEXT_BYTES = 8 * 1024 * 1024
+_CASE_LIST_EXECUTOR_LOCK = threading.Lock()
+_CASE_LIST_EXECUTOR: ThreadPoolExecutor | None = None
 # Schema 4: encrypted library metadata (display name, tags, change events) per
 # document or case, kept apart from the record so its hash and review history stay valid.
 _LIBRARY_TABLE_SQL = (
@@ -136,6 +139,33 @@ class NewerStoreSchemaError(StoreSchemaError):
 
 class StoreProtectionError(StoreError):
     """The platform payload-protection operation failed."""
+
+
+def _get_case_list_executor() -> ThreadPoolExecutor:
+    """Lazily reuse bounded workers for this process; Python joins them at exit."""
+    global _CASE_LIST_EXECUTOR
+    with _CASE_LIST_EXECUTOR_LOCK:
+        if _CASE_LIST_EXECUTOR is None:
+            _CASE_LIST_EXECUTOR = ThreadPoolExecutor(max_workers=_CASE_LIST_WORKERS)
+        return _CASE_LIST_EXECUTOR
+
+
+def _checked_case_list_batch(check, rows):
+    """Finish submitted checks even when another submission or check fails.
+
+    The caller holds the case-list gate until this returns. The byte limit
+    bounds queued ciphertext, not total memory or task completion time.
+    """
+    futures = []
+    try:
+        executor = _get_case_list_executor()
+        for row in rows:
+            futures.append(executor.submit(check, row))
+    except RuntimeError as exc:
+        raise StoreError('case-list workers are unavailable') from exc
+    finally:
+        wait(futures)
+    return [future.result() for future in futures]
 
 
 class PayloadProtector(Protocol):
@@ -1096,12 +1126,11 @@ class LocalDocumentStore:
             # the potentially large ciphertext into the list/status response.
             if source_type != 'blob' or not isinstance(source_length, int) or source_length < 1:
                 raise StoreIntegrityError("case source ciphertext is missing")
-            metadata_size = self._case_record_metadata_size_validated(record, doc_id)
+            metadata_size, processed_size = self._case_record_sizes_validated(record, doc_id)
             if metadata_size > _MAX_CASE_RECORD_METADATA_BYTES:
                 raise StoreIntegrityError("case document metadata exceeds its configured limit")
             actual_metadata_bytes += metadata_size
-            if record.get('processing', {}).get('ocr', {}).get('status') == 'completed':
-                actual_processed_bytes += len(self._canonical_json(record))
+            actual_processed_bytes += processed_size
             actual_bytes += record['source']['byte_length']
             ownership[doc_id] = binding['case_owned']
         if actual_bytes != case.get("retained_source_bytes"):
@@ -1121,8 +1150,6 @@ class LocalDocumentStore:
         are batched before decryption; one oversized record is handled alone.
         The batch budget is not a bound on total process memory.
         """
-        from concurrent.futures import ThreadPoolExecutor
-
         expected = {self._document_id_index(item['document_id']): item for item in self._manifest_document_refs(case)}
         bindings = connection.execute(
             "SELECT document_id_index FROM case_documents WHERE case_id_index = ?", (case_index,),
@@ -1146,46 +1173,40 @@ class LocalDocumentStore:
                 raise StoreIntegrityError("case source hash does not match the archived document")
             if source_type != 'blob' or not isinstance(source_length, int) or source_length < 1:
                 raise StoreIntegrityError("case source ciphertext is missing")
-            metadata = self._case_record_metadata_size_validated(record, doc_id)
+            metadata, processed = self._case_record_sizes_validated(record, doc_id)
             if metadata > _MAX_CASE_RECORD_METADATA_BYTES:
                 raise StoreIntegrityError("case document metadata exceeds its configured limit")
-            processed = (
-                len(self._canonical_json(record))
-                if record.get('processing', {}).get('ocr', {}).get('status') == 'completed'
-                else 0
-            )
             return doc_id, binding['case_owned'], record['source']['byte_length'], metadata, processed
 
         checked = []
         pending = []
         pending_bytes = 0
-        with ThreadPoolExecutor(max_workers=_CASE_LIST_WORKERS) as pool:
-            for (document_index,) in bindings:
-                meta = connection.execute(
-                    "SELECT length(cd.binding_payload), d.entry_id, length(d.record_payload) "
-                    "FROM case_documents cd LEFT JOIN documents d ON d.document_id_index=cd.document_id_index "
-                    "WHERE cd.case_id_index=? AND cd.document_id_index=?", (case_index, document_index),
-                ).fetchone()
-                if meta is None or meta[1] is None or not isinstance(meta[0], int) or not isinstance(meta[2], int):
-                    raise StoreIntegrityError("case references a missing or invalid local document")
-                size = meta[0] + meta[2]
-                if pending and (len(pending) >= _CASE_LIST_WORKERS
-                                or pending_bytes + size > _CASE_LIST_BATCH_CIPHERTEXT_BYTES):
-                    checked.extend(pool.map(check, pending))
-                    pending = []
-                    pending_bytes = 0
-                row = connection.execute(
-                    "SELECT cd.binding_payload, d.entry_id, d.document_id_index, d.record_payload, "
-                    "typeof(d.source_payload), length(d.source_payload) FROM case_documents cd "
-                    "JOIN documents d ON d.document_id_index=cd.document_id_index "
-                    "WHERE cd.case_id_index=? AND cd.document_id_index=?", (case_index, document_index),
-                ).fetchone()
-                if row is None or not isinstance(row[0], bytes) or not isinstance(row[3], bytes):
-                    raise StoreIntegrityError("invalid protected payload type")
-                pending.append((document_index, *row))
-                pending_bytes += size
-            if pending:
-                checked.extend(pool.map(check, pending))
+        for (document_index,) in bindings:
+            meta = connection.execute(
+                "SELECT length(cd.binding_payload), d.entry_id, length(d.record_payload) "
+                "FROM case_documents cd LEFT JOIN documents d ON d.document_id_index=cd.document_id_index "
+                "WHERE cd.case_id_index=? AND cd.document_id_index=?", (case_index, document_index),
+            ).fetchone()
+            if meta is None or meta[1] is None or not isinstance(meta[0], int) or not isinstance(meta[2], int):
+                raise StoreIntegrityError("case references a missing or invalid local document")
+            size = meta[0] + meta[2]
+            if pending and (len(pending) >= _CASE_LIST_WORKERS
+                            or pending_bytes + size > _CASE_LIST_BATCH_CIPHERTEXT_BYTES):
+                checked.extend(_checked_case_list_batch(check, pending))
+                pending = []
+                pending_bytes = 0
+            row = connection.execute(
+                "SELECT cd.binding_payload, d.entry_id, d.document_id_index, d.record_payload, "
+                "typeof(d.source_payload), length(d.source_payload) FROM case_documents cd "
+                "JOIN documents d ON d.document_id_index=cd.document_id_index "
+                "WHERE cd.case_id_index=? AND cd.document_id_index=?", (case_index, document_index),
+            ).fetchone()
+            if row is None or not isinstance(row[0], bytes) or not isinstance(row[3], bytes):
+                raise StoreIntegrityError("invalid protected payload type")
+            pending.append((document_index, *row))
+            pending_bytes += size
+        if pending:
+            checked.extend(_checked_case_list_batch(check, pending))
         if sum(x[2] for x in checked) != case.get('retained_source_bytes'):
             raise StoreIntegrityError("case retained-source byte count does not match archived documents")
         if sum(x[3] for x in checked) > _MAX_CASE_TOTAL_METADATA_BYTES:
@@ -1291,6 +1312,26 @@ class LocalDocumentStore:
         if size > _MAX_CASE_RECORD_METADATA_BYTES:
             raise StoreRejected("case document metadata exceeds the 1 MiB metadata limit")
         return size
+
+    @classmethod
+    def _case_record_sizes_validated(cls, record: dict, document_id: str) -> tuple[int, int]:
+        """Account for authenticated records whose archive reference was verified.
+
+        The metadata envelope omits expense_lines. Reusing its canonical byte
+        length avoids serializing the remaining record twice for OCR results.
+        """
+        metadata = cls._case_record_metadata_size_validated(record, document_id)
+        processed = 0
+        if record.get('processing', {}).get('ocr', {}).get('status') == 'completed':
+            envelope_overhead = len(cls._canonical_json({
+                'format_version': 1, 'record': {}, 'saved_at': '2000-01-01T00:00:00+00:00',
+            })) - 2
+            processed = metadata - envelope_overhead
+            if 'expense_lines' in record:
+                processed += len(b'"expense_lines":') + len(cls._canonical_json(record['expense_lines']))
+                if len(record) > 1:
+                    processed += 1
+        return metadata, processed
 
     def create_case(self, case_manifest: dict, statement_record: dict, source_bytes: bytes) -> dict:
         """Atomically archive the statement, its opaque binding, and the encrypted case manifest."""
