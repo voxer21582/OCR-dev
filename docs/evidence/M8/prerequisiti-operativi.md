@@ -14,3 +14,5 @@ Il protocollo e le soglie sono approvati; questa scheda organizza le verifiche r
 | Collaudo | La checklist Windows si firma solo dopo le verifiche osservate; segnalare strumenti di sviluppo inclusi e limiti M6/M7. |
 
 Non indicare percorsi, impronte, nomi o valori individuali nel repository, nel ticket o nella chat. La verifica CSV è sintattica e non sostituisce il controllo dei documenti o l'approvazione del foglio.
+
+Verifica preparatoria del 2026-11-19: il sistema riferisce **Windows 11 Home, versione 10.0.26300, 64 bit**. È una lettura dell’ambiente, non un collaudo firmato né l’identificazione del runtime della prova; il primo tentativo nella sandbox è stato negato e la lettura successiva autorizzata è riuscita.
