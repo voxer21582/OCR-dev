@@ -6,6 +6,12 @@ import shutil
 import sys
 
 
+class _SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        # Do not echo untrusted arguments or the program path to stderr.
+        self.exit(2, 'OCR2_REMOVE_ARGUMENT_ERROR\n')
+
+
 def _linked(path: Path) -> bool:
     try:
         return path.is_symlink() or bool(getattr(path.lstat(), "st_file_attributes", 0) & 0x400)
@@ -49,7 +55,7 @@ def cleanup_debris(base: Path) -> None:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser()
+    parser = _SafeArgumentParser()
     parser.add_argument("--base", type=Path, required=True)
     parser.add_argument("--data", type=Path)
     parser.add_argument("--cleanup-debris", action="store_true")
@@ -61,8 +67,11 @@ def main(argv=None) -> int:
             cleanup_debris(args.base)
         else:
             validate_removal(args.base, args.data)
-    except (ValueError, OSError) as exc:
-        print(f"OCR2: {exc}", file=sys.stderr)
+    except Exception:
+        # Any failure reports only the stable code, with the same exit status an
+        # uncaught exception had: messages and tracebacks can carry paths (REQ-124).
+        if sys.stderr is not None:
+            print("OCR2_REMOVE_ERROR", file=sys.stderr)
         return 1
     return 0
 

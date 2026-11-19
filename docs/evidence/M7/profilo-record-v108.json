@@ -1,0 +1,10 @@
+{
+  "scope": "36 record sintetici gia elaborati; 20 iterazioni sequenziali in memoria, un solo PC, senza OCR concorrente",
+  "median_total_ms_per_phase": {
+    "dpapi_unprotect": 17.21,
+    "json_parse": 4.49,
+    "record_validation": 3.86,
+    "size_accounting": 6.97
+  },
+  "limitations": "Le fasi sono misurate separatamente e non includono SQL, bindings, concorrenza, rete o rendering; non sono una scomposizione della latenza delle serie Edge."
+}

@@ -6,6 +6,8 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from alfa_document_intelligence.local_document_store import (
@@ -404,6 +406,23 @@ class LocalDocumentStoreTests(unittest.TestCase):
         reopened = LocalDocumentStore(dpapi_database).get("synthetic-invoice-001")
         self.assertEqual(reopened.source_bytes, self.source)
         self.assertEqual(reopened.record["source"]["sha256"], hashlib.sha256(self.source).hexdigest())
+
+    @unittest.skipUnless(os.name == "nt", "Windows DPAPI integration")
+    def test_dpapi_reuses_system_functions_and_authenticates_concurrent_reads(self):
+        import ctypes
+        from alfa_document_intelligence import local_document_store
+        local_document_store._windows_dpapi_api.cache_clear()
+        protector = WindowsDpapiProtector()
+        with patch.object(ctypes, 'WinDLL', wraps=ctypes.WinDLL) as load:
+            values = [f'synthetic-{number}'.encode() for number in range(8)]
+            encrypted = [protector.protect(value) for value in values]
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                self.assertEqual(list(pool.map(protector.unprotect, encrypted)), values)
+            damaged = encrypted[0][:-1] + bytes([encrypted[0][-1] ^ 1])
+            with self.assertRaises(local_document_store.StoreProtectionError):
+                protector.unprotect(damaged)
+            self.assertEqual([call.args[0] for call in load.call_args_list].count('Crypt32'), 1)
+            self.assertEqual([call.args[0] for call in load.call_args_list].count('Kernel32'), 1)
 
 
 if __name__ == "__main__":

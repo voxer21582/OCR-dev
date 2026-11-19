@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import json
 import platform
 import re
 import socket
@@ -269,6 +270,56 @@ def test_info_page_shows_version_python_and_engine(tmp_path):
         plain.close()
 
 
+def test_diagnostic_download_contains_only_allowlisted_values():
+    info = AppInfo(version='9.8.7', python_version='3.12.10',
+                   ocr_engine='SYNTHETIC_DOCUMENT_194', runtime_status='verificato',
+                   instance_id='SYNTHETIC_PERSON_419')
+    app = create_expense_report_app(app_info=info)
+    try:
+        status, _, page = _invoke(app, 'GET', '/app/info')
+        assert status.startswith('200') and '/app/diagnostics' in page
+        status, headers, body = _invoke(app, 'GET', '/app/diagnostics')
+        assert status.startswith('200')
+        assert headers['Content-Type'] == 'application/json; charset=utf-8'
+        assert headers['Content-Disposition'] == 'attachment; filename="ocr2-diagnostica.json"'
+        assert headers['Cache-Control'] == 'no-store'
+        assert json.loads(body) == {
+            'format': 'ocr2-diagnostics-v1', 'app_version': '9.8.7',
+            'python_version': '3.12.10', 'ocr': 'enabled', 'runtime': 'verified',
+        }
+        assert 'SYNTHETIC_' not in body
+        status, _, _ = _invoke(app, 'POST', '/app/diagnostics')
+        assert status.startswith(('403', '405'))
+    finally:
+        app.close()
+
+
+def test_diagnostic_download_rejects_untrusted_strings():
+    info = AppInfo(version='C:/SYNTHETIC_PERSON', python_version='SYNTHETIC_DOCUMENT',
+                   ocr_engine=None, runtime_status='SYNTHETIC_IDENTIFIER',
+                   instance_id='SYNTHETIC_INSTANCE')
+    app = create_expense_report_app(app_info=info)
+    try:
+        status, _, body = _invoke(app, 'GET', '/app/diagnostics')
+        assert status.startswith('200') and 'SYNTHETIC_' not in body
+        data = json.loads(body)
+        assert data['app_version'] == data['python_version'] == 'unknown'
+        assert data['ocr'] == 'disabled' and data['runtime'] == 'unknown'
+    finally:
+        app.close()
+
+
+def test_diagnostics_do_not_infer_ocr_status_without_app_info():
+    app = create_expense_report_app()
+    try:
+        status, _, body = _invoke(app, 'GET', '/app/diagnostics')
+        assert status.startswith('200')
+        data = json.loads(body)
+        assert data['ocr'] == 'unknown' and data['runtime'] == 'unknown'
+    finally:
+        app.close()
+
+
 def _script_start_tags(page):
     from html.parser import HTMLParser
 
@@ -296,6 +347,20 @@ def test_script_respects_csp_nonce(app_mode):
     assert all(f'nonce="{nonce}"' in tag for tag in scripts)
     assert "__CSP_NONCE__" not in page
     assert "connect-src 'self'" in csp
+
+
+def test_case_navigation_is_confined_to_app_mode_and_fixed_pages(app_mode):
+    app = app_mode[0]
+    for path in ('/', '/cases'):
+        status, headers, page = _invoke(app, 'GET', path)
+        assert status.startswith('200')
+        assert 'data-ocr2-navigation' in page
+        assert 'data-ocr2-lifecycle' in page
+        assert "connect-src 'self'" in headers['Content-Security-Policy']
+    status, _, page = _invoke(app, 'GET', '/archive')
+    assert status.startswith('200')
+    assert 'data-ocr2-navigation' not in page
+    assert 'data-ocr2-lifecycle' in page
 
 
 def test_script_tag_parser_handles_uppercase():

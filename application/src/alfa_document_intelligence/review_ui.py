@@ -9,6 +9,7 @@ from collections.abc import Mapping
 import hashlib
 from html import escape
 from wsgiref.simple_server import make_server
+from .safe_wsgi import SafeWSGIRequestHandler, SafeWSGIServer
 from typing import Any, Callable
 from urllib.parse import quote, unquote
 
@@ -248,4 +249,4 @@ def serve_local(
     if not isinstance(port, int) or isinstance(port, bool) or not 0 <= port <= 65535:
         raise ValueError("port must be between 0 and 65535")
     app = create_review_app(records, source_bytes, max_source_bytes=max_source_bytes)
-    return make_server("127.0.0.1", port, app)
+    return make_server("127.0.0.1", port, app, server_class=SafeWSGIServer, handler_class=SafeWSGIRequestHandler)

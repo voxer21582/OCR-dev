@@ -1,13 +1,16 @@
-"""Launch log of the app window: %LOCALAPPDATA%\\OCR2\\logs\\launcher.log (owner decision 2026-11-16).
+"""Launch log of the app window: %LOCALAPPDATA%\\OCR2\\logs\\launcher-safe.log (DEC-035).
 
 Every test points LOCALAPPDATA at a temporary folder: the real profile is never touched.
 """
 from __future__ import annotations
 
 import builtins
+from enum import IntEnum
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import sys
 import types
 
@@ -15,8 +18,141 @@ import pytest
 
 import alfa_document_intelligence.__main__ as launcher
 
-HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher.log"
+HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher-safe.log"
 TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+
+
+@pytest.mark.parametrize('window', [False, True])
+def test_cli_unexpected_exception_never_prints_private_traceback(tmp_path, window):
+    script = '''
+import sys
+from alfa_document_intelligence import __main__ as launcher
+def failed(argv):
+    raise RuntimeError("SYNTHETIC_PRIVATE_PATH_AND_DOCUMENT")
+launcher.main = failed
+launcher._show_startup_error = lambda message: None
+sys.argv = ["ocr2"] + (["--app-window"] if sys.argv[1] == "window" else [])
+launcher._cli_entrypoint()
+'''
+    environment = dict(os.environ, LOCALAPPDATA=str(tmp_path))
+    result = subprocess.run([sys.executable, '-B', '-c', script, 'window' if window else 'console'],
+                            env=environment, capture_output=True, text=True, timeout=20, check=False)
+    assert result.returncode == 1
+    assert 'OCR2_UNEXPECTED_ERROR' in result.stderr
+    assert 'SYNTHETIC_PRIVATE_PATH_AND_DOCUMENT' not in result.stderr + result.stdout
+    assert 'Traceback' not in result.stderr
+    log = tmp_path / 'OCR2' / 'logs' / 'launcher-safe.log'
+    if window:
+        assert 'OCR2_START_EXCEPTION' in log.read_text(encoding='utf-8')
+        assert 'SYNTHETIC_PRIVATE_PATH_AND_DOCUMENT' not in log.read_text(encoding='utf-8')
+
+
+def test_cli_redacts_non_numeric_exit_message(tmp_path):
+    script = '''
+from alfa_document_intelligence import __main__ as launcher
+def failed():
+    raise SystemExit("SYNTHETIC_PRIVATE_EXIT")
+launcher._run_entrypoint = failed
+launcher._cli_entrypoint()
+'''
+    result = subprocess.run([sys.executable, '-B', '-c', script], capture_output=True,
+                            text=True, timeout=20, check=False)
+    assert result.returncode == 1
+    assert 'SYNTHETIC_PRIVATE_EXIT' not in result.stderr + result.stdout
+    assert 'Traceback' not in result.stderr
+
+
+@pytest.mark.parametrize('window', [False, True])
+def test_executed_bootstrap_redacts_application_import_failure(tmp_path, window):
+    script = '''
+import builtins, sys, types
+from pathlib import Path
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+window = sys.argv[2] == "window"
+sys.argv = ["ocr2"] + (["--app-window"] if window else [])
+original = builtins.__import__
+def intercept(name, *args, **kwargs):
+    if name == "app_instance":
+        raise ImportError("SYNTHETIC_PRIVATE_BOOTSTRAP_PATH")
+    if name == "ctypes" and window:
+        return types.SimpleNamespace(windll=types.SimpleNamespace(user32=types.SimpleNamespace(MessageBoxW=lambda *a: 0)))
+    return original(name, *args, **kwargs)
+builtins.__import__ = intercept
+exec(compile(source, "synthetic_launcher", "exec"), {"__name__": "__main__", "__package__": "alfa_document_intelligence"})
+'''
+    env = dict(os.environ, LOCALAPPDATA=str(tmp_path))
+    result = subprocess.run([sys.executable, '-B', '-c', script, launcher.__file__,
+                             'window' if window else 'console'], env=env,
+                            capture_output=True, text=True, timeout=20, check=False)
+    assert result.returncode == 1
+    assert 'OCR2_START_IMPORT' in result.stderr
+    assert 'SYNTHETIC_PRIVATE_BOOTSTRAP_PATH' not in result.stdout + result.stderr
+    assert 'Traceback' not in result.stderr
+
+
+def test_python_module_entrypoint_redacts_bootstrap_import_failure(tmp_path):
+    source_package = Path(launcher.__file__).parent
+    copied_package = tmp_path / 'alfa_document_intelligence'
+    shutil.copytree(source_package, copied_package, ignore=shutil.ignore_patterns('__pycache__'))
+    (copied_package / 'app_instance.py').write_text(
+        'raise ImportError("SYNTHETIC_PRIVATE_BOOTSTRAP_PATH")\n', encoding='utf-8')
+    env = dict(os.environ, PYTHONPATH=str(tmp_path))
+    result = subprocess.run([sys.executable, '-B', '-m', 'alfa_document_intelligence'],
+                            cwd=str(tmp_path), env=env, capture_output=True, text=True,
+                            timeout=20, check=False)
+    assert result.returncode == 1
+    assert 'OCR2_START_IMPORT' in result.stderr
+    assert 'SYNTHETIC_PRIVATE_BOOTSTRAP_PATH' not in result.stderr + result.stdout
+    assert 'Traceback' not in result.stderr
+    imported = subprocess.run([sys.executable, '-B', '-c', 'import alfa_document_intelligence.__main__'],
+                              cwd=str(tmp_path), env=env, capture_output=True, text=True,
+                              timeout=20, check=False)
+    assert imported.returncode != 0
+    assert 'SYNTHETIC_PRIVATE_BOOTSTRAP_PATH' in imported.stderr
+
+
+class _ExitEnum(IntEnum):
+    OK = 0
+    FAILED = 3
+
+
+class _ExitInt(int):
+    def __eq__(self, other):
+        raise RuntimeError('synthetic comparison must not run')
+    def __int__(self):
+        raise RuntimeError('synthetic conversion must not run')
+
+
+@pytest.mark.parametrize('exit_code, expected', [(None, 0), (0, 0), (1, 1), (False, 0), (True, 1),
+                                                (_ExitEnum.OK, 0), (_ExitEnum.FAILED, 3), (_ExitInt(0), 0)])
+def test_cli_preserves_numeric_exit_status(exit_code, expected, monkeypatch):
+    def exit_now():
+        raise SystemExit(exit_code)
+    monkeypatch.setattr(launcher, '_run_entrypoint', exit_now)
+    with pytest.raises(SystemExit) as caught:
+        launcher._cli_entrypoint()
+    assert (0 if caught.value.code is None else int(caught.value.code)) == expected
+
+
+@pytest.mark.parametrize('source', ['argument', 'runtime'])
+def test_cli_does_not_echo_untrusted_startup_detail(tmp_path, source):
+    script = '''
+import sys
+from types import SimpleNamespace
+from alfa_document_intelligence import __main__ as launcher
+if sys.argv[1] == 'argument':
+    sys.argv = ['ocr2', '--ocr-engine', 'SYNTHETIC_PRIVATE_ARGUMENT']
+else:
+    launcher._runtime_check = lambda manifest: SimpleNamespace(
+        problems=('SYNTHETIC_PRIVATE_RUNTIME_PATH',), warnings=(), ok=False)
+    sys.argv = ['ocr2', '--ocr-engine', 'rapidocr-v6']
+launcher._cli_entrypoint()
+'''
+    result = subprocess.run([sys.executable, '-B', '-c', script, source], capture_output=True,
+                            text=True, timeout=20, check=False)
+    assert result.returncode == 2
+    assert 'OCR2_' in result.stderr
+    assert 'SYNTHETIC_PRIVATE_' not in result.stderr + result.stdout
 
 
 @pytest.fixture
@@ -28,7 +164,7 @@ def local_app_data(tmp_path, monkeypatch):
 
 
 def _log(root: Path) -> Path:
-    return root / "OCR2" / "logs" / "launcher.log"
+    return root / "OCR2" / "logs" / "launcher-safe.log"
 
 
 def _dialogs(monkeypatch):
@@ -37,7 +173,41 @@ def _dialogs(monkeypatch):
     return shown
 
 
-def test_unexpected_error_is_logged_with_type_and_traceback(local_app_data, monkeypatch):
+def test_new_log_preserves_both_legacy_files(local_app_data):
+    folder = local_app_data / 'OCR2' / 'logs'
+    folder.mkdir(parents=True)
+    old = folder / 'launcher.log'
+    backup = folder / 'launcher.log.1'
+    old.write_bytes(b'LEGACY_SYNTHETIC' * 20000)
+    backup.write_bytes(b'LEGACY_BACKUP_SYNTHETIC')
+    safe = folder / 'launcher-safe.log'
+    safe.write_bytes(b'SAFE_SYNTHETIC' * 20000)
+    original = old.read_bytes(), backup.read_bytes()
+    launcher._write_launch_log('eccezione', 'SYNTHETIC_SECRET')
+    assert (old.read_bytes(), backup.read_bytes()) == original
+    assert (folder / 'launcher-safe.log.1').read_bytes() == b'SAFE_SYNTHETIC' * 20000
+    assert 'OCR2_START_EXCEPTION' in safe.read_text(encoding='utf-8')
+
+
+def test_launch_log_records_only_safe_stable_code(local_app_data):
+    try:
+        raise ValueError('SYNTHETIC_DOCUMENT_921 C:\\private\\statement.pdf')
+    except ValueError as exc:
+        launcher._write_launch_log('eccezione', 'SYNTHETIC_IDENTIFIER_718', exc)
+    text = _log(local_app_data).read_text(encoding='utf-8')
+    assert 'OCR2_START_EXCEPTION' in text
+    for private in ('SYNTHETIC_DOCUMENT_921', 'SYNTHETIC_IDENTIFIER_718', 'statement.pdf', 'Traceback'):
+        assert private not in text
+
+
+def test_unknown_log_kind_cannot_inject_content(local_app_data):
+    launcher._write_launch_log('SYNTHETIC_PERSON_512', 'SYNTHETIC_DOCUMENT_921')
+    text = _log(local_app_data).read_text(encoding='utf-8')
+    assert 'OCR2_START_OTHER' in text
+    assert 'SYNTHETIC_PERSON_512' not in text and 'SYNTHETIC_DOCUMENT_921' not in text
+
+
+def test_unexpected_error_is_logged_without_message_or_traceback(local_app_data, monkeypatch):
     shown = _dialogs(monkeypatch)
 
     def failed(argv):
@@ -48,13 +218,12 @@ def test_unexpected_error_is_logged_with_type_and_traceback(local_app_data, monk
         launcher._run_entrypoint(["--app-window"])
     text = _log(local_app_data).read_text(encoding="utf-8")
     assert TIMESTAMP.search(text)
-    assert "eccezione" in text
-    assert "RuntimeError" in text and "synthetic failure" in text
-    assert "Traceback" in text
+    assert "OCR2_START_EXCEPTION" in text
+    assert "synthetic failure" not in text and "Traceback" not in text
     assert len(shown) == 1 and "synthetic failure" not in shown[0]
 
 
-def test_failed_exit_is_logged_with_code_and_console_messages(local_app_data, monkeypatch):
+def test_failed_exit_is_logged_without_console_messages(local_app_data, monkeypatch):
     _dialogs(monkeypatch)
 
     def failed(argv):
@@ -68,9 +237,27 @@ def test_failed_exit_is_logged_with_code_and_console_messages(local_app_data, mo
     assert sys.stderr is None
     text = _log(local_app_data).read_text(encoding="utf-8")
     assert TIMESTAMP.search(text)
-    assert "uscita" in text and "1" in text
-    assert "synthetic reason on stderr" in text
-    assert "SystemExit" in text
+    assert "OCR2_START_EXIT" in text
+    assert "synthetic reason on stderr" not in text
+
+
+def test_window_exit_does_not_format_untrusted_exit_object(local_app_data, monkeypatch):
+    shown = _dialogs(monkeypatch)
+    class ExitValue:
+        @property
+        def __class__(self):
+            return int
+        def __repr__(self):
+            raise RuntimeError("SYNTHETIC_PRIVATE_REPR")
+        def __eq__(self, other):
+            raise RuntimeError("SYNTHETIC_PRIVATE_COMPARISON")
+    def failed(argv):
+        raise SystemExit(ExitValue())
+    monkeypatch.setattr(launcher, 'main', failed)
+    with pytest.raises(SystemExit):
+        launcher._run_entrypoint(['--app-window'])
+    assert len(shown) == 1
+    assert 'OCR2_START_EXIT' in _log(local_app_data).read_text(encoding='utf-8')
 
 
 def test_integrity_failure_is_logged_once(local_app_data, monkeypatch, tmp_path):
@@ -90,7 +277,7 @@ def test_integrity_failure_is_logged_once(local_app_data, monkeypatch, tmp_path)
         launcher._run_entrypoint(["--app-window"])
     assert len(notices) == 1
     text = _log(local_app_data).read_text(encoding="utf-8")
-    assert "integrità" in text and "Installazione non valida" in text
+    assert "OCR2_START_INTEGRITY" in text and "Installazione non valida" not in text
     assert text.count("=== ") == 1
 
 
@@ -115,7 +302,7 @@ def test_newer_archive_is_logged(local_app_data, monkeypatch):
         launcher._run_entrypoint(["--app-window"])
     assert len(dialogs) == 1
     text = _log(local_app_data).read_text(encoding="utf-8")
-    assert "archivio più recente" in text and "versione più recente" in text
+    assert "OCR2_START_ARCHIVE_VERSION" in text and "versione più recente" not in text
     assert text.count("=== ") == 1
 
 
@@ -182,7 +369,7 @@ def test_log_rotates_to_one_backup_above_the_limit(local_app_data, monkeypatch):
     log.parent.mkdir(parents=True)
     old = "old entry\n" * (launcher._LAUNCH_LOG_LIMIT_BYTES // 10)
     log.write_text(old, encoding="utf-8")
-    (log.parent / "launcher.log.1").write_text("older backup\n", encoding="utf-8")
+    (log.parent / "launcher-safe.log.1").write_text("older backup\n", encoding="utf-8")
     _dialogs(monkeypatch)
 
     def failed(argv):
@@ -191,11 +378,11 @@ def test_log_rotates_to_one_backup_above_the_limit(local_app_data, monkeypatch):
     monkeypatch.setattr(launcher, "main", failed)
     with pytest.raises(RuntimeError):
         launcher._run_entrypoint(["--app-window"])
-    backup = log.parent / "launcher.log.1"
+    backup = log.parent / "launcher-safe.log.1"
     assert backup.read_text(encoding="utf-8") == old
-    assert "synthetic failure" in log.read_text(encoding="utf-8")
+    assert "OCR2_START_EXCEPTION" in log.read_text(encoding="utf-8")
     assert log.stat().st_size < launcher._LAUNCH_LOG_LIMIT_BYTES
-    assert sorted(path.name for path in log.parent.iterdir()) == ["launcher.log", "launcher.log.1"]
+    assert sorted(path.name for path in log.parent.iterdir()) == ["launcher-safe.log", "launcher-safe.log.1"]
 
 
 def test_one_huge_entry_stays_within_the_limit(local_app_data):
@@ -241,19 +428,18 @@ def test_bootstrap_import_failure_is_logged_and_names_the_log(local_app_data, mo
     assert len(messages) == 1 and HINT in messages[0][1]
     assert "synthetic missing module" not in messages[0][1]
     text = _log(local_app_data).read_text(encoding="utf-8")
-    assert "import" in text and "ImportError" in text and "synthetic missing module" in text
+    assert "OCR2_START_IMPORT" in text and "synthetic missing module" not in text
 
 
-def test_truncated_entry_keeps_the_head_and_the_final_exception_line(local_app_data):
+def test_large_sensitive_entry_is_not_written(local_app_data):
     try:
         raise ValueError("final synthetic line")
     except ValueError as exc:
         launcher._write_launch_log("eccezione", "x" * 200_000, exc)
     text = _log(local_app_data).read_text(encoding="utf-8")
     assert len(text.encode("utf-8")) <= launcher._LAUNCH_LOG_ENTRY_BYTES
-    assert "eccezione" in text.splitlines()[0]
-    assert "[…troncato]" in text
-    assert text.rstrip().endswith("ValueError: final synthetic line")
+    assert "OCR2_START_EXCEPTION" in text
+    assert "final synthetic line" not in text and "x" * 100 not in text
 
 
 @pytest.mark.parametrize("console", [False, True], ids=["pythonw", "console"])
@@ -297,7 +483,7 @@ def test_requests_after_start_up_never_reach_the_log(local_app_data, monkeypatch
     with pytest.raises(SystemExit):
         launcher._run_entrypoint(["--app-window"])
     text = _log(local_app_data).read_text(encoding="utf-8")
-    assert "uscita anomala" in text
+    assert "OCR2_START_EXIT" in text
     for secret in ("Mario", "IBAN", "/archive", "Riservato", "synthetic start-up warning"):
         assert secret not in text
     if console:
@@ -311,3 +497,165 @@ def test_server_ends_the_start_up_capture_right_before_serving():
     assert source.count("_end_startup_capture()") == 1
     assert source.index("_end_startup_capture()") < source.index("server.serve_forever()")
     assert source.index("app_lifetime.start()") < source.index("_end_startup_capture()")
+
+
+# --- Legacy launch logs: deleted at start (owner decision 2026-11-19, DEC-035) ---
+
+def _legacy_folder(root):
+    folder = root / 'OCR2' / 'logs'
+    folder.mkdir(parents=True)
+    return folder
+
+
+def test_start_deletes_only_the_two_legacy_launch_logs(local_app_data):
+    folder = _legacy_folder(local_app_data)
+    (folder / 'launcher.log').write_bytes(b'LEGACY_SYNTHETIC C:/Users/SYNTHETIC_USER/x')
+    (folder / 'launcher.log.1').write_bytes(b'LEGACY_BACKUP_SYNTHETIC')
+    kept = {
+        folder / 'launcher-safe.log': b'=== 2026-11-19T00:00:00 \xc2\xb7 OCR2_START_EXIT ===\n',
+        folder / 'launcher-safe.log.1': b'SAFE_BACKUP',
+        folder / 'launcher.log.2': b'OTHER_SYNTHETIC',
+        folder / 'Launcher.log.bak': b'OTHER_SYNTHETIC',
+        local_app_data / 'OCR2' / 'launcher.log': b'OUTSIDE_LOGS_SYNTHETIC',
+    }
+    for path, data in kept.items():
+        path.write_bytes(data)
+    launcher._remove_legacy_launch_logs()
+    assert not (folder / 'launcher.log').exists()
+    assert not (folder / 'launcher.log.1').exists()
+    for path, data in kept.items():
+        assert path.read_bytes() == data
+
+
+def test_legacy_log_removal_tolerates_missing_folders_and_environment(local_app_data, monkeypatch):
+    launcher._remove_legacy_launch_logs()  # no OCR2 folder
+    (local_app_data / 'OCR2').mkdir()
+    launcher._remove_legacy_launch_logs()  # no logs folder
+    monkeypatch.setenv('LOCALAPPDATA', 'relative-folder')
+    launcher._remove_legacy_launch_logs()
+    monkeypatch.delenv('LOCALAPPDATA')
+    launcher._remove_legacy_launch_logs()
+
+
+def test_legacy_log_removal_never_raises(local_app_data, monkeypatch):
+    folder = _legacy_folder(local_app_data)
+    (folder / 'launcher.log').write_bytes(b'LEGACY_SYNTHETIC')
+
+    def refuse(path):
+        raise PermissionError('SYNTHETIC_DENIED')
+
+    monkeypatch.setattr(launcher.os, 'remove', refuse)
+    launcher._remove_legacy_launch_logs()
+    assert (folder / 'launcher.log').exists()
+
+
+def test_legacy_log_removal_leaves_directories_with_the_same_name(local_app_data):
+    folder = _legacy_folder(local_app_data)
+    (folder / 'launcher.log').mkdir()
+    (folder / 'launcher.log' / 'inner.txt').write_bytes(b'INNER_SYNTHETIC')
+    launcher._remove_legacy_launch_logs()
+    assert (folder / 'launcher.log' / 'inner.txt').read_bytes() == b'INNER_SYNTHETIC'
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows junctions')
+@pytest.mark.parametrize('linked', ['OCR2', 'logs'])
+def test_legacy_log_removal_does_not_follow_junctions(local_app_data, tmp_path, linked):
+    import _winapi
+
+    elsewhere = tmp_path / 'elsewhere'
+    target_logs = elsewhere / 'logs' if linked == 'OCR2' else elsewhere
+    target_logs.mkdir(parents=True)
+    (target_logs / 'launcher.log').write_bytes(b'ELSEWHERE_SYNTHETIC')
+    (target_logs / 'launcher.log.1').write_bytes(b'ELSEWHERE_SYNTHETIC')
+    if linked == 'OCR2':
+        _winapi.CreateJunction(str(elsewhere), str(local_app_data / 'OCR2'))
+    else:
+        (local_app_data / 'OCR2').mkdir()
+        _winapi.CreateJunction(str(elsewhere), str(local_app_data / 'OCR2' / 'logs'))
+    launcher._remove_legacy_launch_logs()
+    assert (target_logs / 'launcher.log').read_bytes() == b'ELSEWHERE_SYNTHETIC'
+    assert (target_logs / 'launcher.log.1').read_bytes() == b'ELSEWHERE_SYNTHETIC'
+
+
+def test_legacy_log_removal_does_not_follow_file_symlinks(local_app_data, tmp_path):
+    folder = _legacy_folder(local_app_data)
+    target = tmp_path / 'target.log'
+    target.write_bytes(b'TARGET_SYNTHETIC')
+    try:
+        os.symlink(target, folder / 'launcher.log')
+    except (OSError, NotImplementedError):
+        pytest.skip('file symlinks are not available to this account')
+    launcher._remove_legacy_launch_logs()
+    assert target.read_bytes() == b'TARGET_SYNTHETIC'
+    assert (folder / 'launcher.log').is_symlink()
+
+
+@pytest.mark.parametrize('window', [False, True])
+def test_every_start_removes_legacy_logs_before_serving(local_app_data, monkeypatch, window):
+    order = []
+    monkeypatch.setattr(launcher, '_remove_legacy_launch_logs', lambda: order.append('remove'))
+
+    def serve(*args, **kwargs):
+        order.append('serve')
+
+    monkeypatch.setattr(launcher, '_serve', serve)
+    monkeypatch.setattr(launcher, 'running_instance', lambda data_dir: None)
+    arguments = ['--port', '0'] + (['--app-window'] if window else [])
+    if window and not launcher._APP_WINDOW_AVAILABLE:
+        pytest.skip('window mode is Windows only')
+    launcher.main(arguments)
+    assert order == ['remove', 'serve']
+
+
+def test_legacy_log_removal_writes_nothing(local_app_data, capsys):
+    folder = _legacy_folder(local_app_data)
+    (folder / 'launcher.log').write_bytes(b'LEGACY_SYNTHETIC')
+    launcher._remove_legacy_launch_logs()
+    output = capsys.readouterr()
+    assert output.out == output.err == ''
+    assert sorted(path.name for path in folder.iterdir()) == []
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows junctions')
+def test_legacy_log_removal_rejects_directory_swapped_after_check(local_app_data, tmp_path, monkeypatch):
+    import _winapi
+    folder = _legacy_folder(local_app_data)
+    (folder / 'launcher.log').write_bytes(b'ORIGINAL_SYNTHETIC')
+    elsewhere = tmp_path / 'elsewhere-race'
+    elsewhere.mkdir()
+    victim = elsewhere / 'launcher.log'
+    victim.write_bytes(b'OUTSIDE_SYNTHETIC')
+    original_lstat = os.lstat
+    swapped = False
+    denied = False
+    def swap_after_check(path, *args, **kwargs):
+        nonlocal swapped, denied
+        result = original_lstat(path, *args, **kwargs)
+        if not swapped and os.path.normcase(str(path)) == os.path.normcase(str(folder)):
+            swapped = True
+            try:
+                os.rename(folder, folder.with_name('logs-original'))
+            except PermissionError:
+                denied = True
+                raise
+            _winapi.CreateJunction(str(elsewhere), str(folder))
+        return result
+    monkeypatch.setattr(launcher.os, 'lstat', swap_after_check)
+    launcher._remove_legacy_launch_logs()
+    assert swapped and denied
+    assert victim.read_bytes() == b'OUTSIDE_SYNTHETIC'
+    os.rename(folder, folder.with_name('logs-after-return'))
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows junctions')
+def test_legacy_log_removal_rejects_linked_localappdata_ancestor(tmp_path, monkeypatch):
+    import _winapi
+    actual = tmp_path / 'actual'
+    base = actual / 'profile'
+    folder = _legacy_folder(base)
+    victim = folder / 'launcher.log'
+    victim.write_bytes(b'OUTSIDE_SYNTHETIC')
+    link = tmp_path / 'linked-parent'
+    _winapi.CreateJunction(str(actual), str(link))
+    monkeypatch.setenv('LOCALAPPDATA', str(link / 'profile'))
+    launcher._remove_legacy_launch_logs()
+    assert victim.read_bytes() == b'OUTSIDE_SYNTHETIC'

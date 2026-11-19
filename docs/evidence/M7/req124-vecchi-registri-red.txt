@@ -1,0 +1,10 @@
+FAILED tests/test_launch_log.py::test_start_deletes_only_the_two_legacy_launch_logs
+FAILED tests/test_launch_log.py::test_legacy_log_removal_tolerates_missing_folders_and_environment
+FAILED tests/test_launch_log.py::test_legacy_log_removal_never_raises - Attri...
+FAILED tests/test_launch_log.py::test_legacy_log_removal_leaves_directories_with_the_same_name
+FAILED tests/test_launch_log.py::test_legacy_log_removal_does_not_follow_junctions[OCR2]
+FAILED tests/test_launch_log.py::test_legacy_log_removal_does_not_follow_junctions[logs]
+FAILED tests/test_launch_log.py::test_every_start_removes_legacy_logs_before_serving[False]
+FAILED tests/test_launch_log.py::test_every_start_removes_legacy_logs_before_serving[True]
+FAILED tests/test_launch_log.py::test_legacy_log_removal_writes_nothing - Att...
+9 failed, 38 passed, 1 skipped, 1 warning in 3.00s

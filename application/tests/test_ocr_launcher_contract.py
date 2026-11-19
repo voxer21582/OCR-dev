@@ -157,6 +157,14 @@ class OCRLauncherContractTests(unittest.TestCase):
         text = " ".join(str(args) for args, _ in output.call_args_list)
         self.assertIn("pypdfium2", text)
 
+    def test_runtime_warning_does_not_expose_untrusted_details(self):
+        report = _Report(warnings=("SYNTHETIC_PRIVATE_RUNTIME_PATH",))
+        with patch("builtins.print") as output:
+            self._run(["--ocr-engine", "rapidocr-v6"], report)
+        text = " ".join(str(args) for args, _ in output.call_args_list)
+        self.assertIn("OCR2_OCR_RUNTIME_WARNING", text)
+        self.assertNotIn("SYNTHETIC_PRIVATE_RUNTIME_PATH", text)
+
 
     def test_engine_choices_come_from_the_registry(self):
         engines = {"synthetic-x": _SYNTHETIC_MANIFEST, "hidden-x": _HIDDEN_MANIFEST}

@@ -1,0 +1,26 @@
+{
+  "method": "36 source sintetiche univoche abbinate per hash in due archivi di prova locali; 20 ripetizioni alternate per stato, pool di 8 thread riutilizzato; senza OCR concorrente",
+  "record_ciphertext_bytes": {
+    "not_started": {
+      "median": 1292,
+      "total": 46192
+    },
+    "completed": {
+      "median": 5972,
+      "total": 529696
+    }
+  },
+  "decode_record_ms_per_36": {
+    "not_started": {
+      "median": 4.426,
+      "minimum": 3.846,
+      "maximum": 6.14
+    },
+    "completed": {
+      "median": 14.028,
+      "minimum": 11.96,
+      "maximum": 17.208
+    }
+  },
+  "limitations": "Confronto tra due archivi sintetici distinti; non isola la causa specifica nel contenuto e non misura la lista intera o la latenza sotto OCR."
+}

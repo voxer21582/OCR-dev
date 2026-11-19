@@ -1,0 +1,112 @@
+REQ-124 sul prodotto installato, seconda prova - 2026-11-19
+Build OCR2_TEST dal commit 7ecd9dd (payload 0.6.1 ricostruito offline dagli input verificati in build-cache).
+SHA-256 installer: c5c5009fa57128ad19af370ebda6e9edff9739d3facc107c2d6bf16ec171e06a
+Installazione silenziosa in cartella isolata con LOCALAPPDATA temporaneo: uscita 0; install_state verify 0.6.1: uscita 0 dopo le prove.
+
+Pannello dei dettagli: verificato sulle impostazioni compilate, non con un'esecuzione visibile (la sessione non dispone di controllo del desktop).
+Compilazione verbosa (makensis /V4) dello stesso script e payload:
+  ShowInstDetails: nevershow
+  ShowUninstDetails: nevershow
+  DetailPrint: "Installazione di OCR2 in corso..."  poi  SetDetailsPrint: none
+  DetailPrint: "Disinstallazione di OCR2 in corso..."  poi  SetDetailsPrint: none
+
+Sonda: .m7-work/probe-req124-v117.py (locale); interprete e moduli installati; marcatori sintetici.
+Prima dell'avvio normale sono stati creati launcher.log e launcher.log.1 sintetici in OCR2\logs, piu' tre file vicini (launcher.log.2, other.txt in logs, launcher.log in OCR2).
+L'avvio normale sostituisce l'apertura della finestra Edge con un no-op e usa il motore rapidocr-v6; nelle prove di avvio non riuscito i dialoghi sono no-op.
+
+[
+ {
+  "check": "install_state invalid argument",
+  "ok": true,
+  "detail": "rc=2"
+ },
+ {
+  "check": "removal_check invalid argument",
+  "ok": true,
+  "detail": "rc=2"
+ },
+ {
+  "check": "install_state nested active.json",
+  "ok": true,
+  "detail": "rc=1"
+ },
+ {
+  "check": "install forced RuntimeError",
+  "ok": true,
+  "detail": "rc=1"
+ },
+ {
+  "check": "remove forced RuntimeError",
+  "ok": true,
+  "detail": "rc=1"
+ },
+ {
+  "check": "launcher exception failure",
+  "ok": true,
+  "detail": "rc=1 entries=1"
+ },
+ {
+  "check": "launcher argument failure",
+  "ok": true,
+  "detail": "rc=2 entries=2"
+ },
+ {
+  "check": "legacy launcher.log not written",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "normal start publishes instance",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "home page served",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "Esci accepted",
+  "ok": true,
+  "detail": "http=200"
+ },
+ {
+  "check": "process ended after Esci",
+  "ok": true,
+  "detail": "rc=0"
+ },
+ {
+  "check": "normal run output clean",
+  "ok": true,
+  "detail": "stderr_lines=0"
+ },
+ {
+  "check": "instance.json removed",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "no launch-log entry for a normal run",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "legacy launch logs deleted at start",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "neighbouring files untouched",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "launcher-safe.log unchanged by the deletion",
+  "ok": true,
+  "detail": ""
+ }
+]
+ALL_OK True
+normal_stdout_lines 3 normal_stderr ''
+
+Dopo le prove: cartelle di installazione, dati sintetici, payload e installer di prova eliminati; nessun processo dell'installazione di prova attivo (0 per percorso, 0 per riga di comando).

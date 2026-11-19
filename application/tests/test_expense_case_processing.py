@@ -290,6 +290,13 @@ class _CancelOnPublishWorker(_ImmediateWorker):
         return False
 
 
+class _FailingGatedWorker(_GatedWorker):
+    def start(self, *args, **kwargs):
+        self.entered.set()
+        self.release.wait(3)
+        raise RuntimeError("synthetic worker failure")
+
+
 class ExpenseCaseProcessingManagerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -360,6 +367,31 @@ class ExpenseCaseProcessingManagerTests(unittest.TestCase):
             statement_record["expense_lines"][0]["description"]["evidence"][0]["source_sha256"],
             statement_record["source"]["sha256"],
         )
+
+    def _assert_failure_ends_job_when_case_reread_fails(self, reread):
+        limits = self._limits_for_one_document_frames()
+        worker = _FailingGatedWorker(limits)
+        manager = ExpenseCaseProcessingManager(
+            self.store, worker, limits, DecodeLimits(), poll_interval=0.001,
+        )
+        self.addCleanup(manager.close)
+        job_id = manager.start(self.case["case_id"], self.case["case_revision"])
+        self.assertTrue(worker.entered.wait(3))
+        with patch.object(self.store, "get_case", side_effect=reread):
+            worker.release.set()
+            status = self._run_to_terminal(manager, job_id)
+        self.assertEqual(status.phase, "failed")
+        # The synthetic worker fails to start: its stable code survives the failed re-read.
+        self.assertEqual(status.error_code, "worker_start_failed")
+        self.assertFalse(manager.has_active_job())
+
+    def test_failure_ends_job_when_case_reread_raises(self):
+        from alfa_document_intelligence.local_document_store import StoreIntegrityError
+
+        self._assert_failure_ends_job_when_case_reread_fails(StoreIntegrityError("synthetic integrity failure"))
+
+    def test_failure_ends_job_when_case_reread_finds_no_case(self):
+        self._assert_failure_ends_job_when_case_reread_fails(lambda case_id: None)
 
     def test_failed_later_group_keeps_earlier_commit_and_resume_continues_at_cursor(self):
         limits = self._limits_for_one_document_frames()

@@ -52,6 +52,34 @@ class RapidOCRRuntimeFactoryTests(unittest.TestCase):
 
         return activate()
 
+    def test_vendor_log_does_not_disclose_runtime_or_document_content(self):
+        import io
+        import logging
+        output = io.StringIO()
+        logger = logging.getLogger('RapidOCR')
+        original_disabled = logger.disabled
+        original_propagate = logger.propagate
+        original_handlers = list(logger.handlers)
+        handler = logging.StreamHandler(output)
+        logger.addHandler(handler)
+        logger.disabled = False
+        logger.propagate = False
+        class LoggingOCR(_FakeRapidOCR):
+            def __init__(self, *, params):
+                logging.getLogger('RapidOCR').error('SYNTHETIC_DOCUMENT_424')
+                logging.getLogger('RapidOCR.synthetic').error('SYNTHETIC_DOCUMENT_425')
+                super().__init__(params=params)
+        self.package.RapidOCR = LoggingOCR
+        try:
+            with self._patched_factory():
+                runtime_factory.create_rapidocr_v6_multilingual_adapter()
+            self.assertNotIn('SYNTHETIC_DOCUMENT_424', output.getvalue())
+            self.assertNotIn('SYNTHETIC_DOCUMENT_425', output.getvalue())
+        finally:
+            logger.handlers = original_handlers
+            logger.disabled = original_disabled
+            logger.propagate = original_propagate
+
     def test_factory_builds_multilingual_adapter_with_verified_local_models(self):
         with self._patched_factory():
             adapter = runtime_factory.create_rapidocr_v6_multilingual_adapter()
@@ -60,6 +88,8 @@ class RapidOCRRuntimeFactoryTests(unittest.TestCase):
         self.assertEqual(adapter.version, "3.10.0")
         self.assertIsInstance(adapter.engine, _FakeRapidOCR)
         params = adapter.engine.params
+        self.assertEqual(params['EngineConfig.onnxruntime.intra_op_num_threads'], 1)
+        self.assertEqual(params['EngineConfig.onnxruntime.inter_op_num_threads'], 1)
         self.assertEqual(params["Det.lang_type"], "multi")
         self.assertEqual(params["Rec.lang_type"], "multi")
         self.assertFalse(params["Global.use_cls"])

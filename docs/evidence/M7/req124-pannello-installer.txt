@@ -1,0 +1,2 @@
+RED (prima della modifica di installer/ocr2.nsi): FAILED tests/test_nsis_script.py::test_installer_and_uninstaller_never_show_paths_in_the_details_panel (ShowInstDetails nevershow assente)
+GREEN: tests/test_nsis_script.py 25 passed

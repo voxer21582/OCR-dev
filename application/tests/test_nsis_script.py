@@ -277,3 +277,31 @@ def test_unsigned_release_output_name_says_it_is_unsigned():
     # A signed release keeps any name.
     error, _ = _preprocess(_SIGNED, output='C:/out/OCR2-0.6.0-setup.exe')
     assert error is None
+
+
+def _section_bodies(script):
+    return re.findall(r'^Section "[^"]*"\n(.*?)^SectionEnd', script, re.M | re.S)
+
+
+def test_installer_and_uninstaller_never_show_paths_in_the_details_panel():
+    # REQ-124, owner decision 2026-11-19 («Nasconderlo»): the details panel and
+    # the status line must not show installation paths (with the user name).
+    script = (Path(__file__).resolve().parents[2] / 'installer/ocr2.nsi').read_text(encoding='utf-8-sig').replace('\r\n', '\n')
+    assert re.search(r'^ShowInstDetails nevershow$', script, re.M)
+    assert re.search(r'^ShowUninstDetails nevershow$', script, re.M)
+    assert not re.search(r'^Show(Inst|Uninst)Details (show|hide)$', script, re.M)
+    bodies = _section_bodies(script)
+    assert len(bodies) == 2
+    for body in bodies:
+        statements = [line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith(';')]
+        # Only fixed progress text may be printed before details are switched off.
+        first_off = statements.index('SetDetailsPrint none')
+        assert all(item.startswith(('SetDetailsPrint ', 'DetailPrint ')) for item in statements[:first_off])
+        printing = True
+        for item in statements:
+            if item.startswith('SetDetailsPrint '):
+                printing = item != 'SetDetailsPrint none'
+            elif printing:
+                assert item.startswith(('DetailPrint ', 'SectionEnd')) or item.endswith(':'), item
+    for argument in re.findall(r'^\s*DetailPrint\s+(.*)$', script, re.M):
+        assert '$' not in argument and argument.startswith('"'), argument

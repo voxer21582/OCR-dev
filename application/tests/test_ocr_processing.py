@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import hashlib
+import json
 import os
 import threading
 import time
@@ -119,6 +120,25 @@ class OCRProcessLimitsTests(unittest.TestCase):
 
 
 class OCRFrameProtocolTests(unittest.TestCase):
+    def test_input_frame_size_boundary_handles_long_and_escaped_strings(self):
+        class MisleadingString(str):
+            def __len__(self):
+                return 1024
+
+        for content in (
+            "A+/9" * 300 + "==", "A" * 1200 + "!", "A" * 1200 + '"',
+            "A" * 1200 + "\\", "A" * 1200 + "\n", "A" * 1200 + "è😀",
+            MisleadingString("A" * 1500),
+        ):
+            with self.subTest(suffix=content[-4:]):
+                message = valid_input()
+                message["payload"]["documents"][0]["source_bytes_b64"] = content
+                expected = json.dumps(message, ensure_ascii=False, allow_nan=False,
+                                      separators=(",", ":"), sort_keys=True).encode("utf-8")
+                self.assertEqual(encode_frame(message, max_bytes=len(expected)), expected)
+                with self.assertRaises(OCRJobProtocolError):
+                    encode_frame(message, max_bytes=len(expected) - 1)
+
     def test_input_protocol_accepts_legacy_frames_and_valid_case_budgets(self):
         legacy = valid_input()
         self.assertEqual(

@@ -82,6 +82,8 @@ jobs:
           tests/test_archive_source_after_restart.py
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py
+          tests/test_case_benchmark_network.py
+          tests/test_case_load_metrics.py
           tests/test_case_benchmark_score.py
           tests/test_case_export_reader.py
           tests/test_catalog_alias_delimiters.py
@@ -103,6 +105,8 @@ jobs:
           tests/test_expense_case_intake_routes.py
           tests/test_expense_case_processing.py
           tests/test_expense_case_store.py
+          tests/test_case_list_reference_cache.py
+          tests/test_case_navigation.py
           tests/test_expense_line_extraction.py
           tests/test_expense_reconciliation.py
           tests/test_expense_reconciliation_ui.py
@@ -144,9 +148,11 @@ jobs:
           tests/test_pdf_text_layer.py
           tests/test_preview_isolation.py
           tests/test_public_data_guard.py
+          tests/test_process_tcp_observer.py
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
           tests/test_region_review_keyboard.py
+          tests/test_req124_output_guards.py
           tests/test_review_identity.py
           tests/test_review_ledger.py
           tests/test_review_ui.py
@@ -221,6 +227,8 @@ jobs:
           tests/test_archive_source_after_restart.py
           tests/test_attached_currency_amounts.py
           tests/test_case_benchmark_fixtures.py
+          tests/test_case_benchmark_network.py
+          tests/test_case_load_metrics.py
           tests/test_case_benchmark_score.py
           tests/test_case_export_reader.py
           tests/test_catalog_alias_delimiters.py
@@ -242,6 +250,8 @@ jobs:
           tests/test_expense_case_intake_routes.py
           tests/test_expense_case_processing.py
           tests/test_expense_case_store.py
+          tests/test_case_list_reference_cache.py
+          tests/test_case_navigation.py
           tests/test_expense_line_extraction.py
           tests/test_expense_reconciliation.py
           tests/test_expense_reconciliation_ui.py
@@ -283,9 +293,11 @@ jobs:
           tests/test_pdf_text_layer.py
           tests/test_preview_isolation.py
           tests/test_public_data_guard.py
+          tests/test_process_tcp_observer.py
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
           tests/test_region_review_keyboard.py
+          tests/test_req124_output_guards.py
           tests/test_review_identity.py
           tests/test_review_ledger.py
           tests/test_review_ui.py

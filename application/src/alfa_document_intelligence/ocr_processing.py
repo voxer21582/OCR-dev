@@ -496,6 +496,14 @@ def _preflight_encoded_size(value: object, *, max_bytes: int) -> None:
     remaining = max_bytes
 
     def text_size(text: str) -> int:
+        # Long base64 strings dominate OCR input frames. This ASCII alphabet
+        # needs no JSON escaping, so its exact UTF-8 size is its length plus
+        # the quotes. Exclude str subclasses whose __len__ can be overridden.
+        if type(text) is str and len(text) >= 1024:
+            if len(text) + 2 > remaining:
+                raise OCRJobProtocolError("worker message exceeds byte limit")
+            if re.fullmatch(r"[A-Za-z0-9+/]*={0,2}", text):
+                return len(text) + 2
         size = 2  # quotes
         for char in text:
             codepoint = ord(char)
@@ -664,6 +672,9 @@ def _ocr_worker_entry(
     try:
         start_gate.wait()
         _apply_worker_os_limits(limits)
+        from .isolated_decoder import _configure_worker_warning_filter, _isolate_worker_standard_output
+        _isolate_worker_standard_output()
+        _configure_worker_warning_filter()
         raw = input_receiver.recv_bytes(maxlength=limits.max_input_frame_bytes)
         envelope = _decode_with_kind(raw, limits.max_input_frame_bytes)
         if envelope["kind"] != "input":

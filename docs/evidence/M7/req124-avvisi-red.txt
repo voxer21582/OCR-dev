@@ -1,0 +1,2 @@
+FAILED tests/test_req124_output_guards.py::test_launcher_python_warnings_print_only_stable_code
+1 failed, 19 passed in 2.24s

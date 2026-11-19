@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack, contextmanager
 import importlib
 import os
 import platform
 import secrets
+import stat
 import sys
 import time
-import traceback
 from pathlib import Path
 from typing import Sequence
 
@@ -24,39 +25,45 @@ _START_FAILURE_MESSAGE = (
 )
 
 
-# The dialogs stay generic; the details go to the launch log in the data folder
-# (owner decision 2026-11-16). The variable is shown as written, not expanded.
-_LAUNCH_LOG_HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher.log"
+class _SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        # argparse errors can echo untrusted argument values and program paths.
+        safe_messages = {
+            "La finestra dell'app è disponibile solo su Windows",
+            "LOCALAPPDATA non è disponibile: archivio locale non inizializzabile",
+        }
+        detail = message if message in safe_messages else "argomenti o configurazione non validi"
+        self.exit(2, f"OCR2_ARGUMENT_ERROR: {detail}.\n")
+
+
+# The dialogs stay generic; the launch log contains stable, non-sensitive codes.
+_LAUNCH_LOG_HINT = "Dettagli in %LOCALAPPDATA%\\OCR2\\logs\\launcher-safe.log"
 _LAUNCH_LOG_LIMIT_BYTES = 256 * 1024
 _LAUNCH_LOG_ENTRY_BYTES = 64 * 1024
+_LAUNCH_LOG_CODES = {
+    'import': 'OCR2_START_IMPORT',
+    'integrità': 'OCR2_START_INTEGRITY',
+    'archivio più recente': 'OCR2_START_ARCHIVE_VERSION',
+    'uscita anomala': 'OCR2_START_EXIT',
+    'eccezione': 'OCR2_START_EXCEPTION',
+}
 
 
 def _write_launch_log(kind: str, message: str = "", error: BaseException | None = None) -> None:
-    """Append a start-up failure to launcher.log; never raise.
+    """Append a start-up failure to the separate safe log; never raise.
 
-    Only window-mode failures call this. Paths with the user name may appear
-    (accepted by the owner). Above the limit the log moves to launcher.log.1,
-    replacing the previous backup, so at most two small files exist.
+    Only fixed event codes are persisted. Arbitrary exception messages, stderr,
+    paths, identifiers and tracebacks are deliberately excluded.
     """
     try:
         local_app_data = os.environ.get("LOCALAPPDATA")
         if not local_app_data or not os.path.isabs(local_app_data):
             return
-        lines = [f"=== {time.strftime('%Y-%m-%dT%H:%M:%S%z')} · {kind} ==="]
-        if message:
-            lines.append(message.rstrip())
-        if error is not None:
-            lines.append("".join(traceback.format_exception(type(error), error, error.__traceback__)).rstrip())
-        data = ("\n".join(lines) + "\n\n").encode("utf-8", "replace")
-        if len(data) > _LAUNCH_LOG_ENTRY_BYTES:
-            # Keep the head (time and kind) and the tail (the final exception line).
-            marker = "\n[…troncato]\n".encode("utf-8")
-            half = (_LAUNCH_LOG_ENTRY_BYTES - len(marker)) // 2
-            data = (data[:half].decode("utf-8", "ignore").encode("utf-8") + marker
-                    + data[-half:].decode("utf-8", "ignore").encode("utf-8"))
+        code = _LAUNCH_LOG_CODES.get(kind, 'OCR2_START_OTHER')
+        data = f"=== {time.strftime('%Y-%m-%dT%H:%M:%S%z')} · {code} ===\n\n".encode('utf-8')
         folder = os.path.join(local_app_data, "OCR2", "logs")
         os.makedirs(folder, exist_ok=True)
-        path = os.path.join(folder, "launcher.log")
+        path = os.path.join(folder, "launcher-safe.log")
         # No lock between processes: two launchers failing at the same moment
         # may interleave their entries or both rotate. Accepted, because only a
         # failed start writes and a second launcher normally just reuses the
@@ -70,6 +77,86 @@ def _write_launch_log(kind: str, message: str = "", error: BaseException | None 
             log.write(data)
     except Exception:
         pass  # The log is a help; the dialog and the original error come first.
+
+
+_LEGACY_LAUNCH_LOGS = ("launcher.log", "launcher.log.1")
+_REPARSE_POINT = 0x400  # FILE_ATTRIBUTE_REPARSE_POINT: symbolic links and junctions
+
+
+def _is_plain(status, kind) -> bool:
+    return kind(status.st_mode) and not getattr(status, "st_file_attributes", 0) & _REPARSE_POINT
+
+
+@contextmanager
+def _lock_plain_windows_directory(path):
+    """Pin a non-reparse directory against rename while deleting legacy logs."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                       ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.restype = wintypes.HANDLE
+    info = kernel.GetFileInformationByHandleEx
+    info.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    info.restype = wintypes.BOOL
+    close = kernel.CloseHandle
+    close.argtypes = [wintypes.HANDLE]
+    close.restype = wintypes.BOOL
+
+    class AttributeTag(ctypes.Structure):
+        _fields_ = [('attributes', wintypes.DWORD), ('tag', wintypes.DWORD)]
+
+    # No FILE_SHARE_DELETE: all previously opened delete handles must also
+    # permit this open, and the directory cannot be renamed until close.
+    handle = create(path, 0x81, 0x1 | 0x2, None, 3, 0x02000000 | 0x00200000, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise OSError(ctypes.get_last_error(), 'directory unavailable')
+    try:
+        attributes = AttributeTag()
+        if not info(handle, 9, ctypes.byref(attributes), ctypes.sizeof(attributes)):
+            raise OSError(ctypes.get_last_error(), 'directory metadata unavailable')
+        if attributes.attributes & _REPARSE_POINT or not attributes.attributes & 0x10:
+            raise OSError('directory is a reparse point or not a directory')
+        yield
+    finally:
+        close(handle)
+
+
+def _remove_legacy_launch_logs() -> None:
+    r"""Delete the M6 launch logs, which may hold paths and messages (DEC-035).
+
+    Owner decision of 2026-11-19: at every start the app deletes exactly
+    %LOCALAPPDATA%\OCR2\logs\launcher.log and launcher.log.1. Only regular
+    files directly inside a real OCR2\logs folder are removed; symbolic links
+    and junctions are neither followed nor removed. Never raises, writes nothing.
+    """
+    try:
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data or not os.path.isabs(local_app_data):
+            return
+        data_dir = os.path.join(local_app_data, "OCR2")
+        folder = os.path.join(data_dir, "logs")
+        with ExitStack() as held_directories:
+            if os.name == 'nt':
+                # Pin every ancestor before resolving the next component.
+                base = Path(os.path.abspath(local_app_data))
+                directories = [str(p) for p in reversed((base, *base.parents))]
+                for directory in (*directories, data_dir, folder):
+                    held_directories.enter_context(_lock_plain_windows_directory(directory))
+            for directory in (data_dir, folder):
+                if not _is_plain(os.lstat(directory), stat.S_ISDIR):
+                    return
+            for name in _LEGACY_LAUNCH_LOGS:
+                path = os.path.join(folder, name)
+                try:
+                    if _is_plain(os.lstat(path), stat.S_ISREG):
+                        os.remove(path)
+                except OSError:
+                    continue
+    except Exception:
+        pass  # Missing folders or any other failure: start-up goes on.
 
 
 class _StderrTail:
@@ -110,6 +197,45 @@ def _end_startup_capture() -> None:
         sys.stderr = tail.target
 
 
+def _emit_stable_code(code: str) -> None:
+    try:
+        stream = sys.stderr
+        if stream is not None:
+            stream.write(code + "\n")
+            stream.flush()
+    except Exception:
+        pass  # Reporting must never raise from inside a hook.
+
+
+def _thread_exception_hook(args) -> None:
+    # The default hook prints the thread name, a traceback with installation
+    # paths and the exception message, which can carry document text (REQ-124).
+    if args.exc_type is SystemExit:
+        return  # The default hook ignores SystemExit too.
+    _emit_stable_code("OCR2_THREAD_ERROR")
+
+
+def _unraisable_hook(unraisable) -> None:
+    # The default hook prints the object's repr and a traceback (REQ-124).
+    _emit_stable_code("OCR2_UNRAISABLE_ERROR")
+
+
+def _warning_hook(message, category, filename, lineno, file=None, line=None) -> None:
+    # The default prints the source file path (the installation, with the user
+    # name), the line and the warning text, which can carry a value (REQ-124).
+    _emit_stable_code("OCR2_PYTHON_WARNING")
+
+
+def _install_safe_exception_hooks() -> None:
+    """Report errors and warnings outside the main flow as stable codes only."""
+    import threading
+    import warnings
+
+    threading.excepthook = _thread_exception_hook
+    sys.unraisablehook = _unraisable_hook
+    warnings.showwarning = _warning_hook
+
+
 def _show_bootstrap_error() -> None:
     """Make an application import failure visible in window mode; details go to the launch log."""
     if os.name == "nt" and "--app-window" in sys.argv[1:]:
@@ -139,6 +265,13 @@ try:
     from .runtime_manifest import verify_installation
 except Exception:
     _show_bootstrap_error()
+    if __name__ == "__main__":
+        try:
+            if sys.stderr is not None:
+                print("OCR2_START_IMPORT", file=sys.stderr)
+        except Exception:
+            pass
+        raise SystemExit(1) from None
     raise
 
 
@@ -232,7 +365,7 @@ def _show_startup_error(message: str) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Start the loopback-only expense document review app.")
+    parser = _SafeArgumentParser(description="Start the loopback-only expense document review app.")
     parser.add_argument("--port", type=_port, default=None, help="loopback TCP port (default: 8000; 0 selects a free port)")
     try:
         engines = {engine_id: manifest for engine_id, manifest in discover_engines().items() if manifest.selectable}
@@ -256,13 +389,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     if runtime_manifest.exists() or runtime_manifest.is_symlink() or _is_installed(install_root):
         verification = verify_installation(install_root, runtime_manifest)
         if not verification.ok:
-            message = "Installazione non valida: " + "; ".join(verification.problems) + ". " + _REPAIR_ADVICE
+            message = "Installazione non valida (OCR2_START_INTEGRITY). " + _REPAIR_ADVICE
             print(message, file=sys.stderr)
             if args.app_window:
                 _write_launch_log("integrità", message)
                 _show_integrity_error(message)
             raise SystemExit(2)
         runtime_status = "verificato"
+    _remove_legacy_launch_logs()
 
     instance_lock = None
     app_data_dir = None
@@ -305,9 +439,12 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="n
         runtime = _runtime_check(manifest)
         if runtime is not None:
             for warning in runtime.warnings:
-                print(f"Attenzione: {warning}.", file=sys.stderr)
+                if warning == "pypdfium2 non è installato: i PDF non possono essere letti":
+                    print("Attenzione: pypdfium2 non è installato: i PDF non possono essere letti.", file=sys.stderr)
+                else:
+                    print("OCR2_OCR_RUNTIME_WARNING", file=sys.stderr)
             if not runtime.ok:
-                parser.error("OCR locale non utilizzabile: " + "; ".join(runtime.problems))
+                parser.exit(2, "OCR2_OCR_RUNTIME_ERROR: OCR locale non utilizzabile.\n")
 
     archive_store = None
     family_catalog_store = None
@@ -385,7 +522,7 @@ def _serve(parser, args, engines, app_data_dir, instance_lock, runtime_status="n
             "pacchetto, modelli e identità del motore saranno verificati nel worker isolato."
         )
     if archive_store is not None:
-        print(f"Archivio locale cifrato attivo: {archive_store.path}")
+        print("Archivio locale cifrato attivo.")
     else:
         print("Archivio persistente non disponibile fuori da Windows senza un protettore esplicito.")
     try:
@@ -423,13 +560,15 @@ def _run_entrypoint(argv: Sequence[str] | None = None) -> None:
     try:
         main(arguments)
     except SystemExit as exc:
-        if exc.code not in (None, 0) and window and not _startup_error_shown:
-            _write_launch_log("uscita anomala", f"Codice di uscita: {exc.code!r}\n{stderr_tail.text}", exc)
+        code = exc.code
+        successful_exit = code is None or (issubclass(type(code), int) and int.__int__(code) == 0)
+        if not successful_exit and window and not _startup_error_shown:
+            _write_launch_log("uscita anomala")
             _show_startup_error(_START_FAILURE_MESSAGE)
         raise
     except Exception as exc:
         if window:
-            _write_launch_log("eccezione", stderr_tail.text, exc)
+            _write_launch_log("eccezione")
             if not _startup_error_shown:
                 _show_startup_error(_START_FAILURE_MESSAGE)
         raise
@@ -438,5 +577,25 @@ def _run_entrypoint(argv: Sequence[str] | None = None) -> None:
             sys.stderr = stderr_tail.target
 
 
+def _cli_entrypoint() -> None:
+    """Keep unexpected exception details out of the process output."""
+    _install_safe_exception_hooks()
+    try:
+        _run_entrypoint()
+    except SystemExit as exc:
+        if exc.code is None:
+            raise
+        if issubclass(type(exc.code), int):
+            raise SystemExit(int.__int__(exc.code)) from None
+        raise SystemExit(1) from None
+    except Exception:
+        try:
+            if sys.stderr is not None:
+                print("OCR2_UNEXPECTED_ERROR", file=sys.stderr)
+        except Exception:
+            pass
+        raise SystemExit(1) from None
+
+
 if __name__ == "__main__":
-    _run_entrypoint()
+    _cli_entrypoint()

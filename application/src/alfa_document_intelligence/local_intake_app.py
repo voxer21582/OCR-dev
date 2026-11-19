@@ -22,7 +22,8 @@ from urllib.parse import parse_qs, quote, urlencode
 import tempfile
 import zipfile
 from pathlib import Path
-from wsgiref.simple_server import WSGIRequestHandler, make_server
+from wsgiref.simple_server import make_server
+from .safe_wsgi import SafeWSGIRequestHandler, SafeWSGIServer
 
 from . import __version__ as _PACKAGE_VERSION
 from .app_lifetime import AppInfo, AppLifetime, is_valid_window_id
@@ -327,6 +328,93 @@ def _multipart_files(environ: dict[str, Any]) -> list[tuple[str, bytes]]:
     return files
 
 
+_CASE_NAVIGATION_SCRIPT = r'''(function(){
+  'use strict';
+  var generation = 0, controller = null;
+  function supported(path){ return path === '/' || path === '/cases'; }
+  function hasPendingInput(){
+    var fields = document.querySelectorAll('main input, main textarea, main select');
+    for (var i=0; i<fields.length; i++) {
+      var field = fields[i], type = (field.type || '').toLowerCase();
+      if (field.disabled || type === 'hidden' || type === 'submit' || type === 'button' || type === 'reset' || type === 'image') continue;
+      if (type === 'file') { if (field.files && field.files.length) return true; continue; }
+      if (type === 'checkbox' || type === 'radio') { if (field.checked !== field.defaultChecked) return true; continue; }
+      if (field.tagName === 'SELECT') {
+        for (var j=0; j<field.options.length; j++) if (field.options[j].selected !== field.options[j].defaultSelected) return true;
+      } else if (field.value !== field.defaultValue) return true;
+    }
+    return false;
+  }
+  async function navigate(path, push){
+    var sequence = ++generation, originPath = location.pathname + location.search + location.hash;
+    var signal = null, old = document.querySelector('main');
+    if (old) old.setAttribute('aria-busy', 'true');
+    try {
+      if (controller) controller.abort();
+      controller = new AbortController();
+      signal = controller.signal;
+      var response = await fetch(path, {cache:'no-store', credentials:'same-origin', signal:signal});
+      if (sequence !== generation) return;
+      var address = new URL(response.url, location.origin);
+      var contentType = response.headers.get('content-type') || '';
+      var size = response.headers.get('content-length');
+      if (!response.ok || response.redirected || address.origin !== location.origin ||
+          address.pathname !== path || address.search || address.hash ||
+          !/^text\/html(?:\s*;|$)/i.test(contentType) || !/^\d+$/.test(size || '') || Number(size) > 4194304) {
+        throw new Error('invalid response');
+      }
+      var html = await response.text();
+      if (sequence !== generation) return;
+      if (html.length > 4194304) throw new Error('oversized page');
+      if (push ? location.pathname + location.search + location.hash !== originPath : location.pathname !== path || location.search || location.hash) return;
+      if (hasPendingInput()) { if (!push) location.reload(); return; }
+      var page = new DOMParser().parseFromString(html, 'text/html');
+      var next = page.querySelector('main');
+      old = document.querySelector('main');
+      if (!next || !old) throw new Error('invalid page');
+      var scripts = next.querySelectorAll('script');
+      for (var i=0; i<scripts.length; i++) {
+        if (!scripts[i].hasAttribute('data-ocr2-navigation') && !scripts[i].hasAttribute('data-ocr2-lifecycle')) {
+          throw new Error('unsupported page script');
+        }
+      }
+      for (var j=0; j<scripts.length; j++) scripts[j].remove();
+      old.replaceWith(next);
+      document.title = page.title;
+      if (push) history.pushState({}, '', path);
+      var heading = next.querySelector('h1');
+      if (heading) { heading.setAttribute('tabindex', '-1'); heading.focus({preventScroll:true}); }
+    } catch (error) {
+      if (sequence === generation && (!signal || !signal.aborted)) {
+        if (push) { if (!hasPendingInput()) location.assign(path); }
+        else location.reload();
+      }
+    } finally {
+      if (sequence === generation) {
+        var current = document.querySelector('main');
+        if (current) current.removeAttribute('aria-busy');
+        controller = null;
+      }
+    }
+  }
+  document.addEventListener('click', function(event){
+    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey ||
+        !event.target || typeof event.target.closest !== 'function') return;
+    var link = event.target.closest('a');
+    if (!link || link.target || link.hasAttribute('download')) return;
+    var path = link.getAttribute('href');
+    if (!supported(path) || !supported(location.pathname) || hasPendingInput()) return;
+    event.preventDefault();
+    navigate(path, true);
+  });
+  window.addEventListener('popstate', function(){
+    ++generation;
+    if (controller) controller.abort();
+    location.replace(location.href);
+  });
+})();'''
+
+
 _APP_WINDOW_SCRIPT = (
     "(function(){"
     "var key='ocr2-window-id',id=null;"
@@ -347,7 +435,7 @@ _APP_WINDOW_SCRIPT = (
 _APP_CONTROLS = (
     '<nav aria-label="Applicazione"><form method="post" action="/app/exit"><button type="submit">Esci</button></form>'
     ' <a href="/app/info">Informazioni</a></nav>'
-    '<script nonce="__CSP_NONCE__">' + _APP_WINDOW_SCRIPT + "</script>"
+    '<script nonce="__CSP_NONCE__" data-ocr2-lifecycle>' + _APP_WINDOW_SCRIPT + "</script>"
 )
 
 
@@ -369,8 +457,30 @@ def _app_info_page(info: AppInfo | None) -> str:
         f'<meta name="ocr2-instance" content="{escape(info.instance_id, quote=True)}">'
         "<title>Informazioni</title><main><h1>Informazioni</h1><dl>"
         + "".join(f"<dt>{escape(label)}</dt><dd>{escape(value)}</dd>" for label, value in rows)
-        + '</dl><p><a href="/">Torna all’acquisizione temporanea</a></p></main></html>'
+        + '</dl><p><a href="/app/diagnostics">Scarica diagnostica</a> '
+        '(solo versioni e stato tecnico; nessun documento o registro).</p>'
+        + '<p>Lo stato OCR indica la configurazione, non una prova di funzionamento. '
+        'La verifica del runtime confronta i file con il manifest locale e non ne autentica la provenienza.</p>'
+        + '<p><a href="/">Torna all’acquisizione temporanea</a></p></main></html>'
     )
+
+
+def _diagnostic_snapshot(info: AppInfo | None) -> dict[str, str]:
+    """Return bounded technical values; never read or export user data or logs."""
+    has_info = info is not None
+    if not has_info:
+        info = AppInfo(version=_PACKAGE_VERSION, python_version=platform.python_version(),
+                       ocr_engine=None, runtime_status="unknown")
+
+    def version(value: str) -> str:
+        return value if isinstance(value, str) and re.fullmatch(r'\d{1,3}\.\d{1,3}\.\d{1,3}', value) else 'unknown'
+
+    runtime = {'verificato': 'verified', 'non verificato (avvio da sorgenti)': 'unverified'}.get(
+        info.runtime_status, 'unknown'
+    )
+    return {'format': 'ocr2-diagnostics-v1', 'app_version': version(info.version),
+            'python_version': version(info.python_version),
+            'ocr': ('enabled' if info.ocr_engine else 'disabled') if has_info else 'unknown', 'runtime': runtime}
 
 
 def _app_window_form(environ: dict[str, Any], csrf_token: str) -> dict[str, list[str]] | None:
@@ -418,6 +528,18 @@ def _page(
         # its token and the script its nonce.
         marker = body.rfind("</main>")
         body = body + _APP_CONTROLS if marker < 0 else body[:marker] + _APP_CONTROLS + body[marker:]
+    case_navigation = (
+        app_controls
+        and environ.get('REQUEST_METHOD') == 'GET'
+        and environ.get('PATH_INFO') in {'/', '/cases'}
+        and status == '200 OK'
+        and content_type.split(';', 1)[0].strip().lower() == 'text/html'
+        and download_filename is None
+    )
+    if case_navigation:
+        script = '<script nonce="__CSP_NONCE__" data-ocr2-navigation>' + _CASE_NAVIGATION_SCRIPT + '</script>'
+        marker = body.rfind('</main>')
+        body = body + script if marker < 0 else body[:marker] + script + body[marker:]
     token = str(environ.get("_ocr2_csrf_token", ""))
     csrf_field = f'<input type="hidden" name="_ocr2_csrf" value="{escape(token, quote=True)}">'
     if download_filename is None:
@@ -2076,6 +2198,11 @@ def create_expense_report_app(
                 if app_method != "GET":
                     return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
                 return _page(environ, start_response, "200 OK", _app_info_page(app_info))
+            if app_path == "/app/diagnostics":
+                if app_method != "GET":
+                    return _page(environ, start_response, "405 Method Not Allowed", "Metodo non consentito")
+                return _page(environ, start_response, "200 OK", json.dumps(_diagnostic_snapshot(app_info), sort_keys=True),
+                             "application/json; charset=utf-8", download_filename="ocr2-diagnostica.json")
             if app_lifetime is None or app_path not in {"/app/heartbeat", "/app/closing", "/app/exit"}:
                 return _page(environ, start_response, "404 Not Found", "Risorsa non trovata", "text/plain; charset=utf-8")
             if app_path == "/app/heartbeat":
@@ -2203,20 +2330,23 @@ def create_expense_report_app(
                     if len(values) != 1:
                         raise IntakeRequestError("nome mancante")
                     archive_store.set_case_label(case_label_route.group(1), values[0], actor=_windows_review_actor())
-                    cases = archive_store.list_cases(limit=100)
-                    labels = {case["case_id"]: archive_store.case_label(case["case_id"]) for case in cases}
                 except (IntakeRequestError, StoreRejected):
                     return _page(environ, start_response, "400 Bad Request",
                                  '<p>Nome non valido: da 1 a 120 caratteri, per un fascicolo esistente.</p><a href="/cases">Fascicoli</a>')
                 except StoreError:
                     return _page(environ, start_response, "500 Internal Server Error", "Fascicoli non disponibili")
-                return _page(environ, start_response, "200 OK", _expense_case_index_page(cases, labels, notice="Nome aggiornato."))
+                start_response("303 See Other", [("Location", "/cases?notice=renamed"),
+                                                 ("Cache-Control", "no-store"),
+                                                 ("X-Content-Type-Options", "nosniff"),
+                                                 ("Content-Length", "0")])
+                return [b""]
             if path == "/cases":
                 if method == "GET":
                     try:
                         cases = archive_store.list_cases(limit=100)
                         labels = {case["case_id"]: archive_store.case_label(case["case_id"]) for case in cases}
-                        return _page(environ, start_response, "200 OK", _expense_case_index_page(cases, labels))
+                        notice = "Nome aggiornato." if environ.get("QUERY_STRING") == "notice=renamed" else ""
+                        return _page(environ, start_response, "200 OK", _expense_case_index_page(cases, labels, notice=notice))
                     except StoreError:
                         return _page(environ, start_response, "500 Internal Server Error", "Fascicoli non disponibili")
                 if method == "POST":
@@ -3568,7 +3698,7 @@ _IDLE_CONNECTION_TIMEOUT_SECONDS = 2.0
 _REQUEST_BODY_TIMEOUT_SECONDS = 300.0
 
 
-class _QuietIdleHandler(WSGIRequestHandler):
+class _QuietIdleHandler(SafeWSGIRequestHandler):
     """Short wait for the first byte of a request, long wait once it has started.
 
     A connection that sends nothing within ``idle_timeout`` is dropped quietly
@@ -3626,6 +3756,6 @@ def serve_expense_report_local(
     # connections that may never send a request; without a socket timeout one
     # of them blocks every later request.
     handler = type("_BoundedIdleHandler", (_QuietIdleHandler,), {"idle_timeout": idle_connection_timeout_seconds})
-    server = make_server("127.0.0.1", port, app, handler_class=handler)
+    server = make_server("127.0.0.1", port, app, server_class=SafeWSGIServer, handler_class=handler)
     server.ocr2_close = app.close
     return server

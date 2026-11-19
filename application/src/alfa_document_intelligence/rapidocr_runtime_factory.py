@@ -7,6 +7,7 @@ selects a trusted factory reference.
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import dataclass
 from importlib import import_module, metadata
 from importlib.util import find_spec
@@ -127,6 +128,12 @@ def create_rapidocr_v6_multilingual_adapter() -> RapidOCRAdapter:
         )
 
     try:
+        # The vendor logger can include model paths or document-derived text.
+        # OCR failures are surfaced through the worker's stable error codes.
+        vendor_logger = logging.getLogger('RapidOCR')
+        vendor_logger.handlers = [logging.NullHandler()]
+        vendor_logger.propagate = False
+        vendor_logger.disabled = True
         package = import_module("rapidocr")
         model_root, models = _verified_models(package)
         constructor = getattr(package, "RapidOCR", None)
@@ -139,6 +146,9 @@ def create_rapidocr_v6_multilingual_adapter() -> RapidOCRAdapter:
             "Det.model_path": str(models[0]),
             "Rec.lang_type": "multi",
             "Rec.model_path": str(models[1]),
+            # Keep OCR from monopolizing CPU needed for the local UI.
+            "EngineConfig.onnxruntime.intra_op_num_threads": 1,
+            "EngineConfig.onnxruntime.inter_op_num_threads": 1,
         }
         engine = constructor(params=params)
         return RapidOCRAdapter(engine, installed_version)

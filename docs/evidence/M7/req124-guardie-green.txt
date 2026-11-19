@@ -1,0 +1,13 @@
+tests/test_req124_output_guards.py::test_install_state_unexpected_error_prints_only_stable_code[RuntimeError] PASSED [  8%]
+tests/test_req124_output_guards.py::test_install_state_unexpected_error_prints_only_stable_code[KeyError] PASSED [ 16%]
+tests/test_req124_output_guards.py::test_install_state_unexpected_error_prints_only_stable_code[TypeError] PASSED [ 25%]
+tests/test_req124_output_guards.py::test_install_state_unexpected_error_prints_only_stable_code[ValueError] PASSED [ 33%]
+tests/test_req124_output_guards.py::test_install_state_deeply_nested_state_file_prints_only_stable_code PASSED [ 41%]
+tests/test_req124_output_guards.py::test_removal_check_unexpected_error_prints_only_stable_code[RuntimeError] PASSED [ 50%]
+tests/test_req124_output_guards.py::test_removal_check_unexpected_error_prints_only_stable_code[KeyError] PASSED [ 58%]
+tests/test_req124_output_guards.py::test_removal_check_unexpected_error_prints_only_stable_code[TypeError] PASSED [ 66%]
+tests/test_req124_output_guards.py::test_launcher_thread_exception_prints_only_stable_code PASSED [ 75%]
+tests/test_req124_output_guards.py::test_launcher_unraisable_exception_prints_only_stable_code PASSED [ 83%]
+tests/test_req124_output_guards.py::test_launcher_hooks_tolerate_missing_stderr PASSED [ 91%]
+tests/test_req124_output_guards.py::test_cli_entrypoint_installs_safe_exception_hooks PASSED [100%]
+============================= 12 passed in 1.48s ==============================

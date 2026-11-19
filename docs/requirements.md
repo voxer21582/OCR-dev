@@ -120,7 +120,7 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | REQ-105 | Installer e binari firmati dal proprietario. | MUST | La firma si verifica; l'evidenza registra chi ha firmato e quando. | INS-4, D1 | M6 → milestone successiva | rinviato: limite dichiarato (DEC-034); M6 si chiude con installer non firmati e avviso SmartScreen |
 | REQ-106 | Un collegamento nel menu Start per l'utente; versione e identità del runtime visibili nell'app. | MUST | Checklist. | INS-5 | M6 | `OWNER-RUN` (secondo account, 2026-11-17; [esito](evidence/M6/collaudo-secondo-account.md)) |
 | REQ-107 | SBOM e notice di licenza nell'installer; decisione su FFmpeg (Q-001). | MUST | SBOM generato dai lock; notice presenti; FFmpeg trattato come deciso. | SEC-5 | M6 | parziale — limite dichiarato sulla completezza delle licenze (2026-11-17) |
-| REQ-108 | Pacchetto diagnostico senza contenuti, esportabile su richiesta. | SHOULD | Revisione del pacchetto. | OPS-1 | M7 | `OPEN` |
+| REQ-108 | Pacchetto diagnostico senza contenuti, esportabile su richiesta. | SHOULD | Revisione del pacchetto. | OPS-1 | M7 | `LOCAL-RUN` e test sintetici; prova visiva non nella finestra Edge di rilascio; [accettazione M7](evidence/M7/acceptance.md) |
 | REQ-109 | I lavori seguono stop/no-retry; annullamento affidabile. | MUST | Test di annullamento e fallimento. | OPS-2 | M1 | `SYN-CI` (M1) |
 | REQ-110 | Interfaccia in italiano; inglese più avanti. | SHOULD | Catalogo dei testi. | OPS-3 | — | italiano fatto |
 
@@ -129,16 +129,16 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | ID | Requisito | Pri | Criterio di accettazione | Vecchio ID | M | Stato |
 |---|---|---|---|---|---|---|
 | REQ-120 | Solo loopback; controlli di host, origine e token su ogni modifica. | MUST | Host, origine o token errati rifiutati. | SEC-1 | M1 | `SYN-CI` (M1) |
-| REQ-121 | Nessun traffico di rete in uscita durante l'uso. | MUST | Fascicolo completo con registrazione delle connessioni del processo senza modificare Windows (es. hook Python più elenco delle connessioni del processo dal sistema); limiti dichiarati. | SEC-2 | M7 | parziale |
+| REQ-121 | Nessun traffico di rete in uscita durante l'uso. | MUST | Fascicolo completo con registrazione delle connessioni del processo senza modificare Windows (es. hook Python più elenco delle connessioni del processo dal sistema); limiti dichiarati. | SEC-2 | M7 | `LOCAL-RUN` con limiti dichiarati (copia strumentata; nativo, UDP e DNS non coperti); [accettazione M7](evidence/M7/acceptance.md) |
 | REQ-122 | Archivio cifrato per utente; sessioni che scadono e si cancellano. | MUST | Test e verifica manuale. | SEC-4 | M5 | `SYN-CI` (M5, PR in bozza) |
 | REQ-123 | Anteprime e risposte con CSP, nosniff, no-store. | MUST | Test sulle intestazioni in CI. | SEC-6 | M1 | `SYN-CI` (M1) |
-| REQ-124 | Errori e log con codici stabili, mai testo dei documenti, percorsi o identificativi. | MUST | Checklist di revisione dei log. | SEC-7 | M7 | `OPEN` |
-| REQ-125 | Modello delle minacce e revisione di sicurezza indipendente (automatica) firmata dal proprietario. | MUST | Documento firmato in `docs/evidence/M7/` (DEC-008). | SEC-8 | M7 | `OPEN` |
+| REQ-124 | Errori e log con codici stabili, mai testo dei documenti, percorsi o identificativi. | MUST | Checklist di revisione dei log. | SEC-7 | M7 | `LOCAL-RUN` soddisfatto con limiti dichiarati (checklist 2026-11-19; pannello nascosto con barra verificata dal proprietario; cancellazione dei vecchi log best effort accettata e provata su installer isolato); [accettazione M7](evidence/M7/acceptance.md) |
+| REQ-125 | Modello delle minacce e revisione di sicurezza indipendente (automatica) firmata dal proprietario. | MUST | Documento firmato in `docs/evidence/M7/` (DEC-008). | SEC-8 | M7 | `OWNER-RUN` (firma estesa il 2026-11-19 al codice fino a `7ecd9dd`); [accettazione M7](evidence/M7/acceptance.md) |
 | REQ-126 | Repository e CI contengono solo dati sintetici. | MUST | Test di guardia. | SEC-9 | — | `SYN-CI` |
-| REQ-127 | Al massimo 3 s per pagina sul PC di riferimento. | MUST | Mediana sul benchmark rigenerabile. | PRF-1 | M7 | `LOCAL-RUN` 1,9–2,9 s |
-| REQ-128 | Un fascicolo da 1 + 100 documenti in al massimo 10 minuti, riprendibile, con avanzamento visibile. | MUST | Benchmark e prova di interruzione. | PRF-2 | M7 | `LOCAL-RUN` |
-| REQ-129 | Al massimo 2 GiB per worker; interazione p95 sotto 200 ms. | MUST | Tracce di memoria e latenza. | PRF-3 | M7 | memoria `LOCAL-RUN` |
-| REQ-130 | Avvio fino alla finestra usabile in al massimo 5 s; PDF da 100 pagine gestito nei limiti. | SHOULD | Misure. | PRF-4 | M7 | `OPEN` |
+| REQ-127 | Al massimo 3 s per pagina sul PC di riferimento. | MUST | Mediana sul benchmark rigenerabile. | PRF-1 | M7 | `LOCAL-RUN` mediana 1,339 s su 104 pagine (4 pagine ≥ 3 s); [accettazione M7](evidence/M7/acceptance.md) |
+| REQ-128 | Un fascicolo da 1 + 100 documenti in al massimo 10 minuti, riprendibile, con avanzamento visibile. | MUST | Benchmark e prova di interruzione. | PRF-2 | M7 | `LOCAL-RUN` 104 pagine in 158,8 s; ripresa dopo terminazione del processo; [accettazione M7](evidence/M7/acceptance.md) |
+| REQ-129 | Al massimo 2 GiB per worker; interazione p95 sotto 200 ms. | MUST | Tracce di memoria e latenza. | PRF-3 | M7 | `LOCAL-RUN` con limiti dichiarati (memoria max 722,1 MiB working set; p95 Edge 52,3–56,2 ms con metodo CDP accettato dal proprietario); [accettazione M7](evidence/M7/acceptance.md) |
+| REQ-130 | Avvio fino alla finestra usabile in al massimo 5 s; PDF da 100 pagine gestito nei limiti. | SHOULD | Misure. | PRF-4 | M7 | `LOCAL-RUN` (heartbeat 3,0–3,3 s; PDF 100 pagine in 116,6 s); limite della prova visiva accettato dal proprietario il 2026-11-18; [accettazione M7](evidence/M7/acceptance.md) |
 
 ## FLD — Prova sul campo
 

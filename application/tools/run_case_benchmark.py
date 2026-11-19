@@ -6,8 +6,8 @@ Local only: it needs the approved Windows OCR runtime. From ``application/``::
 
 The server runs as a child process with ``LOCALAPPDATA`` pointed at a fresh
 folder inside ``--work-dir``, so the user's real archive is never opened. A
-``sitecustomize`` hook in the child (and its OCR workers) records every
-non-loopback connection or DNS attempt; the report holds only counts.
+``sitecustomize`` hook records selected Python socket and DNS attempts where
+it loads. It does not establish coverage of workers or native networking.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+import statistics
 import subprocess
 import sys
 import time
@@ -46,6 +47,7 @@ def getaddrinfo(host, *a, **k):
         _w("dns")
     return _gai(host, *a, **k)
 socket.getaddrinfo = getaddrinfo
+_w("ready")
 '''
 _JOB_LINK = re.compile(r"/cases/[^/\"]+/jobs/([A-Za-z0-9]+)")
 _PHASE = re.compile(r"Stato: ([^<]+)<")
@@ -54,6 +56,32 @@ _CHUNK = 20
 
 class BenchmarkError(RuntimeError):
     """The benchmark could not complete; the message names the step."""
+
+
+def _network_summary(path: Path) -> dict[str, int | str]:
+    events = path.read_text(encoding='ascii').split()
+    if any(event not in {'ready', 'connect', 'dns'} for event in events):
+        raise BenchmarkError('unrecognized network observation event')
+    if not events.count('ready'):
+        raise BenchmarkError('network observation hook was not loaded')
+    return {
+        'python_hook_initializations': events.count('ready'),
+        'network_observation_scope': 'partial: instrumented Python processes only; worker and native coverage unverified',
+        'non_loopback_connect_attempts': events.count('connect'),
+        'non_loopback_dns_attempts': events.count('dns'),
+    }
+
+
+def _page_interval_summary(events: list[tuple[float, int]]) -> dict[str, int | float | None]:
+    """Summarize consecutive observed completions, excluding skipped pages."""
+    intervals = [b[0] - a[0] for a, b in zip(events, events[1:]) if b[1] - a[1] == 1]
+    return {
+        'sampled_page_intervals': len(intervals),
+        'page_interval_median_seconds': round(statistics.median(intervals), 3) if intervals else None,
+        'page_interval_max_seconds': round(max(intervals), 3) if intervals else None,
+        'page_progress_jumps': sum(b[1] - a[1] > 1 for a, b in zip(events, events[1:])),
+        'page_progress_regressions': sum(b[1] < a[1] for a, b in zip(events, events[1:])),
+    }
 
 
 class _Client:
@@ -103,8 +131,7 @@ def _start_server(python: str, application_dir: Path, work_dir: Path) -> tuple[s
     env["LOCALAPPDATA"] = str(local_app_data)
     env["PYTHONPATH"] = os.pathsep.join([str(hook_dir), str(application_dir / "src")])
     env["OCR2_BENCHMARK_NET_LOG"] = str(net_log)
-    # The server logs every request. Its output goes to a file: an undrained
-    # pipe fills up and blocks the server mid-benchmark.
+    # An undrained pipe can fill up and block the server mid-benchmark.
     server_log = work_dir / "server.log"
     with server_log.open("wb") as log:
         process = subprocess.Popen(
@@ -121,9 +148,12 @@ def _start_server(python: str, application_dir: Path, work_dir: Path) -> tuple[s
     raise BenchmarkError("server did not report a loopback port (runtime check failed or timed out)")
 
 
-def run_case_benchmark(fixtures: Path, work_dir: Path, *, python: str = sys.executable) -> dict[str, Any]:
+def run_case_benchmark(fixtures: Path, work_dir: Path, *, python: str = sys.executable,
+                       observe_network: bool = True, poll_interval: float = 2.0) -> dict[str, Any]:
     """Drive one case through upload, OCR and export; return the numeric report."""
     manifest = json.loads((fixtures / "manifest.json").read_text(encoding="utf-8"))
+    if not 0.1 <= poll_interval <= 10:
+        raise BenchmarkError('poll interval must be between 0.1 and 10 seconds')
     application_dir = Path(__file__).resolve().parents[1]
     if work_dir.exists() and any(work_dir.iterdir()):
         raise BenchmarkError("work directory must be empty")
@@ -159,13 +189,19 @@ def run_case_benchmark(fixtures: Path, work_dir: Path, *, python: str = sys.exec
             raise BenchmarkError(f"processing start answered {status}")
         job_path = f"/cases/{case_id}/jobs/{match.group(1)}"
         phase = ""
+        page_events: list[tuple[float, int]] = []
         while time.monotonic() - started < 1800:
             page = client.request("GET", job_path)[1].decode("utf-8", "replace")
+            page_match = re.search(r"Pagine: (\d+)", page)
+            if page_match:
+                count = int(page_match.group(1))
+                if not page_events or page_events[-1][1] != count:
+                    page_events.append((time.monotonic(), count))
             found = _PHASE.search(page)
             phase = found.group(1) if found else ""
             if phase not in {"In coda", "Elaborazione locale in corso", "Annullamento in corso"}:
                 break
-            time.sleep(2)
+            time.sleep(poll_interval)
         timings["ocr_seconds"] = round(time.monotonic() - started, 1)
         pages = re.search(r"Pagine: (\d+)", page)
         if phase != "OCR completato":
@@ -186,15 +222,18 @@ def run_case_benchmark(fixtures: Path, work_dir: Path, *, python: str = sys.exec
             process.wait(timeout=30)
         except subprocess.TimeoutExpired:
             process.kill()
-    attempts = net_log.read_text(encoding="ascii").split()
+    network = _network_summary(net_log) if observe_network else {
+        'network_observation_scope': 'not measured: performance-only run',
+    }
     report = {
         "fixtures_version": manifest["version"],
         "attachments_accepted": [accepted, len(receipts)],
         "pages_processed": int(pages.group(1)) if pages else None,
         **timings,
         "seconds_per_page": round(timings["ocr_seconds"] / int(pages.group(1)), 2) if pages and int(pages.group(1)) else None,
-        "non_loopback_connect_attempts": attempts.count("connect"),
-        "non_loopback_dns_attempts": attempts.count("dns"),
+        'page_poll_interval_seconds': poll_interval,
+        **_page_interval_summary(page_events),
+        **network,
         "score": score,
     }
     shutil.rmtree(work_dir / "localappdata", ignore_errors=True)
@@ -207,9 +246,12 @@ def main() -> int:
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--python", default=sys.executable, help="interpreter with the approved OCR runtime")
+    parser.add_argument('--performance-only', action='store_true', help='do not claim network observations')
+    parser.add_argument('--poll-interval', type=float, default=2.0, help='page-progress polling interval in seconds')
     args = parser.parse_args()
     try:
-        report = run_case_benchmark(args.fixtures, args.work_dir, python=args.python)
+        report = run_case_benchmark(args.fixtures, args.work_dir, python=args.python,
+                                    observe_network=not args.performance_only, poll_interval=args.poll_interval)
     except BenchmarkError as exc:
         print(f"benchmark failed: {exc}", file=sys.stderr)
         return 1

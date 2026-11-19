@@ -182,8 +182,8 @@ def test_server_factory_binds_only_ipv4_loopback(monkeypatch):
     expected = object()
     called = {}
 
-    def fake_make_server(host, port, app):
-        called.update(host=host, port=port, app=app)
+    def fake_make_server(host, port, app, **kwargs):
+        called.update(host=host, port=port, app=app, **kwargs)
         return expected
 
     monkeypatch.setattr(review_ui, "make_server", fake_make_server)
@@ -191,5 +191,34 @@ def test_server_factory_binds_only_ipv4_loopback(monkeypatch):
     assert called["host"] == "127.0.0.1"
     assert called["port"] == 8123
     assert callable(called["app"])
+    assert called['handler_class'] is review_ui.SafeWSGIRequestHandler
+    assert called['server_class'] is review_ui.SafeWSGIServer
     with pytest.raises(ValueError, match="port"):
         serve_local({}, port=65536)
+
+
+def test_review_server_does_not_log_request_details(capsys):
+    import threading
+    import urllib.error
+    import urllib.request
+    server = serve_local({}, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/reviews/?q=SYNTHETIC_PRIVATE_845', timeout=6) as response:
+            assert response.status == 200
+        def fail(environ, start_response):
+            raise RuntimeError('SYNTHETIC_PRIVATE_846')
+        server.set_app(fail)
+        with pytest.raises(urllib.error.HTTPError) as error:
+            urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=6)
+        assert error.value.code == 500
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+    captured = capsys.readouterr()
+    assert 'SYNTHETIC_PRIVATE_845' not in captured.out + captured.err
+    assert 'SYNTHETIC_PRIVATE_846' not in captured.out + captured.err
+    assert 'OCR2_HTTP_ERROR' in captured.err

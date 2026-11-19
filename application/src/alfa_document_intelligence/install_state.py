@@ -19,6 +19,12 @@ class InstallStateError(ValueError):
     pass
 
 
+class _SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        # argparse may include user-supplied values and program paths.
+        self.exit(2, 'OCR2_INSTALL_ARGUMENT_ERROR\n')
+
+
 def _open_parent(pid: int):
     import ctypes
     from ctypes import wintypes
@@ -283,7 +289,7 @@ def cleanup_debris(base: Path) -> None:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description='Gestione versioni installate OCR2')
+    parser = _SafeArgumentParser(description='Gestione versioni installate OCR2')
     parser.add_argument('--base', type=Path)
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('activate').add_argument('version')
@@ -331,8 +337,13 @@ def main(argv=None) -> int:
         else:
             for name in prune(args.base):
                 print(name)
-    except (InstallStateError, OSError) as exc:
-        print(f'OCR2: {exc}', file=__import__('sys').stderr)
+    except Exception:
+        # Any failure reports only the stable code, with the same exit status an
+        # uncaught exception had: messages and tracebacks can carry installation
+        # paths (REQ-124).
+        stderr = __import__('sys').stderr
+        if stderr is not None:
+            print('OCR2_INSTALL_ERROR', file=stderr)
         return 1
     return 0
 

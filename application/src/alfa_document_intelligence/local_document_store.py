@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import base64
+from collections import OrderedDict
 import copy
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 import hashlib
 import hmac
 import json
@@ -15,6 +18,8 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
+import threading
+import time
 import secrets
 import uuid
 from typing import Iterator, Protocol
@@ -23,6 +28,14 @@ from .contracts import validate_document_record
 
 DEFAULT_MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
 _SCHEMA_VERSION = 4
+# The gate is taken per case, not per list: at most one case at a time has its
+# references checked in parallel in this process; a concurrent list checks that
+# case's references sequentially while the gate is held.
+_CASE_LIST_PARALLEL_GATE = threading.BoundedSemaphore(1)
+_CASE_LIST_WORKERS = 12
+_CASE_LIST_BATCH_CIPHERTEXT_BYTES = 8 * 1024 * 1024
+_CASE_LIST_EXECUTOR_LOCK = threading.Lock()
+_CASE_LIST_EXECUTOR: ThreadPoolExecutor | None = None
 # Schema 4: encrypted library metadata (display name, tags, change events) per
 # document or case, kept apart from the record so its hash and review history stay valid.
 _LIBRARY_TABLE_SQL = (
@@ -132,6 +145,144 @@ class StoreProtectionError(StoreError):
     """The platform payload-protection operation failed."""
 
 
+def _get_case_list_executor() -> ThreadPoolExecutor:
+    """Lazily reuse bounded workers for this process; Python joins them at exit."""
+    global _CASE_LIST_EXECUTOR
+    with _CASE_LIST_EXECUTOR_LOCK:
+        if _CASE_LIST_EXECUTOR is None:
+            _CASE_LIST_EXECUTOR = ThreadPoolExecutor(max_workers=_CASE_LIST_WORKERS)
+        return _CASE_LIST_EXECUTOR
+
+
+class _VerifiedReferenceCache:
+    """Per-process cache of case-list reference checks that already succeeded.
+
+    R7: the key is a SHA-256 over a per-store component, the protector type,
+    schema and check versions and the exact binding and record ciphertext bytes
+    (all length-prefixed). The value holds only a tag keyed with a random
+    per-process secret over the verified document ID, source hash and role, the
+    ownership flag and three sizes: no identifiers, hashes or plaintext. A hit
+    is accepted only when the tag matches the reference expected by the manifest
+    read in the same snapshot; anything else runs the full DPAPI decrypt and
+    validation again. Failures are never stored, and any error inside the cache
+    is treated as a miss.
+
+    Invariants: the cache is never persisted, and the cached checks must stay
+    pure functions of the ciphertext bytes, the protector and the code, never of
+    per-store state; a pinned test forces a check-version bump when they change.
+
+    A hit skips DPAPI, so a loss of decryptability for identical bytes (a
+    partial master-key loss) is masked for at most the entry lifetime: entries
+    expire after _CASE_LIST_REFERENCE_TTL_SECONDS minus a random jitter of up
+    to _CASE_LIST_REFERENCE_TTL_JITTER_SECONDS, which forces a fresh DPAPI
+    decrypt. Eviction is scan resistant: when full, an entry used in the
+    current list is never evicted to admit another one, so archives above
+    capacity keep the first entries resident instead of thrashing. This holds
+    per list call (one generation): when two lists interleave (the parallel gate
+    is taken per case), each may evict entries the other just used. That only
+    costs extra full checks; it never changes which results are accepted.
+    """
+
+    def __init__(self, max_entries: int) -> None:
+        self._max_entries = max_entries
+        self._lock = threading.Lock()
+        # key -> [value, expires_at (monotonic), generation of last use]
+        self._entries: OrderedDict[bytes, list] = OrderedDict()
+        self._tag_key = secrets.token_bytes(32)
+        self._generation = 0
+        self._clock = time.monotonic
+        self._random = secrets.SystemRandom()
+
+    def _jitter(self) -> float:
+        return self._random.uniform(0.0, _CASE_LIST_REFERENCE_TTL_JITTER_SECONDS)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+    def begin_list(self) -> int:
+        with self._lock:
+            self._generation += 1
+            return self._generation
+
+    @staticmethod
+    def key(store_component: bytes, protector_type: type, binding_payload: bytes, record_payload: bytes) -> bytes:
+        digest = hashlib.sha256()
+        context = (
+            f"ocr2-case-list-ref|{_CASE_LIST_REFERENCE_CHECK_VERSION}|{_SCHEMA_VERSION}|"
+            f"{protector_type.__module__}.{protector_type.__qualname__}|"
+        ).encode("utf-8")
+        for part in (context, store_component, binding_payload, record_payload):
+            digest.update(len(part).to_bytes(8, "big"))
+            digest.update(part)
+        return digest.digest()
+
+    def tag(self, document_id: str, source_sha256: str, role: str) -> bytes:
+        message = json.dumps([document_id, source_sha256.lower(), role], ensure_ascii=False, separators=(",", ":"))
+        return hmac.new(self._tag_key, message.encode("utf-8"), hashlib.sha256).digest()
+
+    def get(self, key: bytes, generation: int):
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            if self._clock() >= entry[1]:
+                del self._entries[key]
+                return None
+            entry[2] = generation
+            self._entries.move_to_end(key)
+            return entry[0]
+
+    def put(self, key: bytes, value: tuple[bytes, bool, int, int, int], generation: int) -> None:
+        expires_at = float(self._clock() + _CASE_LIST_REFERENCE_TTL_SECONDS - self._jitter())
+        with self._lock:
+            if key not in self._entries:
+                now = self._clock()
+                while len(self._entries) >= self._max_entries:
+                    oldest_key, oldest = next(iter(self._entries.items()))
+                    if oldest[2] == generation and now < oldest[1]:
+                        return  # full of entries used by this list: do not thrash
+                    del self._entries[oldest_key]
+            self._entries[key] = [value, expires_at, generation]
+            self._entries.move_to_end(key)
+
+
+# Bump whenever a check performed by the case-list reference validation changes;
+# test_cached_checks_are_pinned_to_check_version pins the relevant sources.
+_CASE_LIST_REFERENCE_CHECK_VERSION = 1
+# Ten minutes bounds how long a partial DPAPI master-key loss can stay hidden
+# from the list (opening a case always decrypts). With OCR saving a group every
+# few seconds and the list polled about every 2 s, re-verifying each of ~100
+# references once per 8-10 minutes adds well under one full check per list.
+# The jitter (up to 2 minutes) spreads re-verification so entries cached by the
+# same list do not all expire on the same request.
+_CASE_LIST_REFERENCE_TTL_SECONDS = 600.0
+_CASE_LIST_REFERENCE_TTL_JITTER_SECONDS = 120.0
+_CASE_LIST_REFERENCE_CACHE = _VerifiedReferenceCache(4096)
+
+
+def _checked_case_list_batch(check, rows):
+    """Finish submitted checks even when another submission or check fails.
+
+    The caller holds the case-list gate until this returns. The byte limit
+    bounds queued ciphertext, not total memory or task completion time.
+    """
+    futures = []
+    try:
+        executor = _get_case_list_executor()
+        for row in rows:
+            futures.append(executor.submit(check, row))
+    except RuntimeError as exc:
+        raise StoreError('case-list workers are unavailable') from exc
+    finally:
+        wait(futures)
+    return [future.result() for future in futures]
+
+
 class PayloadProtector(Protocol):
     def protect(self, plaintext: bytes) -> bytes: ...
 
@@ -158,6 +309,37 @@ class StoredDocumentSummary:
     review_status: str = "not_started"
 
 
+@lru_cache(maxsize=1)
+def _windows_dpapi_api():
+    """Initialize only DPAPI function definitions; never retain payload data."""
+    if os.name != 'nt':
+        raise StoreProtectionError('Windows DPAPI is required for the default store protector')
+    import ctypes
+    from ctypes import wintypes
+
+    class DataBlob(ctypes.Structure):
+        _fields_ = [('cbData', wintypes.DWORD), ('pbData', ctypes.POINTER(ctypes.c_ubyte))]
+
+    crypt32 = ctypes.WinDLL('Crypt32', use_last_error=True)
+    kernel32 = ctypes.WinDLL('Kernel32', use_last_error=True)
+    local_free = kernel32.LocalFree
+    local_free.argtypes = [ctypes.c_void_p]
+    local_free.restype = ctypes.c_void_p
+    crypt_protect = crypt32.CryptProtectData
+    crypt_protect.argtypes = [
+        ctypes.POINTER(DataBlob), wintypes.LPCWSTR, ctypes.POINTER(DataBlob),
+        ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DataBlob),
+    ]
+    crypt_protect.restype = wintypes.BOOL
+    crypt_unprotect = crypt32.CryptUnprotectData
+    crypt_unprotect.argtypes = [
+        ctypes.POINTER(DataBlob), ctypes.POINTER(wintypes.LPWSTR), ctypes.POINTER(DataBlob),
+        ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DataBlob),
+    ]
+    crypt_unprotect.restype = wintypes.BOOL
+    return ctypes, DataBlob, crypt_protect, crypt_unprotect, local_free, crypt32, kernel32
+
+
 class WindowsDpapiProtector:
     """Protect payloads for the current Windows user with CryptProtectData."""
 
@@ -165,34 +347,10 @@ class WindowsDpapiProtector:
 
     @staticmethod
     def _crypt(data: bytes, *, protect: bool) -> bytes:
-        if os.name != "nt":
-            raise StoreProtectionError("Windows DPAPI is required for the default store protector")
-        import ctypes
-        from ctypes import wintypes
-
-        class DataBlob(ctypes.Structure):
-            _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
-
+        ctypes, DataBlob, crypt_protect, crypt_unprotect, local_free, _, _ = _windows_dpapi_api()
         source_buffer = ctypes.create_string_buffer(data, max(1, len(data)))
         source = DataBlob(len(data), ctypes.cast(source_buffer, ctypes.POINTER(ctypes.c_ubyte)))
         destination = DataBlob()
-        crypt32 = ctypes.WinDLL("Crypt32", use_last_error=True)
-        kernel32 = ctypes.WinDLL("Kernel32", use_last_error=True)
-        local_free = kernel32.LocalFree
-        local_free.argtypes = [ctypes.c_void_p]
-        local_free.restype = ctypes.c_void_p
-        crypt_protect = crypt32.CryptProtectData
-        crypt_protect.argtypes = [
-            ctypes.POINTER(DataBlob), wintypes.LPCWSTR, ctypes.POINTER(DataBlob),
-            ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DataBlob),
-        ]
-        crypt_protect.restype = wintypes.BOOL
-        crypt_unprotect = crypt32.CryptUnprotectData
-        crypt_unprotect.argtypes = [
-            ctypes.POINTER(DataBlob), ctypes.POINTER(wintypes.LPWSTR), ctypes.POINTER(DataBlob),
-            ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DataBlob),
-        ]
-        crypt_unprotect.restype = wintypes.BOOL
 
         if protect:
             ok = crypt_protect(
@@ -246,6 +404,8 @@ class LocalDocumentStore:
         self._max_document_bytes = max_document_bytes
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._index_key = b""
+        # The pre-swap check of a restore candidate must never reuse cached results.
+        self._use_reference_cache = True
         self._known_index_entries: dict[str, str] = {}
         self._known_case_entries: dict[str, str] = {}
         self._initialize()
@@ -684,12 +844,14 @@ class LocalDocumentStore:
         try:
             try:
                 candidate = LocalDocumentStore(staging, protector=self._protector, max_document_bytes=self._max_document_bytes)
+                candidate._use_reference_cache = False
                 candidate.search_library(limit=1)
                 candidate.list_cases(limit=100)
             except StoreError as exc:
                 raise StoreRejected("the backup cannot be opened by this user or failed its integrity checks") from exc
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             previous = self.path.with_name(f"{self.path.name}.before-restore-{stamp}-{secrets.token_hex(2)}")
+            previous_index_key = self._index_key
             os.replace(self.path, previous)
             try:
                 os.replace(staging, self.path)
@@ -702,12 +864,15 @@ class LocalDocumentStore:
                 os.replace(previous, self.path)
                 self._known_index_entries = {}
                 self._known_case_entries = {}
+                self._index_key = previous_index_key
                 if isinstance(exc, (StoreError, OSError)):
                     raise StoreError("restore failed; the previous archive was put back") from exc
                 raise
         finally:
             if staging.exists():
                 staging.unlink()
+            # Hygiene only: drop entries from the replaced or rejected archive.
+            _CASE_LIST_REFERENCE_CACHE.clear()
         return {**manifest, "previous_copy": previous.name}
 
     def _protect_index_key(self, key: bytes) -> bytes:
@@ -930,7 +1095,9 @@ class LocalDocumentStore:
             byte_length = source.get("byte_length")
             if not isinstance(byte_length, int) or isinstance(byte_length, bool) or byte_length < 1:
                 raise ValueError("stored source length is invalid")
-            return copy.deepcopy(record), envelope["saved_at"]
+            # json.loads produced a fresh object for this read; no shared
+            # in-memory record needs to be copied before returning it.
+            return record, envelope["saved_at"]
         except StoreError as exc:
             raise StoreIntegrityError("stored document record failed integrity validation") from exc
         except Exception as exc:
@@ -1057,28 +1224,31 @@ class LocalDocumentStore:
             if binding["source_sha256"].lower() != ref["source_sha256"].lower() or binding["role"] != ref["role"]:
                 raise StoreIntegrityError("case-document reference binding does not match the manifest")
             doc_row = connection.execute(
-                "SELECT entry_id, document_id_index, record_payload, source_payload FROM documents WHERE document_id_index = ?",
+                "SELECT entry_id, document_id_index, record_payload, typeof(source_payload), length(source_payload) "
+                "FROM documents WHERE document_id_index = ?",
                 (document_index,),
             ).fetchone()
             if doc_row is None:
                 raise StoreIntegrityError("case references a missing local document")
-            _, stored_index, record_payload, source_payload = doc_row
+            _, stored_index, record_payload, source_type, source_length = doc_row
             record, saved_at = self._decode_record(record_payload)
-            doc_id, source_hash = self._validate_record(record)
+            # _decode_record already validated this freshly decoded record.
+            doc_id, source_hash = record['document_id'], record['source']['sha256'].lower()
             if self._document_id_index(doc_id) != stored_index or stored_index != document_index:
                 raise StoreIntegrityError("case document index points to a different record")
-            if doc_id != ref["document_id"] or source_hash != ref["source_sha256"].lower():
+            if doc_id != ref['document_id'] or source_hash != ref['source_sha256'].lower():
                 raise StoreIntegrityError("case source hash does not match the archived document")
-            if not isinstance(source_payload, bytes) or not source_payload:
+            # Presence and type are the only source checks here; avoid copying
+            # the potentially large ciphertext into the list/status response.
+            if source_type != 'blob' or not isinstance(source_length, int) or source_length < 1:
                 raise StoreIntegrityError("case source ciphertext is missing")
-            metadata_size = self._case_record_metadata_size(record)
+            metadata_size, processed_size = self._case_record_sizes_validated(record, doc_id)
             if metadata_size > _MAX_CASE_RECORD_METADATA_BYTES:
                 raise StoreIntegrityError("case document metadata exceeds its configured limit")
             actual_metadata_bytes += metadata_size
-            if record.get("processing", {}).get("ocr", {}).get("status") == "completed":
-                actual_processed_bytes += len(self._canonical_json(record))
-            actual_bytes += record["source"]["byte_length"]
-            ownership[doc_id] = binding["case_owned"]
+            actual_processed_bytes += processed_size
+            actual_bytes += record['source']['byte_length']
+            ownership[doc_id] = binding['case_owned']
         if actual_bytes != case.get("retained_source_bytes"):
             raise StoreIntegrityError("case retained-source byte count does not match archived documents")
         if actual_metadata_bytes > _MAX_CASE_TOTAL_METADATA_BYTES:
@@ -1087,9 +1257,141 @@ class LocalDocumentStore:
             raise StoreIntegrityError("case OCR output exceeds its committed result-byte accounting")
         return ownership
 
+    def _validate_case_references_parallel(
+        self, connection: sqlite3.Connection, case: dict, case_index: str, *, cache_generation: int | None = None,
+    ) -> dict[str, bool]:
+        """Validate every reference within the caller's SQLite read snapshot.
+
+        Only the Windows DPAPI case-list path calls this helper. Ciphertexts
+        are batched before decryption; one oversized record is handled alone.
+        The batch budget is not a bound on total process memory.
+        """
+        expected = {self._document_id_index(item['document_id']): item for item in self._manifest_document_refs(case)}
+        bindings = connection.execute(
+            "SELECT document_id_index FROM case_documents WHERE case_id_index = ?", (case_index,),
+        ).fetchall()
+        if len(bindings) != len(expected) or {row[0] for row in bindings} != set(expected):
+            raise StoreIntegrityError("case-document references do not match the encrypted case manifest")
+
+        cache = _CASE_LIST_REFERENCE_CACHE if cache_generation is not None else None
+        protector_type = type(self._protector)
+        store_component = hashlib.sha256(b'ocr2-case-list-store|' + self._index_key).digest()
+
+        def check(row):
+            document_index, binding_payload, entry_id, stored_index, record_payload, source_type, source_length, cache_key = row
+            result = full_check(
+                document_index, binding_payload, entry_id, stored_index, record_payload, source_type, source_length,
+            )
+            doc_id, case_owned, byte_length, metadata, processed = result
+            if cache_key is not None:
+                ref = expected[document_index]
+                try:
+                    # Only a fully authenticated and validated result is stored.
+                    cache.put(cache_key, (cache.tag(ref['document_id'], ref['source_sha256'], ref['role']),
+                                          case_owned, byte_length, metadata, processed), cache_generation)
+                except Exception:
+                    pass  # Not caching is always safe.
+            return result
+
+        def cache_key_for(row):
+            if cache is None:
+                return None
+            try:
+                return cache.key(store_component, protector_type, row[0], row[3])
+            except Exception:
+                return None
+
+        def cached_check(document_index, row, cache_key):
+            if cache_key is None:
+                return None
+            entry_id, stored_index, source_type, source_length = row[1], row[2], row[4], row[5]
+            try:
+                cached = cache.get(cache_key, cache_generation)
+                if cached is None:
+                    return None
+                tag, case_owned, byte_length, metadata, processed = cached
+                ref = expected[document_index]
+                expected_tag = cache.tag(ref['document_id'], ref['source_sha256'], ref['role'])
+            except Exception:
+                return None  # A cache error is a miss: the full check runs.
+            if (
+                entry_id is None
+                or stored_index != document_index
+                or not hmac.compare_digest(tag, expected_tag)
+                or source_type != 'blob' or not isinstance(source_length, int) or source_length < 1
+                or metadata > _MAX_CASE_RECORD_METADATA_BYTES
+            ):
+                return None  # Recheck fully so failures keep the existing errors.
+            return ref['document_id'], case_owned, byte_length, metadata, processed
+
+        def full_check(document_index, binding_payload, entry_id, stored_index, record_payload, source_type, source_length):
+            binding = self._decode_case_reference(binding_payload)
+            ref = expected[document_index]
+            if binding['source_sha256'].lower() != ref['source_sha256'].lower() or binding['role'] != ref['role']:
+                raise StoreIntegrityError("case-document reference binding does not match the manifest")
+            if entry_id is None:
+                raise StoreIntegrityError("case references a missing local document")
+            record, _ = self._decode_record(record_payload)
+            doc_id, source_hash = record['document_id'], record['source']['sha256'].lower()
+            if self._document_id_index(doc_id) != stored_index or stored_index != document_index:
+                raise StoreIntegrityError("case document index points to a different record")
+            if doc_id != ref['document_id'] or source_hash != ref['source_sha256'].lower():
+                raise StoreIntegrityError("case source hash does not match the archived document")
+            if source_type != 'blob' or not isinstance(source_length, int) or source_length < 1:
+                raise StoreIntegrityError("case source ciphertext is missing")
+            metadata, processed = self._case_record_sizes_validated(record, doc_id)
+            if metadata > _MAX_CASE_RECORD_METADATA_BYTES:
+                raise StoreIntegrityError("case document metadata exceeds its configured limit")
+            return doc_id, binding['case_owned'], record['source']['byte_length'], metadata, processed
+
+        checked = []
+        pending = []
+        pending_bytes = 0
+        for (document_index,) in bindings:
+            meta = connection.execute(
+                "SELECT length(cd.binding_payload), d.entry_id, length(d.record_payload) "
+                "FROM case_documents cd LEFT JOIN documents d ON d.document_id_index=cd.document_id_index "
+                "WHERE cd.case_id_index=? AND cd.document_id_index=?", (case_index, document_index),
+            ).fetchone()
+            if meta is None or meta[1] is None or not isinstance(meta[0], int) or not isinstance(meta[2], int):
+                raise StoreIntegrityError("case references a missing or invalid local document")
+            size = meta[0] + meta[2]
+            if pending and (len(pending) >= _CASE_LIST_WORKERS
+                            or pending_bytes + size > _CASE_LIST_BATCH_CIPHERTEXT_BYTES):
+                checked.extend(_checked_case_list_batch(check, pending))
+                pending = []
+                pending_bytes = 0
+            row = connection.execute(
+                "SELECT cd.binding_payload, d.entry_id, d.document_id_index, d.record_payload, "
+                "typeof(d.source_payload), length(d.source_payload) FROM case_documents cd "
+                "JOIN documents d ON d.document_id_index=cd.document_id_index "
+                "WHERE cd.case_id_index=? AND cd.document_id_index=?", (case_index, document_index),
+            ).fetchone()
+            if row is None or not isinstance(row[0], bytes) or not isinstance(row[3], bytes):
+                raise StoreIntegrityError("invalid protected payload type")
+            # The bytes were read in this snapshot; reuse only an earlier
+            # successful check of exactly the same bytes.
+            cache_key = cache_key_for(row)
+            hit = cached_check(document_index, row, cache_key)
+            if hit is not None:
+                checked.append(hit)
+                continue
+            pending.append((document_index, *row, cache_key))
+            pending_bytes += size
+        if pending:
+            checked.extend(_checked_case_list_batch(check, pending))
+        if sum(x[2] for x in checked) != case.get('retained_source_bytes'):
+            raise StoreIntegrityError("case retained-source byte count does not match archived documents")
+        if sum(x[3] for x in checked) > _MAX_CASE_TOTAL_METADATA_BYTES:
+            raise StoreIntegrityError("case retained metadata exceeds its configured limit")
+        if sum(x[4] for x in checked) > case.get('processing', {}).get('result_bytes', 0):
+            raise StoreIntegrityError("case OCR output exceeds its committed result-byte accounting")
+        return {x[0]: x[1] for x in checked}
+
     def _verify_case_index_integrity(self) -> None:
         try:
             with self._connect() as connection:
+                connection.execute("BEGIN")
                 rows = connection.execute("SELECT entry_id, case_id_index, case_payload FROM cases ORDER BY entry_id").fetchall()
                 for entry_id, case_index, payload in rows:
                     case = self._decode_case_payload(payload)
@@ -1155,10 +1457,18 @@ class LocalDocumentStore:
         if not isinstance(record, dict):
             raise StoreRejected("case document record must be an object")
         document_id, _ = LocalDocumentStore._validate_record(record)
-        archived_record = copy.deepcopy(record)
-        source = archived_record.get("source")
+        return LocalDocumentStore._case_record_metadata_size_validated(record, document_id)
+
+    @staticmethod
+    def _case_record_metadata_size_validated(record: dict, document_id: str) -> int:
+        # Copy only the mappings changed below, not the potentially large OCR
+        # result tree which is excluded from the metadata calculation.
+        archived_record = record.copy()
+        source = record.get("source")
         if not isinstance(source, dict):
             raise StoreRejected("case document source metadata must be an object")
+        source = source.copy()
+        archived_record["source"] = source
         source["storage_ref"] = f"local-archive://{document_id}"
         # Large line proposals produced by OCR count against the separate
         # cumulative processing-result budget, not the upload metadata quota.
@@ -1175,6 +1485,26 @@ class LocalDocumentStore:
         if size > _MAX_CASE_RECORD_METADATA_BYTES:
             raise StoreRejected("case document metadata exceeds the 1 MiB metadata limit")
         return size
+
+    @classmethod
+    def _case_record_sizes_validated(cls, record: dict, document_id: str) -> tuple[int, int]:
+        """Account for authenticated records whose archive reference was verified.
+
+        The metadata envelope omits expense_lines. Reusing its canonical byte
+        length avoids serializing the remaining record twice for OCR results.
+        """
+        metadata = cls._case_record_metadata_size_validated(record, document_id)
+        processed = 0
+        if record.get('processing', {}).get('ocr', {}).get('status') == 'completed':
+            envelope_overhead = len(cls._canonical_json({
+                'format_version': 1, 'record': {}, 'saved_at': '2000-01-01T00:00:00+00:00',
+            })) - 2
+            processed = metadata - envelope_overhead
+            if 'expense_lines' in record:
+                processed += len(b'"expense_lines":') + len(cls._canonical_json(record['expense_lines']))
+                if len(record) > 1:
+                    processed += 1
+        return metadata, processed
 
     def create_case(self, case_manifest: dict, statement_record: dict, source_bytes: bytes) -> dict:
         """Atomically archive the statement, its opaque binding, and the encrypted case manifest."""
@@ -1246,6 +1576,9 @@ class LocalDocumentStore:
             return None
         try:
             with self._connect() as connection:
+                # The manifest and referenced documents must be read from the
+                # same SQLite snapshot while OCR publishes a completed chunk.
+                connection.execute("BEGIN")
                 return self._get_case_in_connection(connection, case_id)
         except StoreError:
             raise
@@ -1306,13 +1639,29 @@ class LocalDocumentStore:
         try:
             matches = []
             with self._connect() as connection:
+                # Keep case payloads, bindings and document records consistent.
+                connection.execute("BEGIN")
                 rows = connection.execute("SELECT entry_id, case_id_index, case_payload FROM cases ORDER BY entry_id").fetchall()
+                generation = None
+                if self._use_reference_cache:
+                    try:
+                        generation = _CASE_LIST_REFERENCE_CACHE.begin_list()
+                    except Exception:
+                        generation = None
                 for entry_id, case_index, payload in rows:
                     case = self._decode_case_payload(payload)
                     if self._case_id_index(case["case_id"]) != case_index:
                         raise StoreIntegrityError("case ID index failed integrity validation")
                     self._known_case_entries[case_index] = entry_id
-                    self._validate_case_references(connection, case, case_index)
+                    if type(self._protector) is WindowsDpapiProtector and _CASE_LIST_PARALLEL_GATE.acquire(blocking=False):
+                        try:
+                            self._validate_case_references_parallel(
+                                connection, case, case_index, cache_generation=generation,
+                            )
+                        finally:
+                            _CASE_LIST_PARALLEL_GATE.release()
+                    else:
+                        self._validate_case_references(connection, case, case_index)
                     searchable = f"{case['case_id']} {case.get('status', '')} {case.get('processing', {}).get('state', '')}".casefold()
                     if not needle or needle in searchable:
                         matches.append(case)
@@ -1373,6 +1722,8 @@ class LocalDocumentStore:
                         self._known_index_entries.pop(document_index, None)
                 connection.commit()
                 self._known_case_entries.pop(case_index, None)
+            # Hygiene only: cached results depend on exact bytes, not on rows.
+            _CASE_LIST_REFERENCE_CACHE.clear()
             return True
         except StoreError:
             raise

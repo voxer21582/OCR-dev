@@ -6,6 +6,27 @@ from alfa_document_intelligence import install_state
 from alfa_document_intelligence.runtime_manifest import build_manifest
 
 
+def test_installer_error_does_not_print_exception_details(tmp_path, monkeypatch, capsys):
+    def fail(*args):
+        raise OSError('SYNTHETIC_PRIVATE_PATH_841')
+    monkeypatch.setattr(install_state, 'rollback', fail)
+    assert install_state.main(['--base', str(tmp_path), 'rollback']) == 1
+    err = capsys.readouterr().err
+    assert 'SYNTHETIC_PRIVATE_PATH_841' not in err
+    assert 'OCR2_INSTALL_ERROR' in err
+
+
+def test_removal_error_does_not_print_exception_details(tmp_path, monkeypatch, capsys):
+    from alfa_document_intelligence import removal_check
+    def fail(*args):
+        raise OSError('SYNTHETIC_PRIVATE_PATH_842')
+    monkeypatch.setattr(removal_check, 'validate_removal', fail)
+    assert removal_check.main(['--base', str(tmp_path)]) == 1
+    err = capsys.readouterr().err
+    assert 'SYNTHETIC_PRIVATE_PATH_842' not in err
+    assert 'OCR2_REMOVE_ERROR' in err
+
+
 @pytest.fixture(autouse=True)
 def _synthetic_profile(tmp_path, monkeypatch):
     monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))
@@ -305,3 +326,44 @@ def test_standalone_cleanup_checks_all_roots_before_deleting(tmp_path, monkeypat
     with pytest.raises(ValueError, match='Linked'):
         removal_check.cleanup_debris(tmp_path)
     assert staging.exists() and linked.exists()
+
+@pytest.mark.parametrize('arguments', [
+    ['SYNTHETIC_PRIVATE_ARGUMENT_843'],
+    ['activate', '--SYNTHETIC_PRIVATE_ARGUMENT_843'],
+    ['verify', '0.6.0', '--SYNTHETIC_PRIVATE_ARGUMENT_843'],
+])
+def test_invalid_install_arguments_do_not_echo_private_values(arguments, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        install_state.main(arguments)
+    assert exit_info.value.code == 2
+    output = capsys.readouterr()
+    assert 'SYNTHETIC_PRIVATE_ARGUMENT_843' not in output.out + output.err
+    assert 'OCR2_INSTALL_ARGUMENT_ERROR' in output.err
+
+
+def test_install_cli_invalid_argument_is_sanitized_in_subprocess():
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, '-B', '-m', 'alfa_document_intelligence.install_state',
+         'SYNTHETIC_PRIVATE_ARGUMENT_843'],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 2
+    assert 'SYNTHETIC_PRIVATE_ARGUMENT_843' not in result.stdout + result.stderr
+    assert result.stderr.strip() == 'OCR2_INSTALL_ARGUMENT_ERROR'
+
+
+def test_removal_cli_invalid_argument_is_sanitized_in_subprocess(tmp_path):
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, '-B', '-m', 'alfa_document_intelligence.removal_check',
+         '--base', str(tmp_path), '--SYNTHETIC_PRIVATE_ARGUMENT_844'],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 2
+    assert 'SYNTHETIC_PRIVATE_ARGUMENT_844' not in result.stdout + result.stderr
+    assert result.stderr.strip() == 'OCR2_REMOVE_ARGUMENT_ERROR'

@@ -1,0 +1,7 @@
+E   AssertionError: case processing job did not reach a terminal state
+E   AssertionError: case processing job did not reach a terminal state
+      raise ValueError("worker_start_failed") from None
+  ValueError: worker_start_failed
+FAILED tests/test_expense_case_processing.py::ExpenseCaseProcessingManagerTests::test_failure_ends_job_when_case_reread_finds_no_case
+FAILED tests/test_expense_case_processing.py::ExpenseCaseProcessingManagerTests::test_failure_ends_job_when_case_reread_raises
+2 failed, 11 deselected, 1 warning in 10.39s
