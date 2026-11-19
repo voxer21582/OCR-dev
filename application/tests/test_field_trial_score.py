@@ -244,3 +244,74 @@ def test_frozen_sample_rejects_streams_not_at_start():
     snapshot = capture(sheet, pairs, documents)
     moved = io.BytesIO(b'synthetic-document-1'); moved.read(1)
     with pytest.raises(ValueError): read_verified(snapshot, f'{1:032x}', moved, sheet, pairs)
+
+
+def test_snapshot_seal_round_trip_and_tampering_is_rejected():
+    import hashlib, hmac, io
+    from tools.field_trial_freeze import capture, seal, unseal, verify_sheets, read_verified
+    class SyntheticProtector:
+        def protect(self, data): return hmac.digest(b'synthetic-key', data, 'sha256') + data
+        def unprotect(self, data):
+            if not hmac.compare_digest(data[:32], hmac.digest(b'synthetic-key', data[32:], 'sha256')):
+                raise ValueError('secret-test-error')
+            return data[32:]
+    sheet, pairs, documents = _freeze_fixture()
+    snapshot = capture(sheet, pairs, documents)
+    blob = seal(snapshot, protector=SyntheticProtector())
+    restored = unseal(blob, protector=SyntheticProtector())
+    verify_sheets(restored, sheet, pairs)
+    assert read_verified(restored, f'{1:032x}', io.BytesIO(b'synthetic-document-1'), sheet, pairs) == b'synthetic-document-1'
+    with pytest.raises(ValueError): unseal(blob[:-1] + bytes([blob[-1] ^ 1]), protector=SyntheticProtector())
+    assert b'secret-path' not in blob and b'synthetic-document' not in blob
+
+
+def test_snapshot_unseal_rejects_malformed_or_oversized_payloads():
+    from tools.field_trial_freeze import unseal
+    class SyntheticProtector:
+        def unprotect(self, data): return data
+    for value in (b'{}', b'{"v":1,"v":1}', b'x' * (64 * 1024 + 1)):
+        with pytest.raises(ValueError): unseal(value, protector=SyntheticProtector())
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows DPAPI')
+def test_snapshot_real_dpapi_round_trip_and_tamper_rejection():
+    import io
+    from tools.field_trial_freeze import capture, seal, unseal, read_verified
+    sheet, pairs, documents = _freeze_fixture()
+    blob = seal(capture(sheet, pairs, documents))
+    assert b'synthetic-document' not in blob and b'secret-path' not in blob
+    snapshot = unseal(blob)
+    assert read_verified(snapshot, f'{2:032x}', io.BytesIO(b'synthetic-document-2'), sheet, pairs) == b'synthetic-document-2'
+    changed = bytearray(blob); changed[len(changed) // 2] ^= 1
+    with pytest.raises(ValueError): unseal(bytes(changed))
+
+
+def test_snapshot_unseal_rejects_full_but_invalid_records():
+    from tools.field_trial_freeze import unseal
+    class SyntheticProtector:
+        def unprotect(self, data): return data
+    digest = 'a' * 64
+    base = {'version': 1, 'sheet': digest, 'matches': digest,
+            'documents': {f'{index:032x}': f'{index:064x}' for index in range(30)}}
+    invalid = []
+    for version in (True, '1', 2): invalid.append({**base, 'version': version})
+    invalid.append({**base, 'sheet': 'bad'})
+    invalid.append({**base, 'documents': {**base['documents'], 'bad-id': digest}})
+    invalid.append({**base, 'documents': dict(list(base['documents'].items())[:29])})
+    invalid.append({**base, 'documents': {f'{index:032x}': f'{index:064x}' for index in range(51)}})
+    invalid.append({**base, 'documents': {key: digest for key in base['documents']}})
+    for payload in invalid:
+        with pytest.raises(ValueError): unseal(json.dumps(payload).encode(), protector=SyntheticProtector())
+
+
+def test_snapshot_protector_failure_is_generic():
+    from tools.field_trial_freeze import capture, seal, unseal
+    class FailingProtector:
+        def protect(self, data): raise RuntimeError('SECRET_SYNTHETIC')
+        def unprotect(self, data): raise RuntimeError('SECRET_SYNTHETIC')
+    sheet, pairs, documents = _freeze_fixture()
+    snapshot = capture(sheet, pairs, documents)
+    for callback in (lambda: seal(snapshot, protector=FailingProtector()), lambda: unseal(b'cipher', protector=FailingProtector())):
+        with pytest.raises(ValueError) as exc: callback()
+        assert 'SECRET_SYNTHETIC' not in str(exc.value)
+        assert exc.value.__cause__ is None

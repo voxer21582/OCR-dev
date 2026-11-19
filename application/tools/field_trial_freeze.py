@@ -3,17 +3,20 @@
 No files are opened, output or persisted by this module. Callers must obtain
 file streams safely, keep the snapshot private and pass the returned verified
 bytes directly to ingestion. These primitives do not themselves approve a
-sample, protect a snapshot across restarts, or perform OCR.
+sample, safely persist a protected snapshot, prevent replay, or perform OCR.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
+import re
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import BinaryIO, Mapping
 
 from tools.field_trial_sheet import SHEET, MATCHES, _rows_from_bytes, convert_reference
+from tools.field_trial_score import _object
 
 _MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
 _CHUNK = 1024 * 1024
@@ -82,3 +85,60 @@ def read_verified(snapshot: Snapshot, document_id: str, stream: BinaryIO,
     if not hmac.compare_digest(expected, digest):
         raise ValueError('document changed')
     return data
+
+
+_MAX_SEALED_BYTES = 64 * 1024
+
+
+def seal(snapshot: Snapshot, *, protector=None) -> bytes:
+    """Protect private snapshot metadata; caller must safely persist ciphertext."""
+    if protector is None:
+        from alfa_document_intelligence.local_document_store import WindowsDpapiProtector
+        protector = WindowsDpapiProtector()
+    try:
+        payload = {
+            'version': 1,
+            'sheet': snapshot._sheet_digest.hex(),
+            'matches': snapshot._matches_digest.hex(),
+            'documents': {key: value.hex() for key, value in snapshot._documents.items()},
+        }
+        plain = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode('ascii')
+        protected = protector.protect(plain)
+        if not isinstance(protected, bytes) or not protected or len(protected) > _MAX_SEALED_BYTES:
+            raise ValueError('invalid protector output')
+        return protected
+    except Exception:
+        raise ValueError('snapshot protection failed') from None
+
+
+def unseal(protected: bytes, *, protector=None) -> Snapshot:
+    """Authenticate protected metadata and reject unsupported or malformed records."""
+    if protector is None:
+        from alfa_document_intelligence.local_document_store import WindowsDpapiProtector
+        protector = WindowsDpapiProtector()
+    try:
+        if not isinstance(protected, bytes) or not protected or len(protected) > _MAX_SEALED_BYTES:
+            raise ValueError('invalid snapshot')
+        plain = protector.unprotect(protected)
+        if not isinstance(plain, bytes) or len(plain) > _MAX_SEALED_BYTES:
+            raise ValueError('invalid snapshot')
+        payload = json.loads(plain.decode('ascii'), object_pairs_hook=_object)
+        if not isinstance(payload, dict) or set(payload) != {'version', 'sheet', 'matches', 'documents'} or type(payload['version']) is not int or payload['version'] != 1:
+            raise ValueError('invalid snapshot')
+        docs = payload['documents']
+        if not isinstance(docs, dict) or not 30 <= len(docs) <= 50:
+            raise ValueError('invalid snapshot')
+        def digest(value):
+            if not isinstance(value, str) or not re.fullmatch(r'[0-9a-f]{64}', value):
+                raise ValueError('invalid snapshot')
+            return bytes.fromhex(value)
+        decoded = {}
+        for key, value in docs.items():
+            if not isinstance(key, str) or not re.fullmatch(r'[0-9a-f]{32}', key):
+                raise ValueError('invalid snapshot')
+            decoded[key] = digest(value)
+        if len(set(decoded.values())) != len(decoded):
+            raise ValueError('invalid snapshot')
+        return Snapshot(digest(payload['sheet']), digest(payload['matches']), MappingProxyType(decoded))
+    except Exception:
+        raise ValueError('snapshot authentication failed') from None
