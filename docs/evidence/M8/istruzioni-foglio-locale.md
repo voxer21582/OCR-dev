@@ -8,4 +8,6 @@ Queste istruzioni affiancano il protocollo approvato senza cambiarne soglie o cr
 4. Far esaminare e approvare al proprietario il campione e il foglio compilato prima di avviare OCR. Registrare solo la decisione e i numeri aggregati, non il foglio.
 5. Dopo l'approvazione e l'esecuzione, preparare localmente il JSON dei risultati con lo schema del protocollo, trascrivendo i primi valori e i primi suggerimenti senza modificarli. Il risultato individuale non viene autenticato dallo script e va controllato indipendentemente. Comando: `python -B -m tools.field_trial_sheet PERCORSO_CAMPIONE.csv PERCORSO_CORRISPONDENZE.csv PERCORSO_RISULTATI.json`. Stampa solo l'array dei 42 conteggi descritto nel protocollo, senza scrivere copie intermedie.
 
+Per collegare le righe attese a quelle riconosciute, la mappa successiva all'OCR va preparata e controllata usando la posizione e l'evidenza della riga, **senza scegliere in base ai suggerimenti di abbinamento**. Una riga attesa non riconosciuta resta nel denominatore come mancata; se l'associazione è ambigua, non sceglierla arbitrariamente. La verifica formale dell'export non ne autentica la provenienza dalla prova approvata.
+
 Un `0` di validazione non è un'approvazione e non autorizza l'OCR. Non interpretare valori `0/0` come successo; non abbassare le soglie dopo il risultato senza la firma del proprietario.

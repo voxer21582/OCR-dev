@@ -246,6 +246,40 @@ def test_document_exports_score_only_bound_sources_and_numeric_results():
     assert score_document_exports(snapshot, sheet, pairs, locations, [failed])[:4] == [30, 30, 0, 30]
 
 
+def test_case_matches_use_first_suggestion_for_manually_mapped_rows(monkeypatch):
+    import hashlib
+    import alfa_document_intelligence.case_export_reader as reader
+    from tools.field_trial_freeze import capture
+    from tools.field_trial_export_score import score_case_matches
+    sheet, pairs, documents = _freeze_fixture()
+    locations = ('codice_riga;codice_nota;pagina;posizione\n' + '\n'.join(
+        f'row-{index};{0:032x};1;{index+1}' for index in range(10)) + '\n').encode()
+    snapshot = capture(sheet, pairs, documents, row_locations=locations)
+    digest = lambda index: hashlib.sha256(f'synthetic-document-{index}'.encode()).hexdigest()
+    case = {'statement': {'document_id': 'note', 'source_sha256': digest(0)},
+            'attachments': [{'document_id': f'doc-{i}', 'source_sha256': digest(i)} for i in range(1, 11)],
+            'lines': [{'line_id': 'line-1', 'suggestions': [{'document_id': 'doc-1', 'source_sha256': digest(1)}]}]}
+    monkeypatch.setattr(reader, 'read_case_export', lambda text: case)
+    mapping = {f'row-{i}': None for i in range(10)}; mapping['row-0'] = 'line-1'
+    assert score_case_matches(snapshot, sheet, pairs, locations, 'synthetic-export', mapping) == [1, 10]
+    case['lines'][0]['suggestions'].insert(0, {'document_id': 'doc-2', 'source_sha256': digest(2)})
+    assert score_case_matches(snapshot, sheet, pairs, locations, 'synthetic-export', mapping) == [0, 10]
+    with pytest.raises(ValueError): score_case_matches(snapshot, sheet, pairs, locations, 'synthetic-export', {**mapping, 'row-1': 'line-1'})
+    with pytest.raises(ValueError): score_case_matches(snapshot, sheet, pairs, locations, 'synthetic-export', {**mapping, 'row-1': 'unknown'})
+    with pytest.raises(ValueError): score_case_matches(snapshot, sheet, pairs, locations + b'changed', 'synthetic-export', mapping)
+
+
+def test_case_match_scoring_rejects_malformed_case_export():
+    from tools.field_trial_freeze import capture
+    from tools.field_trial_export_score import score_case_matches
+    sheet, pairs, documents = _freeze_fixture()
+    locations = ('codice_riga;codice_nota;pagina;posizione\n' + '\n'.join(
+        f'row-{index};{0:032x};1;{index+1}' for index in range(10)) + '\n').encode()
+    snapshot = capture(sheet, pairs, documents, row_locations=locations)
+    with pytest.raises(ValueError):
+        score_case_matches(snapshot, sheet, pairs, locations, '{}', {f'row-{i}': None for i in range(10)})
+
+
 def test_frozen_sample_rejects_incomplete_or_duplicate_row_locations():
     from tools.field_trial_freeze import capture
     def locations(lines):
