@@ -12,6 +12,16 @@ Un successivo controllo automatico indipendente dei file di evidenza aggiunti fi
 
 **Modifica R7 successiva alla firma (2026-11-19), non coperta.** La cache per processo delle verifiche della lista dei fascicoli (`_VerifiedReferenceCache` in `local_document_store.py`) cambia il modo in cui la lista verifica i riferimenti: un esito già autenticato con DPAPI viene riutilizzato per byte identici senza nuova decifratura. È una modifica R7 sostanziale dell'autenticazione: la firma e l'approvazione del 2026-11-18 non la coprono. Una revisione automatica indipendente (intervallo `2427a31..3e59a02`) l'ha giudicata «con correzioni», senza rilievi critici; le correzioni sono nel commit `30d42ab`. Resta una scelta che il proprietario deve accettare esplicitamente: la cache ribalta il criterio con cui era stato respinto il prototipo HMAC/snapshot, perché un riscontro in cache salta DPAPI, e una perdita parziale di master key può restare nascosta nella lista per al massimo 480–600 s. Richiede approvazione esplicita del proprietario ai sensi di DEC-001 prima del merge; disegno, limiti e misure in [letture concorrenti](letture-concorrenti.md#cache-per-processo-delle-verifiche-indicizzata-sui-byte-autenticati-proposta-r7-in-attesa-di-approvazione).
 
+**Approvazione del proprietario della cache dei riferimenti (2026-11-19).** Le tre domande sono state poste al proprietario così:
+
+1. Approvazione della nuova modifica R7 (la cache delle verifiche dei riferimenti della lista dei fascicoli in `local_document_store.py`).
+2. Accettazione esplicita del ribaltamento del criterio di rifiuto del prototipo HMAC/snapshot: una perdita parziale di master key DPAPI può restare nascosta nella lista per al massimo 480–600 s; la perdita totale resta rilevata subito.
+3. Accettazione del metodo di clic tramite Chrome DevTools Protocol come evidenza per REQ-129.
+
+Il proprietario ha risposto nella conversazione del progetto: «si a tutto». La risposta è stata riferita a Claude dal coordinatore della sessione; Claude non l'ha osservata direttamente.
+
+Perimetro: la cache come implementata fino al commit `25bb11e`, cioè `_VerifiedReferenceCache` e il suo uso in `list_cases` e `_validate_case_references_parallel`, con le correzioni `30d42ab` e `25bb11e`. Comprende la scadenza 480–600 s e il mascheramento limitato descritto al punto 2. Non comprende modifiche successive al codice R7, né scadenze o capacità diverse. Una revisione automatica indipendente successiva (intervallo `3e59a02..290b775`) ha giudicato risolti tutti gli 8 rilievi della prima revisione e non ha trovato altri problemi critici o importanti. I rilievi minori residui sono stati corretti in `25bb11e`. REQ-129 non è ancora chiuso: mancano le serie Edge di conferma sulla build corretta, rinviate perché la sessione Windows è bloccata.
+
 ## Revisione e firma precedenti
 
 Il proprietario ha firmato la revisione automatica indipendente descritta in questa sezione; tale firma precede il riesame e le modifiche successive. La revisione è statica e automatica: non sostituisce una verifica umana esterna.

@@ -274,7 +274,17 @@ Una seconda chiave sperimentale, basata su valori e tipi delle coordinate e limi
 
 ## Cache per processo delle verifiche, indicizzata sui byte autenticati (proposta R7, in attesa di approvazione)
 
-**Stato: modifica R7 nuova, implementata e misurata sul ramo; richiede l'approvazione esplicita del proprietario prima del merge (DEC-001). La firma del 2026-11-18 copre il perimetro a `bd77d62`/`b8baa04` e non questa modifica.**
+**Stato: modifica R7 nuova, implementata e misurata sul ramo. La firma del 2026-11-18 non la copriva; il 2026-11-19 il proprietario l'ha approvata con il perimetro indicato sotto (DEC-001). Il titolo della sezione è rimasto invariato per non rompere i collegamenti.**
+
+**Approvazione del proprietario della cache dei riferimenti (2026-11-19).** Le tre domande sono state poste al proprietario così:
+
+1. Approvazione della nuova modifica R7 (la cache delle verifiche dei riferimenti della lista dei fascicoli in `local_document_store.py`).
+2. Accettazione esplicita del ribaltamento del criterio di rifiuto del prototipo HMAC/snapshot: una perdita parziale di master key DPAPI può restare nascosta nella lista per al massimo 480–600 s; la perdita totale resta rilevata subito.
+3. Accettazione del metodo di clic tramite Chrome DevTools Protocol come evidenza per REQ-129.
+
+Il proprietario ha risposto nella conversazione del progetto: «si a tutto». La risposta è stata riferita a Claude dal coordinatore della sessione; Claude non l'ha osservata direttamente.
+
+Perimetro: la cache come implementata fino al commit `25bb11e`, cioè `_VerifiedReferenceCache` e il suo uso in `list_cases` e `_validate_case_references_parallel`, con le correzioni `30d42ab` e `25bb11e`. Comprende la scadenza 480–600 s e il mascheramento limitato descritto al punto 2. Non comprende modifiche successive al codice R7, né scadenze o capacità diverse. Una revisione automatica indipendente successiva (intervallo `3e59a02..290b775`) ha giudicato risolti tutti gli 8 rilievi della prima revisione e non ha trovato altri problemi critici o importanti. I rilievi minori residui sono stati corretti in `25bb11e`. REQ-129 non è ancora chiuso: mancano le serie Edge di conferma sulla build corretta, rinviate perché la sessione Windows è bloccata.
 
 ### Disegno
 
