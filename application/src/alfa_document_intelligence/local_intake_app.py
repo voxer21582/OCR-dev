@@ -67,6 +67,7 @@ from .manual_region_review import build_human_region_evidence, encode_rgb8_png
 from .ocr_processing import (
     OCRJobProtocolError,
     OCRProcessingManager,
+    PUBLIC_JOB_ERROR_CODES,
     decode_frame,
 )
 
@@ -866,6 +867,11 @@ def _ocr_job_page(
             '<button type="submit">Annulla elaborazione</button></form>'
         )
     archive_link = '<p><a href="/archive">Apri archivio locale</a></p>' if archive_enabled else ""
+    error = ""
+    if getattr(status, "phase", "") == "failed":
+        # A stable code names the failing stage without document data.
+        code = getattr(status, "error_code", None)
+        error = f'<p>Codice: {code if code in PUBLIC_JOB_ERROR_CODES else "unknown_error"}</p>'
     return (
         '<!doctype html><html lang="it"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -876,7 +882,7 @@ def _ocr_job_page(
         } else "")
         + '<title>Elaborazione OCR</title><main><h1>Elaborazione OCR</h1>'
         f'<p>Stato: {escape(phase)}.</p>'
-        f'<p>Documenti: {completed} / {total} · Pagine: {page} / {pages}</p>'
+        f'<p>Documenti: {completed} / {total} · Pagine: {page} / {pages}</p>{error}'
         f'<p><a href="/ocr/jobs/{quote(job_id, safe="")}">Aggiorna stato</a></p>'
         f'{actions}{archive_link}</main></html>'
     )
@@ -3162,6 +3168,7 @@ def create_expense_report_app(
             session = state
             if session is None or session.intake is not None or session.ocr_starting:
                 return _page(environ, start_response, "409 Conflict", "<p>La sessione di caricamento non è disponibile.</p>")
+            ocr_start_attempted = False
             try:
                 note_id = _multipart_scalar(environ, "note_document_id")
                 intake = create_expense_report_intake_session(
@@ -3178,6 +3185,7 @@ def create_expense_report_app(
                                 or session.intake is not None):
                             return _page(environ, start_response, "409 Conflict", "<p>La sessione è stata sostituita prima dell’avvio OCR.</p>")
                         session.ocr_starting = True
+                    ocr_start_attempted = True
                     try:
                         job_id = ocr_processing_manager.start(
                             session.generation_id,
@@ -3247,7 +3255,11 @@ def create_expense_report_app(
                 with state_lock:
                     if state is session:
                         session.ocr_starting = False
-                return _page(environ, start_response, "400 Bad Request", '<p>Elaborazione non riuscita. Verifica i dati e riprova.</p><p><a href="/">Riprova</a></p>')
+                # Stable codes tell a rejected selection from a rejected OCR
+                # start; neither is a failed elaboration, and no detail is shown.
+                if ocr_start_attempted:
+                    return _page(environ, start_response, "400 Bad Request", '<p>Elaborazione OCR non avviata. Verifica i dati e riprova.</p><p>Codice: ocr_start_rejected</p><p><a href="/">Riprova</a></p>')
+                return _page(environ, start_response, "400 Bad Request", '<p>Nota spese non assegnata. Verifica la selezione e riprova.</p><p>Codice: assign_note_invalid</p><p><a href="/">Riprova</a></p>')
             state.last_activity = now
             return _page(environ, start_response, "200 OK", _bundle_page(state, archive_enabled=archive_store is not None))
         if method == "POST" and path == "/clear":

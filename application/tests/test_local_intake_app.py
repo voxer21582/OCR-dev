@@ -228,7 +228,8 @@ def test_invalid_uploads_and_note_assignment_fail_without_creating_a_bundle():
         app, "POST", "/assign-note", assign, "application/x-www-form-urlencoded"
     )
     assert status == "400 Bad Request"
-    assert b"Verifica i dati" in error
+    assert b"Verifica la selezione" in error
+    assert b"Codice: assign_note_invalid" in error
 
     status, _, page = _request(app)
     assert status == "200 OK"

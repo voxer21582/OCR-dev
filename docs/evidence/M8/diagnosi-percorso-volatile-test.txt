@@ -1,0 +1,29 @@
+# RED (tests/test_ocr_job_ui.py, prima della correzione)
+FAILED tests/test_ocr_job_ui.py::OCRJobUiTests::test_failed_job_page_never_echoes_an_unrecognised_error_code
+SUBFAILED(code='worker_failed') tests/test_ocr_job_ui.py::OCRJobUiTests::test_failed_job_page_shows_the_stable_worker_error_code
+SUBFAILED(code='worker_protocol_failed') tests/test_ocr_job_ui.py::OCRJobUiTests::test_failed_job_page_shows_the_stable_worker_error_code
+SUBFAILED(code='job_timeout') tests/test_ocr_job_ui.py::OCRJobUiTests::test_failed_job_page_shows_the_stable_worker_error_code
+SUBFAILED(code='page_output_limit') tests/test_ocr_job_ui.py::OCRJobUiTests::test_failed_job_page_shows_the_stable_worker_error_code
+FAILED tests/test_ocr_job_ui.py::OCRJobUiTests::test_invalid_note_selection_is_not_reported_as_failed_processing
+FAILED tests/test_ocr_job_ui.py::OCRJobUiTests::test_rejected_ocr_start_is_reported_with_its_own_code
+7 failed, 19 passed in 0.33s
+
+# GREEN (moduli correlati: test_ocr_job_ui, test_local_intake_app, test_ocr_processing, test_req124_output_guards, test_app_window_routes, test_expense_case_intake_routes)
+112 passed, 99 subtests passed in 8.79s
+
+# Suite completa, --basetemp fuori dal repository
+1393 passed, 4 skipped, 411 subtests passed in 119.07s (0:01:59)
+
+# Suite completa, --basetemp sotto .m8-work (4 fallimenti attesi: gli strumenti rifiutano cartelle dentro un repository Git)
+4 failed, 1389 passed, 4 skipped, 411 subtests passed in 121.93s (0:02:01)
+Nota: le suite complete includono le modifiche locali non committate di tests/test_field_trial_score.py e tools/field_trial_case_upload.py presenti nel worktree, non incluse in questo commit.
+
+# Aggiornamento: uscita 120 del worker da console
+# RED (tests/test_isolated_decoder.py -k replaces_python_streams, prima della correzione)
+FAILED ...::test_output_isolation_replaces_python_streams_bound_to_the_old_handle[stdout] - assert 120 == 0
+FAILED ...::test_output_isolation_replaces_python_streams_bound_to_the_old_handle[stderr] - assert 120 == 0
+2 failed, 19 deselected
+# GREEN (test_isolated_decoder, test_ocr_processing, test_req124_output_guards)
+68 passed, 95 subtests passed
+# Suite completa, --basetemp fuori dal repository
+1395 passed, 4 skipped, 411 subtests passed in 118.65s (0:01:58)

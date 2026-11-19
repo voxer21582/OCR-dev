@@ -1,0 +1,24 @@
+# M8 — Compilazione assistita del campione
+
+La preparazione è manuale: apri i documenti sul PC e trascrivi soltanto ciò che leggi. Non usare l'OCR o i suoi suggerimenti per preparare le risposte. I documenti e i fogli rimangono nella cartella privata locale; non inviarli in chat o nel repository. Il campione proposto è provvisorio: se non contiene documenti adatti, va modificato prima dell'approvazione.
+
+È disponibile una guida locale (`tools.field_trial_editor_gui`) che mostra un documento alla volta e consente di compilare i campi senza usare OCR o servizi di rete. **Salva una nuova bozza** crea un nuovo CSV nella cartella privata senza sovrascrivere il foglio aperto; annota quale bozza usare per continuare. Se la finestra viene chiusa con modifiche non salvate, viene richiesta conferma. Con **Gestisci abbinamenti** si possono indicare nota, pagina, posizione e giustificativo; il salvataggio crea una nuova cartella con i due CSV coerenti, riapribili in seguito. Salvare anche il foglio dei documenti e conservare insieme i nomi della bozza e della cartella degli abbinamenti. Le bozze sono dati sensibili da conservare localmente fino al via libera del proprietario.
+
+Nella versione aggiornata, **Aggiungi documenti** permette di scegliere altri file nella cartella autorizzata, fino a 50 in totale; **Rimuovi dal campione** elimina solo la riga dalla bozza, non il file originale. Se sono state già compilate corrispondenze o posizioni, vanno aggiornate dopo ogni modifica alla selezione. Una finestra avviata prima dell'aggiornamento mantiene la versione precedente finché non viene chiusa e riaperta; salvare prima la bozza in corso.
+
+La guida può essere riaperta con il collegamento locale `AVVIA-GUIDA.cmd` nella cartella privata: all'avvio scegliere il CSV iniziale oppure una bozza salvata. Aprire solo una guida alla volta e, prima di chiudere una finestra precedente, salvarne le modifiche. Il collegamento è temporaneo, dipende da questa copia di lavoro e dal runtime locale già disponibile e non modifica le impostazioni di Windows.
+
+## Comincia con un documento
+
+1. Apri `campione-e-risposte.csv` dalla cartella privata. Se il programma chiede come importarlo, scegli **UTF-8**, separatore **punto e virgola** e formato **testo** per tutte le colonne. Non modificare `codice` e `percorso_locale`.
+2. Apri sul computer il documento indicato nella prima riga. Scrivi `nota` nella colonna `ruolo` se è una nota spese, altrimenti `giustificativo` se è il relativo documento di spesa; se non rientra in queste categorie, segnalo per sostituzione. Indica `it` o `en` nella colonna `lingua` secondo il documento.
+3. Trascrivi i valori presenti e leggibili: `total_amount` (ad esempio `12.34`), `issue_date` (ad esempio `2026-01-31`), `currency` (ad esempio `EUR`), `document_number`, `vat_registration_number`, `merchant_name`. Gli esempi sono inventati. Se un dato manca o è illeggibile, lascia vuota la cella e annota il motivo in `esclusioni_motivo`. Non dedurre valori mancanti.
+4. Salva in CSV UTF-8 con lo stesso separatore; controlla che codici, date e importi restino testo. Ripeti per gli altri documenti solo dopo avere verificato che il primo sia salvato correttamente.
+
+## Corrispondenze e controllo finale
+
+Apri `corrispondenze.csv` con le stesse impostazioni. Per ogni riga della nota spese che ha un solo giustificativo corretto, scrivi un codice di riga casuale privo di dati personali in `codice_riga` e copia in `codice_documento_corretto` il `codice` del relativo giustificativo. In un registro separato da conservare nella stessa cartella privata annota anche il codice della nota, la pagina e la posizione della riga associati a ciascun codice di riga: altrimenti dopo l'OCR non sarà possibile sapere quale suggerimento confrontare. Prepara e fai approvare anche questo registro prima dell'OCR. Non inserire righe ambigue come se fossero univoche. Occorrono almeno dieci corrispondenze univoche, 30–50 documenti distinti e almeno cinque documenti valutabili per ciascuna lingua; ogni campo misurato deve avere almeno un caso valutabile.
+
+Il modello privato `posizioni-righe.csv` ha quattro colonne: `codice_riga` (lo stesso del file delle corrispondenze), `codice_nota` (quello della nota nel campione), `pagina` e `posizione`. Per pagina e posizione usa numeri interi positivi, contando da 1; la posizione identifica la riga nella pagina. Ogni coppia nota-pagina-posizione deve individuare una sola riga. Il controllo automatico verifica il formato, ma la posizione deve essere controllata sul documento dalla persona che prepara il foglio.
+
+La verifica formale descritta in [istruzioni-foglio-locale.md](istruzioni-foglio-locale.md) aiuta a trovare errori di formato ma non certifica la correttezza delle risposte. Dopo la compilazione il proprietario esamina e approva esplicitamente il foglio prima di ogni OCR reale. Conservare fogli, risultati e archivio di prova fino a suo successivo via libera.

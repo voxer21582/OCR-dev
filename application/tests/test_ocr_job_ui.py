@@ -484,6 +484,66 @@ class OCRJobUiTests(unittest.TestCase):
         self.assertEqual(status, "404 Not Found")
         self.assertIn(generation, manager.cancelled)
 
+    def _fail_job(self, error_code):
+        self._assign_note()
+        job_id, generation, _ = self.manager.started[0]
+        self.manager.statuses[job_id] = OCRJobStatus(
+            job_id, generation, "failed", 1, 2, 1, 1, error_code,
+        )
+        return job_id
+
+    def test_failed_job_page_shows_the_stable_worker_error_code(self):
+        # M8: two field-trial runs ended in «Elaborazione non riuscita» while
+        # the volatile page hid the worker's code, so the stage was unknown.
+        for code in ("worker_failed", "worker_protocol_failed", "job_timeout", "page_output_limit"):
+            with self.subTest(code=code):
+                self.setUp()
+                job_id = self._fail_job(code)
+                status, _, page = _request(self.app, path=f"/ocr/jobs/{job_id}")
+                self.assertEqual(status, "200 OK")
+                self.assertIn(b"Elaborazione non riuscita", page)
+                self.assertIn(f"<p>Codice: {code}</p>".encode(), page)
+
+    def test_failed_job_page_never_echoes_an_unrecognised_error_code(self):
+        job_id = self._fail_job("C:/Users/someone/private name.pdf")
+        status, _, page = _request(self.app, path=f"/ocr/jobs/{job_id}")
+        self.assertEqual(status, "200 OK")
+        self.assertIn(b"<p>Codice: unknown_error</p>", page)
+        self.assertNotIn(b"private", page)
+        self.assertNotIn(b"Users", page)
+
+    def test_running_and_successful_job_pages_show_no_error_code(self):
+        self._assign_note()
+        job_id, generation, _ = self.manager.started[0]
+        self.manager.statuses[job_id] = OCRJobStatus(job_id, generation, "processing", 0, 1, 1, 1, None)
+        _, _, page = _request(self.app, path=f"/ocr/jobs/{job_id}")
+        self.assertNotIn(b"Codice:", page)
+
+    def test_invalid_note_selection_is_not_reported_as_failed_processing(self):
+        body = urlencode({"note_document_id": "doc-999"}).encode()
+        status, _, page = _request(
+            self.app, "POST", "/assign-note", body, "application/x-www-form-urlencoded",
+        )
+        self.assertEqual(status, "400 Bad Request")
+        self.assertEqual(self.manager.started, [])
+        self.assertNotIn(b"Elaborazione non riuscita", page)
+        self.assertIn(b"Codice: assign_note_invalid", page)
+        self.assertNotIn(b"doc-999", page)
+
+    def test_rejected_ocr_start_is_reported_with_its_own_code(self):
+        def reject(*_args, **_kwargs):
+            raise ValueError("source exceeds configured limit")
+
+        self.manager.start = reject
+        status, _, page = self._assign_note()
+        self.assertEqual(status, "400 Bad Request")
+        self.assertIn(b"Codice: ocr_start_rejected", page)
+        self.assertNotIn(b"source exceeds", page)
+        # The session stays usable: a later valid start is not blocked.
+        del self.manager.start
+        status, _, _ = self._assign_note()
+        self.assertEqual(status, "200 OK")
+
     def test_app_close_closes_optional_manager(self):
         _, generation, _ = self.manager.started[0] if self.manager.started else (None, None, None)
         if generation is None:

@@ -1,0 +1,179 @@
+"""Windows-only, fail-closed reading of files inside an authorised local root.
+
+The caller must send the bytes read from this handle directly to the next
+stage; reopening a path loses the guarantee. Errors must not expose paths.
+"""
+from __future__ import annotations
+
+from contextlib import ExitStack, contextmanager
+import os
+from pathlib import Path
+
+
+@contextmanager
+def open_local_file(root, path):
+    """Open one ordinary, singly-linked file while pinning all parent folders."""
+    if os.name != 'nt':
+        raise ValueError('unsupported platform')
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+    from alfa_document_intelligence.__main__ import _lock_plain_windows_directory
+
+    stack = ExitStack()
+    try:
+        root, path = Path(root), Path(path)
+        if not root.is_absolute() or not path.is_absolute() or '..' in root.parts or '..' in path.parts:
+            raise ValueError('invalid path')
+        root_name, path_name = os.path.abspath(root), os.path.abspath(path)
+        if root_name.startswith(('\\\\', '//')) or path_name.startswith(('\\\\', '//')) or ':' in path_name[2:]:
+            raise ValueError('nonlocal path')
+        if os.path.normcase(os.path.commonpath((root_name, path_name))) != os.path.normcase(root_name) or os.path.normcase(root_name) == os.path.normcase(path_name):
+            raise ValueError('outside root')
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        drive_type = kernel.GetDriveTypeW
+        drive_type.argtypes = [wintypes.LPCWSTR]
+        drive_type.restype = wintypes.UINT
+        if drive_type(os.path.splitdrive(root_name)[0] + '\\') != 3:
+            raise ValueError('nonlocal drive')
+        create = kernel.CreateFileW
+        create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                           ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        create.restype = wintypes.HANDLE
+        info = kernel.GetFileInformationByHandleEx
+        info.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        info.restype = wintypes.BOOL
+        close = kernel.CloseHandle
+        close.argtypes = [wintypes.HANDLE]
+        close.restype = wintypes.BOOL
+        file_type = kernel.GetFileType
+        file_type.argtypes = [wintypes.HANDLE]
+        file_type.restype = wintypes.DWORD
+
+        class AttributeTag(ctypes.Structure):
+            _fields_ = [('attributes', wintypes.DWORD), ('tag', wintypes.DWORD)]
+
+        parent = Path(path_name).parent
+        for directory in reversed((parent, *parent.parents)):
+            stack.enter_context(_lock_plain_windows_directory(str(directory)))
+        handle = create(path_name, 0x80000000, 0x1, None, 3, 0x00200000, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise ValueError('file unavailable')
+        fd = None
+        try:
+            attributes = AttributeTag()
+            if (not info(handle, 9, ctypes.byref(attributes), ctypes.sizeof(attributes))
+                    or attributes.attributes & (0x400 | 0x10) or file_type(handle) != 1):
+                raise ValueError('invalid file')
+            fd = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+            handle = None  # fd now owns the Windows handle
+            stream = stack.enter_context(os.fdopen(fd, 'rb'))
+            fd = None  # stream now owns fd
+            if os.fstat(stream.fileno()).st_nlink != 1:
+                raise ValueError('linked file')
+        finally:
+            if fd is not None:
+                os.close(fd)
+            if handle is not None:
+                close(handle)
+    except Exception:
+        stack.close()
+        raise ValueError('local file unavailable') from None
+    with stack:
+        yield stream
+
+
+def capture_local(sheet_bytes, matches_bytes, authorised_root, *, row_locations=None):
+    """Read a validated CSV's files only through pinned handles under root."""
+    from tools.field_trial_sheet import SHEET, MATCHES, _rows_from_bytes, convert_reference
+    from tools.field_trial_freeze import capture
+    rows = _rows_from_bytes(sheet_bytes, SHEET)
+    convert_reference(rows, _rows_from_bytes(matches_bytes, MATCHES))
+    with ExitStack() as stack:
+        streams = {
+            row['codice'].strip(): stack.enter_context(open_local_file(authorised_root, row['percorso_locale'].strip()))
+            for row in rows
+        }
+        return capture(sheet_bytes, matches_bytes, streams, row_locations=row_locations)
+
+
+def read_bound_local(snapshot, sheet_bytes, matches_bytes, authorised_root, document_id, *, row_locations=None):
+    """Return verified bytes from the path bound to an unchanged sheet."""
+    from tools.field_trial_sheet import SHEET, _rows_from_bytes
+    from tools.field_trial_freeze import verify_sheets, read_verified
+    verify_sheets(snapshot, sheet_bytes, matches_bytes, row_locations=row_locations)
+    rows = _rows_from_bytes(sheet_bytes, SHEET)
+    selected = [row for row in rows if row['codice'].strip() == document_id]
+    if len(selected) != 1:
+        raise ValueError('invalid document selection')
+    with open_local_file(authorised_root, selected[0]['percorso_locale'].strip()) as stream:
+        return read_verified(snapshot, document_id, stream, sheet_bytes, matches_bytes, row_locations=row_locations)
+
+
+def _read_sheet(stream):
+    from tools.field_trial_sheet import _LIMIT
+    raw = stream.read(_LIMIT + 1)
+    if not isinstance(raw, bytes) or len(raw) > _LIMIT:
+        raise ValueError('invalid sheet')
+    return raw
+
+
+def capture_current(private_root, reference_path, matches_path, authorised_root, *, row_locations_path=None):
+    """Capture from simultaneously protected, freshly read private sheets."""
+    with ExitStack() as stack:
+        reference_stream = stack.enter_context(open_local_file(private_root, reference_path))
+        matches_stream = stack.enter_context(open_local_file(private_root, matches_path))
+        if row_locations_path is None:
+            return capture_local(_read_sheet(reference_stream), _read_sheet(matches_stream), authorised_root)
+        locations_stream = stack.enter_context(open_local_file(private_root, row_locations_path))
+        return capture_local(_read_sheet(reference_stream), _read_sheet(matches_stream), authorised_root,
+                             row_locations=_read_sheet(locations_stream))
+
+
+def read_current(snapshot, private_root, reference_path, matches_path, authorised_root, document_id, *, row_locations_path=None):
+    """Reread protected current sheets before obtaining verified input bytes."""
+    with ExitStack() as stack:
+        reference_stream = stack.enter_context(open_local_file(private_root, reference_path))
+        matches_stream = stack.enter_context(open_local_file(private_root, matches_path))
+        if row_locations_path is None:
+            return read_bound_local(snapshot, _read_sheet(reference_stream), _read_sheet(matches_stream), authorised_root, document_id)
+        locations_stream = stack.enter_context(open_local_file(private_root, row_locations_path))
+        return read_bound_local(snapshot, _read_sheet(reference_stream), _read_sheet(matches_stream), authorised_root, document_id,
+                                row_locations=_read_sheet(locations_stream))
+
+
+def read_verified_batch(snapshot, private_root, reference_path, matches_path, row_locations_path,
+                        authorised_root, document_ids, *, role):
+    """Return one bounded batch of verified bytes and pseudonymous filenames.
+
+    The caller must authenticate the snapshot against the owner's approval and
+    send these exact bytes; this function does not perform approval or OCR.
+    """
+    from tools.field_trial_freeze import verify_sheets
+    from tools.field_trial_sheet import SHEET, _rows_from_bytes
+    if (snapshot._row_locations_digest is None or role not in ('nota', 'giustificativo')
+            or not isinstance(document_ids, (list, tuple)) or not 1 <= len(document_ids) <= 20
+            or any(not isinstance(item, str) for item in document_ids)
+            or len(set(document_ids)) != len(document_ids) or (role == 'nota' and len(document_ids) != 1)):
+        raise ValueError('invalid batch')
+    allowed = {'.pdf', '.png', '.jpg', '.jpeg', '.tif', '.tiff', '.webp', '.gif', '.bmp'}
+    with ExitStack() as stack:
+        sheet = _read_sheet(stack.enter_context(open_local_file(private_root, reference_path)))
+        matches = _read_sheet(stack.enter_context(open_local_file(private_root, matches_path)))
+        locations = _read_sheet(stack.enter_context(open_local_file(private_root, row_locations_path)))
+        verify_sheets(snapshot, sheet, matches, row_locations=locations)
+        rows = {row['codice'].strip(): row for row in _rows_from_bytes(sheet, SHEET)}
+        result, total = [], 0
+        for document_id in document_ids:
+            row = rows.get(document_id)
+            if row is None or row['ruolo'].strip().lower() != role:
+                raise ValueError('invalid batch selection')
+            extension = Path(row['percorso_locale'].strip()).suffix.lower()
+            if extension not in allowed:
+                raise ValueError('unsupported document format')
+            data = read_bound_local(snapshot, sheet, matches, authorised_root, document_id, row_locations=locations)
+            total += len(data)
+            if total > 80 * 1024 * 1024:
+                raise ValueError('batch too large')
+            result.append((document_id + extension, data))
+        return result
