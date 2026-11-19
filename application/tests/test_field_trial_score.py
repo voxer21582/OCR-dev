@@ -108,3 +108,61 @@ def test_invalid_candidate_in_nonevaluable_field_fails_closed():
     results['documents'][0]['fields']['merchant_name'] = {'status': 'fake', 'value': 'secret'}
     with pytest.raises(ValueError):
         score(gold, results)
+
+
+def test_reference_csv_conversion_preserves_counts_and_rejects_wrong_match_target():
+    from tools.field_trial_sheet import convert_reference
+    fields = ('total_amount', 'issue_date', 'currency', 'document_number', 'vat_registration_number', 'merchant_name')
+    rows = []
+    for index in range(30):
+        row = {'codice': f'{index:032x}', 'percorso_locale': f'secret-path-{index}', 'ruolo': 'nota' if index == 0 else 'giustificativo', 'lingua': 'en' if index < 5 else 'it', 'esclusioni_motivo': ''}
+        row.update({field: 'synthetic' for field in fields})
+        rows.append(row)
+    matches = [{'codice_riga': f'row-{i}', 'codice_documento_corretto': f'{i+1:032x}'} for i in range(10)]
+    sheet = convert_reference(rows, matches)
+    assert len(sheet['documents']) == 30 and len(sheet['matches']) == 10
+    assert 'secret-path' not in json.dumps(sheet)
+    matches[0]['codice_documento_corretto'] = rows[0]['codice']
+    with pytest.raises(ValueError): convert_reference(rows, matches)
+
+
+def test_reference_csv_conversion_rejects_insufficient_language_and_empty_metric():
+    from tools.field_trial_sheet import convert_reference
+    fields = ('total_amount', 'issue_date', 'currency', 'document_number', 'vat_registration_number', 'merchant_name')
+    rows = []
+    for index in range(30):
+        row = {'codice': f'{index:032x}', 'percorso_locale': f'secret-path-{index}', 'ruolo': 'nota' if index == 0 else 'giustificativo', 'lingua': 'it', 'esclusioni_motivo': ''}
+        row.update({field: 'synthetic' for field in fields})
+        rows.append(row)
+    matches = [{'codice_riga': f'row-{i}', 'codice_documento_corretto': f'{i+1:032x}'} for i in range(10)]
+    with pytest.raises(ValueError): convert_reference(rows, matches)
+    for row in rows[:5]: row['lingua'] = 'en'
+    for row in rows: row['merchant_name'] = ''
+    with pytest.raises(ValueError): convert_reference(rows, matches)
+
+
+def test_reference_csv_cli_validates_without_writing_or_echoing_contents(tmp_path):
+    import csv
+    from tools.field_trial_sheet import SHEET, MATCHES
+    fields = ('total_amount', 'issue_date', 'currency', 'document_number', 'vat_registration_number', 'merchant_name')
+    reference = tmp_path / 'secret-reference.csv'
+    pairs = tmp_path / 'secret-matches.csv'
+    with reference.open('w', encoding='utf-8-sig', newline='') as stream:
+        writer = csv.DictWriter(stream, fieldnames=SHEET, delimiter=';'); writer.writeheader()
+        for index in range(30):
+            row = {'codice': f'{index:032x}', 'percorso_locale': f'secret-path-{index}', 'ruolo': 'nota' if index == 0 else 'giustificativo', 'lingua': 'en' if index < 5 else 'it'}
+            row.update({field: 'secret-value' for field in fields}); writer.writerow(row)
+    with pairs.open('w', encoding='utf-8-sig', newline='') as stream:
+        writer = csv.DictWriter(stream, fieldnames=MATCHES, delimiter=';'); writer.writeheader()
+        writer.writerows({'codice_riga': f'row-{i}', 'codice_documento_corretto': f'{i+1:032x}'} for i in range(10))
+    result = subprocess.run([sys.executable, '-B', '-m', 'tools.field_trial_sheet', str(reference), str(pairs)], capture_output=True, text=True)
+    assert result.returncode == 0 and result.stdout.strip() == '0' and result.stderr == ''
+    assert 'secret' not in result.stdout + result.stderr
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['secret-matches.csv', 'secret-reference.csv']
+    results = tmp_path / 'secret-results.json'
+    results.write_text(json.dumps({'documents': [], 'matches': []}), encoding='utf-8')
+    result = subprocess.run([sys.executable, '-B', '-m', 'tools.field_trial_sheet', str(reference), str(pairs), str(results)], capture_output=True, text=True)
+    assert result.returncode == 0 and result.stderr == ''
+    assert len(json.loads(result.stdout)) == 42
+    assert all(type(value) is int for value in json.loads(result.stdout))
+    assert 'secret' not in result.stdout + result.stderr
