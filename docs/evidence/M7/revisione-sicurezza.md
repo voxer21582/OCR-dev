@@ -1,5 +1,15 @@
 # M7 — Revisione di sicurezza
 
+## Estensione della firma e conferma R7 (2026-11-19)
+
+Fonte: risposte date dal proprietario il 2026-11-19 in una finestra di domande strutturate mostrata dal coordinatore nella sessione del proprietario. Il proprietario ha risposto «Sì, estendo e approvo».
+
+- **Firma della revisione di sicurezza (DEC-008) estesa al codice finale della PR #153.** Oltre al codice di `b8baa04` già firmato il 2026-11-18, copre i commit di codice successivi `e27e2c8`, `14a862b`, `4f470be`, `30d42ab`, `25bb11e`, `22b51c7`, `41bef3d`, `def1963`, `4cf5f2c`, `c4fb008`, `0a72678`, `7ecd9dd`, cioè il codice fino a `7ecd9dd`, che comprende la cache R7, le correzioni REQ-124, la correzione del lavoro OCR del fascicolo e le due modifiche decise oggi (pannello dell'installer e cancellazione dei vecchi registri). I commit successivi a `7ecd9dd` riguardano solo documentazione ed evidenze.
+- **Perimetro R7 confermato sul commit finale (DEC-001).** Dopo `25bb11e`, già approvato, l'unica modifica R7 è il commento di `4cf5f2c`, senza effetti sul comportamento. Le modifiche di oggi non toccano archivio (R7) né esportazioni (R8).
+- **OK al merge** dato dal proprietario a condizione che le modifiche dei punti 1 e 2 (pannello dell'installer e vecchi registri) siano completate, riesaminate e con CI verde. La revisione indipendente finale (`0a76d41..697e564`) non comprende `0a72678` e `7ecd9dd`: il loro riesame resta da eseguire prima del merge.
+
+La revisione resta statica e automatica, non un audit umano o un penetration test.
+
 ## Riesame successivo delle modifiche
 
 Un riesame automatico indipendente ha esaminato staticamente il diff fra la base `0a76d415bf28c0e69b52a7539a88fe73ebe20ee7` e il commit `b8baa044be444558f752e7dc93d39009b3978b8f`, concentrandosi su launcher, isolamento delle uscite, server WSGI, navigazione, diagnostica, archivio R7/DPAPI e conteggio JSON. Non ha individuato ulteriori vulnerabilità concrete nei percorsi esaminati. Non ha eseguito personalmente i test o verificato la CI, né svolto un audit umano esterno, un penetration test o una nuova verifica completa di dipendenze e licenze.
