@@ -94,6 +94,36 @@ if os.name == "nt":
     assert result.stderr == b""
 
 
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_output_isolation_replaces_python_streams_bound_to_the_old_handle(tmp_path, stream):
+    # M8: launched from a console window, the worker's sys.stdout/sys.stderr
+    # stay console objects writing through the redirected descriptor. Their
+    # final flush then fails and the worker exits with status 120 after a
+    # successful result, which the manager reports as worker_protocol_failed.
+    # The synthetic stream below fails like such a console object.
+    script = f'''
+import io, sys
+from alfa_document_intelligence.isolated_decoder import _isolate_worker_standard_output
+
+class LostConsole(io.RawIOBase):
+    def writable(self):
+        return True
+    def write(self, data):
+        raise OSError(6, "synthetic invalid handle")
+
+sys.{stream} = io.TextIOWrapper(io.BufferedWriter(LostConsole()), encoding="utf-8")
+_isolate_worker_standard_output()
+sys.{stream}.write("synthetic pending output without newline")
+'''
+    script_path = tmp_path / "console_stream_probe.py"
+    script_path.write_text(script, encoding="utf-8")
+    result = subprocess.run([sys.executable, "-B", str(script_path)], capture_output=True,
+                            timeout=30, check=False)
+    assert result.returncode == 0
+    assert result.stdout == b""
+    assert b"synthetic pending" not in result.stderr
+
+
 def test_spawned_decoder_does_not_emit_pillow_runtime_path_on_corrupt_tiff(tmp_path):
     pytest.importorskip("PIL.Image")
     script = '''

@@ -48,6 +48,14 @@ def _isolate_worker_standard_output() -> None:
                     raise OSError(ctypes.get_last_error(), "cannot isolate worker output")
     finally:
         os.close(null_fd)
+    # The Python stream objects may still be bound to the old handle: from a
+    # console window they are console streams that cannot write to the null
+    # device, so their final flush fails and the worker exits with status 120
+    # after a successful job. Replace them; nothing pending is kept.
+    import sys
+
+    sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
+    sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
 
 
 def _configure_worker_warning_filter() -> None:

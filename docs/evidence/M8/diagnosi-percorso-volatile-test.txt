@@ -17,3 +17,13 @@ FAILED tests/test_ocr_job_ui.py::OCRJobUiTests::test_rejected_ocr_start_is_repor
 # Suite completa, --basetemp sotto .m8-work (4 fallimenti attesi: gli strumenti rifiutano cartelle dentro un repository Git)
 4 failed, 1389 passed, 4 skipped, 411 subtests passed in 121.93s (0:02:01)
 Nota: le suite complete includono le modifiche locali non committate di tests/test_field_trial_score.py e tools/field_trial_case_upload.py presenti nel worktree, non incluse in questo commit.
+
+# Aggiornamento: uscita 120 del worker da console
+# RED (tests/test_isolated_decoder.py -k replaces_python_streams, prima della correzione)
+FAILED ...::test_output_isolation_replaces_python_streams_bound_to_the_old_handle[stdout] - assert 120 == 0
+FAILED ...::test_output_isolation_replaces_python_streams_bound_to_the_old_handle[stderr] - assert 120 == 0
+2 failed, 19 deselected
+# GREEN (test_isolated_decoder, test_ocr_processing, test_req124_output_guards)
+68 passed, 95 subtests passed
+# Suite completa, --basetemp fuori dal repository
+1395 passed, 4 skipped, 411 subtests passed in 118.65s (0:01:58)

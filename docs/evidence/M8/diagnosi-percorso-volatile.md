@@ -42,3 +42,22 @@ Payload 0.6.1 ricostruito con `installer/build_payload.py` dagli ingredienti di 
 - Causa originale non riprodotta; la correzione rende diagnosticabile un futuro fallimento, non dimostra di rimuoverne la causa.
 - La copia di verifica è un payload avviato in modalità console, non un'installazione NSIS; la modalità finestra (`--app-window`) non è stata provata.
 - Prova esplorativa: non è una misura d'accuratezza (REQ-140/142 restano aperti).
+
+## Aggiornamento 2026-11-19 — causa trovata: uscita 120 del worker avviato da console
+
+Con il codice visibile, il proprietario ha riprodotto il guasto con la sola nota spese **inventata e sintetica** (PNG 1240×1754, testo inventato): «Elaborazione non riuscita», `Documenti: 1 / 1 · Pagine: 1 / 1`, `Codice: worker_protocol_failed`.
+
+**Causa.** Lato manager: `OCRProcessingManager._supervise` (`ocr_processing.py`, controllo `job.process.exitcode != 0` dopo la cornice terminale) solleva `RuntimeError` «worker exited unexpectedly»: il worker ha già inviato risultato e terminale `succeeded`, poi esce con **codice 120**. In Python 120 indica il fallimento del flush finale di `sys.stdout`/`sys.stderr`. `_isolate_worker_standard_output` (`isolated_decoder.py`) reindirizzava i descrittori 1 e 2 al dispositivo nullo ma lasciava gli oggetti `sys.stdout`/`sys.stderr` originali; quando il server è avviato da una finestra console (come `AVVIA-VERIFICA.cmd`) sono flussi console che non possono scrivere sul dispositivo nullo, quindi il flush all'uscita fallisce. Con uscita reindirizzata su file o pipe (tutte le prove precedenti) il flush riesce: per questo il guasto non si riproduceva. Nessun limite di dimensione o struttura è coinvolto; `-B` è irrilevante.
+
+Strumentazione: copia isolata del payload con aggancio diagnostico locale; registrati solo classe d'eccezione, messaggio letterale del modulo, posizione e codice d'uscita.
+
+| Configurazione, server avviato da console | Prima | Dopo |
+|---|---|---|
+| Nota inventata sola, `-B` | `worker_protocol_failed` (uscita 120) | completata, revisione 200 |
+| File reale solo (diventa la nota), `-B` | `worker_protocol_failed` | completata, revisione 200 |
+| Nota inventata + file reale, `-B` | `worker_protocol_failed` | completata, 2 revisioni 200 |
+| Le stesse tre senza `-B` | nota sola: `worker_protocol_failed` | tutte completate |
+
+**Correzione (TDD).** Dopo il reindirizzamento dei descrittori, `_isolate_worker_standard_output` sostituisce anche `sys.stdout` e `sys.stderr` con flussi sul dispositivo nullo. Vale per il worker OCR e per il decodificatore isolato. Test `test_output_isolation_replaces_python_streams_bound_to_the_old_handle` (stdout e stderr): un flusso sintetico che fallisce come una console perduta riproduceva l'uscita 120 (RED, 2 fallimenti); GREEN dopo la correzione. Moduli correlati 68 passati; suite completa **1395 passati, 4 saltati, 411 sottocasi**. Nessuna modifica a R7/R8.
+
+**Copia di verifica.** Payload 0.6.1 ricostruito da `build-cache` in `payload-nuovo` e verificato («Payload integrity and version verified», nessun `__pycache__`). `AVVIA-VERIFICA.cmd` ora usa `payload-nuovo` con `-B`; la cartella `payload` precedente non è stata modificata. La verifica è stata eseguita con un avvio da console identico ma su porta e profilo diversi, perché l'istanza del proprietario era ancora attiva sulla 8765. Non sono stati letti valori dei campi.
