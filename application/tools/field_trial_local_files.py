@@ -81,3 +81,30 @@ def open_local_file(root, path):
         raise ValueError('local file unavailable') from None
     with stack:
         yield stream
+
+
+def capture_local(sheet_bytes, matches_bytes, authorised_root):
+    """Read a validated CSV's files only through pinned handles under root."""
+    from tools.field_trial_sheet import SHEET, MATCHES, _rows_from_bytes, convert_reference
+    from tools.field_trial_freeze import capture
+    rows = _rows_from_bytes(sheet_bytes, SHEET)
+    convert_reference(rows, _rows_from_bytes(matches_bytes, MATCHES))
+    with ExitStack() as stack:
+        streams = {
+            row['codice'].strip(): stack.enter_context(open_local_file(authorised_root, row['percorso_locale'].strip()))
+            for row in rows
+        }
+        return capture(sheet_bytes, matches_bytes, streams)
+
+
+def read_bound_local(snapshot, sheet_bytes, matches_bytes, authorised_root, document_id):
+    """Return verified bytes from the path bound to an unchanged sheet."""
+    from tools.field_trial_sheet import SHEET, _rows_from_bytes
+    from tools.field_trial_freeze import verify_sheets, read_verified
+    verify_sheets(snapshot, sheet_bytes, matches_bytes)
+    rows = _rows_from_bytes(sheet_bytes, SHEET)
+    selected = [row for row in rows if row['codice'].strip() == document_id]
+    if len(selected) != 1:
+        raise ValueError('invalid document selection')
+    with open_local_file(authorised_root, selected[0]['percorso_locale'].strip()) as stream:
+        return read_verified(snapshot, document_id, stream, sheet_bytes, matches_bytes)

@@ -436,3 +436,55 @@ def test_private_file_rejects_existing_writer_and_recovers(tmp_path):
             with open_local_file(root, path): pass
     with open_local_file(root, path) as stream:
         assert stream.read() == b'SYNTHETIC'
+
+
+def _local_freeze_fixture(tmp_path):
+    import csv, io
+    from tools.field_trial_sheet import SHEET, MATCHES
+    root = tmp_path / 'authorised'; root.mkdir()
+    stream = io.StringIO(newline='')
+    writer = csv.DictWriter(stream, fieldnames=SHEET, delimiter=';'); writer.writeheader()
+    for index in range(30):
+        path = root / f'synthetic-{index}.pdf'; path.write_bytes(f'synthetic-document-{index}'.encode())
+        row = {'codice': f'{index:032x}', 'percorso_locale': str(path), 'ruolo': 'nota' if index == 0 else 'giustificativo', 'lingua': 'en' if index < 5 else 'it'}
+        row.update({field: 'synthetic' for field in ('total_amount', 'issue_date', 'currency', 'document_number', 'vat_registration_number', 'merchant_name')})
+        writer.writerow(row)
+    matches = io.StringIO(newline='')
+    writer = csv.DictWriter(matches, fieldnames=MATCHES, delimiter=';'); writer.writeheader()
+    writer.writerows({'codice_riga': f'row-{index}', 'codice_documento_corretto': f'{index+1:032x}'} for index in range(10))
+    return root, stream.getvalue().encode(), matches.getvalue().encode()
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_local_capture_binds_approved_sheet_to_correct_file(tmp_path):
+    from tools.field_trial_local_files import capture_local, read_bound_local
+    root, sheet, pairs = _local_freeze_fixture(tmp_path)
+    snapshot = capture_local(sheet, pairs, root)
+    assert read_bound_local(snapshot, sheet, pairs, root, f'{1:032x}') == b'synthetic-document-1'
+    (root / 'synthetic-1.pdf').write_bytes(b'CHANGED_SYNTHETIC')
+    with pytest.raises(ValueError): read_bound_local(snapshot, sheet, pairs, root, f'{1:032x}')
+    with pytest.raises(ValueError): read_bound_local(snapshot, sheet + b'changed', pairs, root, f'{2:032x}')
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_local_capture_rejects_document_outside_authorised_root(tmp_path):
+    from tools.field_trial_local_files import capture_local
+    root, sheet, pairs = _local_freeze_fixture(tmp_path)
+    outside = tmp_path / 'synthetic-outside.pdf'; outside.write_bytes(b'OUTSIDE')
+    altered = sheet.replace(str(root / 'synthetic-1.pdf').encode(), str(outside).encode())
+    with pytest.raises(ValueError): capture_local(altered, pairs, root)
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_local_capture_releases_handles_on_late_error_or_duplicate(tmp_path):
+    from tools.field_trial_local_files import capture_local
+    root, sheet, pairs = _local_freeze_fixture(tmp_path)
+    (root / 'synthetic-29.pdf').unlink()
+    with pytest.raises(ValueError): capture_local(sheet, pairs, root)
+    root.rename(root.with_name('after-missing'))
+    root = root.with_name('after-missing')
+    root.rename(tmp_path / 'authorised')
+    root = tmp_path / 'authorised'
+    (root / 'synthetic-29.pdf').write_bytes(b'synthetic-document-0')
+    with pytest.raises(ValueError): capture_local(sheet, pairs, root)
+    root.rename(root.with_name('after-duplicate'))
