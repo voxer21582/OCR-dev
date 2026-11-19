@@ -43,6 +43,17 @@ Limiti: il controllo del logger OCR riguarda il logger Python esaminato e la pro
 
 Il riesame indipendente del diff, comprese le successive modifiche ai messaggi d'integrità e del ciclo di installazione e la separazione del registro, non ha individuato ulteriori difetti concreti nei percorsi esaminati; non ha eseguito il runtime OCR reale. La suite applicativa dopo le successive modifiche ha riportato 1167 test superati, 2 saltati e 403 subtest superati; un controllo separato ha verificato anche la rotazione del nuovo file mantenendo intatti entrambi i file storici sintetici. Il payload con registro separato è stato ricostruito offline e installato con `OCR2_TEST` in una cartella isolata: manifest verificato e medesima prova di conservazione e rotazione superata usando il Python installato. Le prove usano dati sintetici; non dimostrano la sicurezza di ogni uscita nativa.
 
+## Prova sul prodotto installato (2026-11-19)
+
+Un installer `OCR2_TEST` è stato ricostruito offline da `65b71d7` (SHA-256 `ebe9a516963e028ddf8d74a15d6a1f3edef48bc0e915130a4e2ad12ee4ee42f4`) e installato in una cartella isolata con `LOCALAPPDATA` temporaneo; verifica del manifest riuscita. Una sonda locale ha usato l'interprete e i moduli installati con marcatori sintetici di testo e percorso. Superati **14/14 controlli**:
+
+- argomenti non validi: `install_state` e `removal_check` escono con 2 e scrivono solo `OCR2_INSTALL_ARGUMENT_ERROR` o `OCR2_REMOVE_ARGUMENT_ERROR`;
+- errori non previsti: un `active.json` annidato e due `RuntimeError` forzati con i marcatori producono solo `OCR2_INSTALL_ERROR` o `OCR2_REMOVE_ERROR`, uscita 1;
+- avvio in modalità finestra non riuscito, per eccezione e per argomento non valido: `launcher-safe.log` contiene solo righe `=== data · OCR2_* ===`, senza marcatori; `launcher.log` non viene creato;
+- avvio normale con il motore `rapidocr-v6` e «Esci»: pagina servita, risposta 200, processo terminato con codice 0, stderr vuoto, `instance.json` rimosso, nessuna nuova voce nel registro.
+
+Limiti: l'apertura della finestra Edge e i dialoghi d'errore sono sostituiti da no-op; la prova usa `python.exe`, non `pythonw.exe`; non esercita il pannello dell'installer né output nativi. Dopo la prova le cartelle sono state eliminate e nessun processo dell'installazione di prova era attivo. [Esito](req124-installato-v116.txt).
+
 ## Raccolta delle uscite di processo
 
 Il 18 novembre 2026 una copia isolata del prodotto installato più recente, strumentata con `sitecustomize.py` e manifest rigenerato, ha elaborato il fascicolo sintetico di 104 pagine in 211,6 s. All'avvio ciascun interprete ha tentato una scrittura sintetica a basso livello sui descrittori 1 e 2; il file che raccoglie stdout e stderr del server ha ricevuto entrambi i marcatori per sette PID distinti. Nei 636 byte raccolti non comparivano i marcatori di testo sintetico `Ricevuta NNN`, `Spesa NNN`, gli importi di controllo, i nomi `receipt-NNN` o l'identificativo sintetico del fascicolo. La prima esecuzione era stata interrotta da una negazione sandbox della connessione loopback; la prova completata è stata eseguita con la necessaria autorizzazione, senza modificare Windows.

@@ -1,0 +1,87 @@
+REQ-124 sul prodotto installato - 2026-11-19
+Build OCR2_TEST da HEAD 65b71d7 (payload 0.6.1 ricostruito offline dagli input verificati in build-cache).
+SHA-256 installer: ebe9a516963e028ddf8d74a15d6a1f3edef48bc0e915130a4e2ad12ee4ee42f4
+Installazione silenziosa in cartella isolata con LOCALAPPDATA temporaneo: uscita 0; install_state verify 0.6.1: uscita 0 prima e dopo le prove.
+Sonda: .m7-work/probe-req124-v116.py (locale, non nel repository); usa python.exe e moduli installati; marcatori sintetici di testo e percorso.
+L'avvio normale sostituisce l'apertura della finestra Edge con un no-op e usa il motore rapidocr-v6; i dialoghi d'errore sono sostituiti da no-op nelle prove di avvio non riuscito.
+
+[
+ {
+  "check": "install_state invalid argument",
+  "ok": true,
+  "detail": "rc=2"
+ },
+ {
+  "check": "removal_check invalid argument",
+  "ok": true,
+  "detail": "rc=2"
+ },
+ {
+  "check": "install_state nested active.json",
+  "ok": true,
+  "detail": "rc=1"
+ },
+ {
+  "check": "install forced RuntimeError",
+  "ok": true,
+  "detail": "rc=1"
+ },
+ {
+  "check": "remove forced RuntimeError",
+  "ok": true,
+  "detail": "rc=1"
+ },
+ {
+  "check": "launcher exception failure",
+  "ok": true,
+  "detail": "rc=1 entries=3"
+ },
+ {
+  "check": "launcher argument failure",
+  "ok": true,
+  "detail": "rc=2 entries=4"
+ },
+ {
+  "check": "legacy launcher.log not written",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "normal start publishes instance",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "home page served",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "Esci accepted",
+  "ok": true,
+  "detail": "http=200"
+ },
+ {
+  "check": "process ended after Esci",
+  "ok": true,
+  "detail": "rc=0"
+ },
+ {
+  "check": "normal run output clean",
+  "ok": true,
+  "detail": "stderr_lines=0"
+ },
+ {
+  "check": "instance.json removed",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "no launch-log entry for a normal run",
+  "ok": true,
+  "detail": ""
+ }
+]
+ALL_OK True
+normal_stdout_lines 3 normal_stderr ''
+Dopo le prove: cartelle di installazione, dati sintetici, payload e installer di prova eliminati; nessun processo dell'installazione di prova attivo (controllo per percorso e riga di comando).
