@@ -272,9 +272,9 @@ Nel fascicolo sintetico elaborato, le 472 regioni di evidenza delle proposte di 
 
 Una seconda chiave sperimentale, basata su valori e tipi delle coordinate e limitata alla stessa chiamata, è stata confrontata in 60 ripetizioni sullo stesso record: mediana **3,554 ms** per il validatore corrente e **3,658 ms** per il prototipo, p95 **5,575 e 5,154 ms**. Senza OCR o I/O e con dati validi, il risultato non mostra un beneficio affidabile né dimostra equivalenza sui dati malformati; anche questa variante resta esclusa.
 
-## Cache per processo delle verifiche, indicizzata sui byte autenticati (proposta R7, in attesa di approvazione)
+## Cache per processo delle verifiche, indicizzata sui byte autenticati (modifica R7 approvata il 2026-11-19)
 
-**Stato: modifica R7 nuova, implementata e misurata sul ramo. La firma del 2026-11-18 non la copriva; il 2026-11-19 il proprietario l'ha approvata con il perimetro indicato sotto (DEC-001). Il titolo della sezione è rimasto invariato per non rompere i collegamenti.**
+**Stato: modifica R7 nuova, implementata e misurata sul ramo. La firma del 2026-11-18 non la copriva; il 2026-11-19 il proprietario l'ha approvata con il perimetro indicato sotto (DEC-001). Il 2026-11-19 il titolo è stato aggiornato e i collegamenti interni corretti.**
 
 **Approvazione del proprietario della cache dei riferimenti (2026-11-19).** Le tre domande sono state poste al proprietario così:
 
@@ -284,7 +284,7 @@ Una seconda chiave sperimentale, basata su valori e tipi delle coordinate e limi
 
 Il proprietario ha risposto nella conversazione del progetto: «si a tutto». La risposta è stata riferita a Claude dal coordinatore della sessione; Claude non l'ha osservata direttamente.
 
-Perimetro: la cache come implementata fino al commit `25bb11e`, cioè `_VerifiedReferenceCache` e il suo uso in `list_cases` e `_validate_case_references_parallel`, con le correzioni `30d42ab` e `25bb11e`. Comprende la scadenza 480–600 s e il mascheramento limitato descritto al punto 2. Non comprende modifiche successive al codice R7, né scadenze o capacità diverse. Una revisione automatica indipendente successiva (intervallo `3e59a02..290b775`) ha giudicato risolti tutti gli 8 rilievi della prima revisione e non ha trovato altri problemi critici o importanti. I rilievi minori residui sono stati corretti in `25bb11e`. REQ-129 non è ancora chiuso: mancano le serie Edge di conferma sulla build corretta, rinviate perché la sessione Windows è bloccata.
+Perimetro: la cache come implementata fino al commit `25bb11e`, cioè `_VerifiedReferenceCache` e il suo uso in `list_cases` e `_validate_case_references_parallel`, con le correzioni `30d42ab` e `25bb11e`. Comprende la scadenza 480–600 s e il mascheramento limitato descritto al punto 2. Non comprende modifiche successive al codice R7, né scadenze o capacità diverse. Una revisione automatica indipendente successiva (intervallo `3e59a02..290b775`) ha giudicato risolti tutti gli 8 rilievi della prima revisione e non ha trovato altri problemi critici o importanti. I rilievi minori residui sono stati corretti in `25bb11e`. REQ-129 non è ancora chiuso: mancano le serie Edge di conferma sulla build corretta, rinviate perché la sessione Windows è bloccata. **Aggiornamento 2026-11-19:** le serie sono state eseguite poco dopo, a sessione sbloccata: p95 con cache 52,3–56,2 ms, senza cache 103,1 e 116,3 ms; REQ-129 è considerato soddisfatto con limiti dichiarati ([serie](#serie-edge-di-conferma-sulla-build-corretta-2026-11-19)).
 
 ### Disegno
 
@@ -345,7 +345,7 @@ Tempi in ms; p95 nearest-rank. Interazioni escluse fuori da `processing`: 2, 2, 
 - Il primo accesso alla lista dopo l'avvio, una cancellazione o un ripristino paga ancora la verifica completa; durante l'OCR ogni gruppo salvato produce nuovi ciphertext, che vengono verificati per intero una volta.
 - La memoria della cache non è stata misurata direttamente; il limite è di 4096 voci di dimensione fissa.
 
-**Esito.** Nelle tre serie con cache la p95 dell'interazione effettivamente disegnata durante OCR è sotto 200 ms con ampio margine, senza marcatori mancanti. Questo è un elemento a favore di REQ-129, non una chiusura automatica: la modifica è R7 nuova e **richiede l'approvazione esplicita del proprietario prima del merge**; il proprietario deve anche valutare il limite di metodo descritto sopra e la differenza di disponibilità indicata nel punto (1) dei limiti del disegno.
+**Esito (testo originale; aggiornamento 2026-11-19: la modifica è stata approvata dal proprietario e le serie di conferma sono riportate sotto).** Nelle tre serie con cache la p95 dell'interazione effettivamente disegnata durante OCR è sotto 200 ms con ampio margine, senza marcatori mancanti. Questo è un elemento a favore di REQ-129, non una chiusura automatica: la modifica è R7 nuova e **richiede l'approvazione esplicita del proprietario prima del merge**; il proprietario deve anche valutare il limite di metodo descritto sopra e la differenza di disponibilità indicata nel punto (1) dei limiti del disegno.
 
 ### Misure dopo le correzioni della revisione (2026-11-19)
 
@@ -357,7 +357,7 @@ Build `OCR2_TEST` ricostruita dal commit `30d42ab` (SHA-256 installer `26b006f0f
 
 Nessuna di queste misure include il rendering; sono esecuzioni singole e non contemporanee.
 
-**Serie Edge dopo le correzioni: non eseguite.** È stata avviata una serie Edge sulla copia strumentata della build corretta con la stessa procedura. Durante tutta l'esecuzione la sessione Windows era bloccata (processo LogonUI attivo) e la pagina riportava visibilityState hidden. Di conseguenza nessun marcatore di disegno era disponibile e il fascicolo non risultava in elaborazione nella pagina nascosta: 50 tentativi, tutti esclusi, nessun campione. L'OCR sintetico ha comunque elaborato 104 pagine in 177,0 s con 98/98 righe, 92/92 giustificativi corretti al primo posto e 3/3 conflitti. Le altre serie in programma, due con scadenza reale e due con scadenza ridotta alternate, sono state annullate. Sbloccare la sessione richiede la password dell'utente e non è un'azione consentita. **La conferma richiesta, cioè almeno due serie Edge con cache dopo la scadenza, resta da eseguire a sessione sbloccata** con gli script locali `build-payload-v114.py`, `build-installer-v114.py`, `install-test-v114.py` e `prepare-edge-v114.py` per ricostruire le copie, poi `run-series-v113.sh`. Le cartelle di prova sono state rimosse. Le serie del 2026-11-18 riguardano la versione precedente alle correzioni.
+**Serie Edge dopo le correzioni: non eseguite in questo tentativo** (eseguite poi a sessione sbloccata, vedi la sezione successiva). È stata avviata una serie Edge sulla copia strumentata della build corretta con la stessa procedura. Durante tutta l'esecuzione la sessione Windows era bloccata (processo LogonUI attivo) e la pagina riportava visibilityState hidden. Di conseguenza nessun marcatore di disegno era disponibile e il fascicolo non risultava in elaborazione nella pagina nascosta: 50 tentativi, tutti esclusi, nessun campione. L'OCR sintetico ha comunque elaborato 104 pagine in 177,0 s con 98/98 righe, 92/92 giustificativi corretti al primo posto e 3/3 conflitti. Le altre serie in programma, due con scadenza reale e due con scadenza ridotta alternate, sono state annullate. Sbloccare la sessione richiede la password dell'utente e non è un'azione consentita. **La conferma richiesta, cioè almeno due serie Edge con cache dopo la scadenza, resta da eseguire a sessione sbloccata** con gli script locali `build-payload-v114.py`, `build-installer-v114.py`, `install-test-v114.py` e `prepare-edge-v114.py` per ricostruire le copie, poi `run-series-v113.sh`. Le cartelle di prova sono state rimosse. Le serie del 2026-11-18 riguardano la versione precedente alle correzioni.
 
 ### Serie Edge di conferma sulla build corretta (2026-11-19)
 
@@ -390,3 +390,7 @@ Con la cache la p95 è 52,3–56,2 ms, anche quando le voci scadono più volte d
 - interazioni consecutive correlate, non campioni indipendenti.
 
 Restano picchi isolati non spiegati sopra 200 ms in entrambe le varianti: 335,1 e 228,0 ms con cache, 308,4 ms senza. La memoria della cache non è misurata direttamente.
+
+**Cosa dimostra la cache (2026-11-19).** Anche la build senza cache ha rispettato la soglia con il metodo accettato (p95 103,1 e 116,3 ms): la cache non è ciò che rende REQ-129 conforme in queste misure, ma ne aumenta il margine (p95 52,3–56,2 ms), al prezzo del mascheramento accettato dal proprietario, per 480–600 s al massimo, di una perdita parziale di master key nella lista.
+
+**Limite dichiarato: blocco condiviso durante lista e lettura (2026-11-19, dalla revisione indipendente finale).** Con il journal SQLite `DELETE`, `list_cases` e le letture aprono una transazione `BEGIN` e mantengono il blocco condiviso mentre verificano i riferimenti, anche con le chiamate DPAPI nei thread. Una chiamata DPAPI bloccata può quindi ritardare oltre il `timeout=10` di SQLite le scritture `BEGIN IMMEDIATE` dell'OCR, che fallirebbero come errore dell'archivio. Non osservato nelle prove; l'archivio non è stato modificato (R7).
