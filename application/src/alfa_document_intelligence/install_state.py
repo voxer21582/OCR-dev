@@ -337,8 +337,13 @@ def main(argv=None) -> int:
         else:
             for name in prune(args.base):
                 print(name)
-    except (InstallStateError, OSError):
-        print('OCR2_INSTALL_ERROR', file=__import__('sys').stderr)
+    except Exception:
+        # Any failure reports only the stable code, with the same exit status an
+        # uncaught exception had: messages and tracebacks can carry installation
+        # paths (REQ-124).
+        stderr = __import__('sys').stderr
+        if stderr is not None:
+            print('OCR2_INSTALL_ERROR', file=stderr)
         return 1
     return 0
 

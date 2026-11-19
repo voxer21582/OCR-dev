@@ -67,8 +67,11 @@ def main(argv=None) -> int:
             cleanup_debris(args.base)
         else:
             validate_removal(args.base, args.data)
-    except (ValueError, OSError):
-        print("OCR2_REMOVE_ERROR", file=sys.stderr)
+    except Exception:
+        # Any failure reports only the stable code, with the same exit status an
+        # uncaught exception had: messages and tracebacks can carry paths (REQ-124).
+        if sys.stderr is not None:
+            print("OCR2_REMOVE_ERROR", file=sys.stderr)
         return 1
     return 0
 

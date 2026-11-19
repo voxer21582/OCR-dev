@@ -115,6 +115,37 @@ def _end_startup_capture() -> None:
         sys.stderr = tail.target
 
 
+def _emit_stable_code(code: str) -> None:
+    try:
+        stream = sys.stderr
+        if stream is not None:
+            stream.write(code + "\n")
+            stream.flush()
+    except Exception:
+        pass  # Reporting must never raise from inside a hook.
+
+
+def _thread_exception_hook(args) -> None:
+    # The default hook prints the thread name, a traceback with installation
+    # paths and the exception message, which can carry document text (REQ-124).
+    if args.exc_type is SystemExit:
+        return  # The default hook ignores SystemExit too.
+    _emit_stable_code("OCR2_THREAD_ERROR")
+
+
+def _unraisable_hook(unraisable) -> None:
+    # The default hook prints the object's repr and a traceback (REQ-124).
+    _emit_stable_code("OCR2_UNRAISABLE_ERROR")
+
+
+def _install_safe_exception_hooks() -> None:
+    """Report errors outside the main flow (threads, finalizers) as stable codes only."""
+    import threading
+
+    threading.excepthook = _thread_exception_hook
+    sys.unraisablehook = _unraisable_hook
+
+
 def _show_bootstrap_error() -> None:
     """Make an application import failure visible in window mode; details go to the launch log."""
     if os.name == "nt" and "--app-window" in sys.argv[1:]:
@@ -457,6 +488,7 @@ def _run_entrypoint(argv: Sequence[str] | None = None) -> None:
 
 def _cli_entrypoint() -> None:
     """Keep unexpected exception details out of the process output."""
+    _install_safe_exception_hooks()
     try:
         _run_entrypoint()
     except SystemExit as exc:
