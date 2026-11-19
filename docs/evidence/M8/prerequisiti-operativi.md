@@ -16,3 +16,5 @@ Il protocollo e le soglie sono approvati; questa scheda organizza le verifiche r
 Non indicare percorsi, impronte, nomi o valori individuali nel repository, nel ticket o nella chat. La verifica CSV è sintattica e non sostituisce il controllo dei documenti o l'approvazione del foglio.
 
 Verifica preparatoria del 2026-11-19: il sistema riferisce **Windows 11 Home, versione 10.0.26300, 64 bit**. È una lettura dell’ambiente, non un collaudo firmato né l’identificazione del runtime della prova; il primo tentativo nella sandbox è stato negato e la lettura successiva autorizzata è riuscita.
+
+Conservazione: il proprietario ha scelto di conservare foglio, risultati e archivio isolato della prova reale fino a un suo successivo via libera. Questa decisione non autorizza l'OCR prima dell'approvazione del foglio compilato e non sostituisce la verifica che la cartella sia privata e non sincronizzata.

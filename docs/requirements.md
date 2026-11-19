@@ -145,6 +145,6 @@ Fonte: [`GOAL.md`](../GOAL.md) §1–2, il design approvato il 2026-11-15 ([`sup
 | ID | Requisito | Pri | Criterio di accettazione | Vecchio ID | M | Stato |
 |---|---|---|---|---|---|---|
 | REQ-140 | Protocollo, soglie e foglio delle risposte giuste approvati dal proprietario prima della prova. | MUST | Documento firmato in `docs/evidence/M8/`, senza contenuti dei documenti. | — | M8 | parziale: protocollo e soglie approvati; foglio compilato ancora da approvare |
-| REQ-141 | Lo script di punteggio confronta i risultati con il foglio e stampa solo numeri. | MUST | Test su un campione sintetico: l'output non contiene testo dei documenti. | — | M8 | `LOCAL-RUN` sintetico preliminare; revisione e approvazione del protocollo in corso |
+| REQ-141 | Lo script di punteggio confronta i risultati con il foglio e stampa solo numeri. | MUST | Test su un campione sintetico: l'output non contiene testo dei documenti. | — | M8 | `LOCAL-RUN` sintetico preliminare; protocollo approvato, integrazione operativa e verifica della trascrizione ancora aperte |
 | REQ-142 | Prova eseguita su 30–50 documenti veri; numeri riassuntivi contro soglie (DEC-005, DEC-006). | MUST | Report numerico in `docs/evidence/M8/`; documenti e risultati fuori dal repository. | — | M8 | `OPEN` |
 | REQ-143 | Collaudo finale Windows 11 firmato dal proprietario. | MUST | Checklist del piano Windows firmata. | — | M8 | `OPEN` |
