@@ -358,3 +358,35 @@ Build `OCR2_TEST` ricostruita dal commit `30d42ab` (SHA-256 installer `26b006f0f
 Nessuna di queste misure include il rendering; sono esecuzioni singole e non contemporanee.
 
 **Serie Edge dopo le correzioni: non eseguite.** È stata avviata una serie Edge sulla copia strumentata della build corretta con la stessa procedura. Durante tutta l'esecuzione la sessione Windows era bloccata (processo LogonUI attivo) e la pagina riportava visibilityState hidden. Di conseguenza nessun marcatore di disegno era disponibile e il fascicolo non risultava in elaborazione nella pagina nascosta: 50 tentativi, tutti esclusi, nessun campione. L'OCR sintetico ha comunque elaborato 104 pagine in 177,0 s con 98/98 righe, 92/92 giustificativi corretti al primo posto e 3/3 conflitti. Le altre serie in programma, due con scadenza reale e due con scadenza ridotta alternate, sono state annullate. Sbloccare la sessione richiede la password dell'utente e non è un'azione consentita. **La conferma richiesta, cioè almeno due serie Edge con cache dopo la scadenza, resta da eseguire a sessione sbloccata** con gli script locali `build-payload-v114.py`, `build-installer-v114.py`, `install-test-v114.py` e `prepare-edge-v114.py` per ricostruire le copie, poi `run-series-v113.sh`. Le cartelle di prova sono state rimosse. Le serie del 2026-11-18 riguardano la versione precedente alle correzioni.
+
+### Serie Edge di conferma sulla build corretta (2026-11-19)
+
+La sessione è stata sbloccata dal proprietario e il coordinatore ha eseguito `run-edge-v115-all.sh` (uscita 0). Build `OCR2_TEST` da HEAD `d9d4d09` (SHA-256 installer `4028e00de110898ddde8eea61b0bfddfa24729eacdfb802be98335c608c456b9`), installata in una cartella isolata con manifest verificato. Tre copie strumentate della stessa installazione, ciascuna con manifest rigenerato e verificato:
+
+- `edge-v115c`, con cache e scadenza reale 480–600 s;
+- `edge-v115b`, con `local_document_store.py` del commit `2427a31`, senza cache;
+- `edge-v115t`, con cache e scadenza di prova 48–60 s, perché le voci scadano più volte durante l'OCR.
+
+Il metodo è lo stesso delle serie precedenti: clic tramite Chrome DevTools Protocol, accettato dal proprietario il 2026-11-19. L'intervallo va dal `pointerdown` del collegamento reale al `renderTime` Element Timing dell'ultimo paragrafo. Sono incluse solo le interazioni con `processing`, pagina visibile e fuoco. L'ordine di esecuzione era alternato: cache, senza cache, scadenza 60 s, poi di nuovo nello stesso ordine. Tutte le serie sono riportate:
+
+| Serie | Copia | Tentativi / misure / mancanti | Esclusi | Mediana | p95 | ≥200 ms | Massimo | p95 DOM | OCR |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | con cache | 189 / 189 / 0 | 3 | 47,6 | **56,2** | 0 | 57,6 | 24,9 | 225,7 s |
+| 2 | senza cache | 153 / 153 / 0 | 3 | 85,9 | **103,1** | 0 | 169,0 | 82,9 | 185,5 s |
+| 3 | cache, scadenza 60 s | 156 / 156 / 0 | 3 | 48,0 | **56,0** | 0 | 179,8 | 28,4 | 185,3 s |
+| 4 | con cache | 159 / 159 / 0 | 3 | 49,7 | **56,1** | 1 | 335,1 | 25,0 | 189,3 s |
+| 5 | senza cache | 160 / 160 / 0 | 3 | 83,3 | **116,3** | 2 | 308,4 | 96,8 | 193,6 s |
+| 6 | cache, scadenza 60 s | 157 / 157 / 0 | 2 | 46,5 | **52,3** | 1 | 228,0 | 26,8 | 185,6 s |
+
+Tempi in ms, p95 nearest-rank. Gli esclusi sono le interazioni fuori da `processing`. Ogni OCR ha elaborato 104 pagine, con 98/98 righe, 92/92 giustificativi corretti al primo posto e 3/3 conflitti. Campioni: [cache 1](latenza-edge-v115-cache-1.json), [cache 2](latenza-edge-v115-cache-2.json), [scadenza 60 s 1](latenza-edge-v115-ttl60-1.json), [scadenza 60 s 2](latenza-edge-v115-ttl60-2.json), [senza cache 1](latenza-edge-v115-base-1.json), [senza cache 2](latenza-edge-v115-base-2.json).
+
+Con la cache la p95 è 52,3–56,2 ms, anche quando le voci scadono più volte durante l'OCR. Con le serie del 2026-11-18 sulla versione precedente alle correzioni (56,8; 60,5; 56,9 ms) si arriva a sette serie con cache sotto 200 ms, senza marcatori mancanti. Senza cache la p95 è 103,1 e 116,3 ms: con questo metodo anche la versione senza cache resta sotto soglia, e la cache dimezza circa la mediana.
+
+**Limiti.** Le misure usano:
+
+- il metodo di clic CDP, accettato dal proprietario ma diverso dalle serie Edge di Codex;
+- copie strumentate;
+- un solo PC e solo dati sintetici, con un tipo di fascicolo e un tipo di interazione;
+- interazioni consecutive correlate, non campioni indipendenti.
+
+Restano picchi isolati non spiegati sopra 200 ms in entrambe le varianti: 335,1 e 228,0 ms con cache, 308,4 ms senza. La memoria della cache non è misurata direttamente.
