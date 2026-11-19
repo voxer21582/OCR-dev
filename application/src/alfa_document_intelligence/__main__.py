@@ -6,6 +6,7 @@ import importlib
 import os
 import platform
 import secrets
+import stat
 import sys
 import time
 from pathlib import Path
@@ -75,6 +76,42 @@ def _write_launch_log(kind: str, message: str = "", error: BaseException | None 
             log.write(data)
     except Exception:
         pass  # The log is a help; the dialog and the original error come first.
+
+
+_LEGACY_LAUNCH_LOGS = ("launcher.log", "launcher.log.1")
+_REPARSE_POINT = 0x400  # FILE_ATTRIBUTE_REPARSE_POINT: symbolic links and junctions
+
+
+def _is_plain(status, kind) -> bool:
+    return kind(status.st_mode) and not getattr(status, "st_file_attributes", 0) & _REPARSE_POINT
+
+
+def _remove_legacy_launch_logs() -> None:
+    r"""Delete the M6 launch logs, which may hold paths and messages (DEC-035).
+
+    Owner decision of 2026-11-19: at every start the app deletes exactly
+    %LOCALAPPDATA%\OCR2\logs\launcher.log and launcher.log.1. Only regular
+    files directly inside a real OCR2\logs folder are removed; symbolic links
+    and junctions are neither followed nor removed. Never raises, writes nothing.
+    """
+    try:
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data or not os.path.isabs(local_app_data):
+            return
+        data_dir = os.path.join(local_app_data, "OCR2")
+        folder = os.path.join(data_dir, "logs")
+        for directory in (data_dir, folder):
+            if not _is_plain(os.lstat(directory), stat.S_ISDIR):
+                return
+        for name in _LEGACY_LAUNCH_LOGS:
+            path = os.path.join(folder, name)
+            try:
+                if _is_plain(os.lstat(path), stat.S_ISREG):
+                    os.remove(path)
+            except OSError:
+                continue
+    except Exception:
+        pass  # Missing folders or any other failure: start-up goes on.
 
 
 class _StderrTail:
@@ -314,6 +351,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 _show_integrity_error(message)
             raise SystemExit(2)
         runtime_status = "verificato"
+    _remove_legacy_launch_logs()
 
     instance_lock = None
     app_data_dir = None

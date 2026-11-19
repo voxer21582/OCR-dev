@@ -497,3 +497,120 @@ def test_server_ends_the_start_up_capture_right_before_serving():
     assert source.count("_end_startup_capture()") == 1
     assert source.index("_end_startup_capture()") < source.index("server.serve_forever()")
     assert source.index("app_lifetime.start()") < source.index("_end_startup_capture()")
+
+
+# --- Legacy launch logs: deleted at start (owner decision 2026-11-19, DEC-035) ---
+
+def _legacy_folder(root):
+    folder = root / 'OCR2' / 'logs'
+    folder.mkdir(parents=True)
+    return folder
+
+
+def test_start_deletes_only_the_two_legacy_launch_logs(local_app_data):
+    folder = _legacy_folder(local_app_data)
+    (folder / 'launcher.log').write_bytes(b'LEGACY_SYNTHETIC C:/Users/SYNTHETIC_USER/x')
+    (folder / 'launcher.log.1').write_bytes(b'LEGACY_BACKUP_SYNTHETIC')
+    kept = {
+        folder / 'launcher-safe.log': b'=== 2026-11-19T00:00:00 \xc2\xb7 OCR2_START_EXIT ===\n',
+        folder / 'launcher-safe.log.1': b'SAFE_BACKUP',
+        folder / 'launcher.log.2': b'OTHER_SYNTHETIC',
+        folder / 'Launcher.log.bak': b'OTHER_SYNTHETIC',
+        local_app_data / 'OCR2' / 'launcher.log': b'OUTSIDE_LOGS_SYNTHETIC',
+    }
+    for path, data in kept.items():
+        path.write_bytes(data)
+    launcher._remove_legacy_launch_logs()
+    assert not (folder / 'launcher.log').exists()
+    assert not (folder / 'launcher.log.1').exists()
+    for path, data in kept.items():
+        assert path.read_bytes() == data
+
+
+def test_legacy_log_removal_tolerates_missing_folders_and_environment(local_app_data, monkeypatch):
+    launcher._remove_legacy_launch_logs()  # no OCR2 folder
+    (local_app_data / 'OCR2').mkdir()
+    launcher._remove_legacy_launch_logs()  # no logs folder
+    monkeypatch.setenv('LOCALAPPDATA', 'relative-folder')
+    launcher._remove_legacy_launch_logs()
+    monkeypatch.delenv('LOCALAPPDATA')
+    launcher._remove_legacy_launch_logs()
+
+
+def test_legacy_log_removal_never_raises(local_app_data, monkeypatch):
+    folder = _legacy_folder(local_app_data)
+    (folder / 'launcher.log').write_bytes(b'LEGACY_SYNTHETIC')
+
+    def refuse(path):
+        raise PermissionError('SYNTHETIC_DENIED')
+
+    monkeypatch.setattr(launcher.os, 'remove', refuse)
+    launcher._remove_legacy_launch_logs()
+    assert (folder / 'launcher.log').exists()
+
+
+def test_legacy_log_removal_leaves_directories_with_the_same_name(local_app_data):
+    folder = _legacy_folder(local_app_data)
+    (folder / 'launcher.log').mkdir()
+    (folder / 'launcher.log' / 'inner.txt').write_bytes(b'INNER_SYNTHETIC')
+    launcher._remove_legacy_launch_logs()
+    assert (folder / 'launcher.log' / 'inner.txt').read_bytes() == b'INNER_SYNTHETIC'
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows junctions')
+@pytest.mark.parametrize('linked', ['OCR2', 'logs'])
+def test_legacy_log_removal_does_not_follow_junctions(local_app_data, tmp_path, linked):
+    import _winapi
+
+    elsewhere = tmp_path / 'elsewhere'
+    target_logs = elsewhere / 'logs' if linked == 'OCR2' else elsewhere
+    target_logs.mkdir(parents=True)
+    (target_logs / 'launcher.log').write_bytes(b'ELSEWHERE_SYNTHETIC')
+    (target_logs / 'launcher.log.1').write_bytes(b'ELSEWHERE_SYNTHETIC')
+    if linked == 'OCR2':
+        _winapi.CreateJunction(str(elsewhere), str(local_app_data / 'OCR2'))
+    else:
+        (local_app_data / 'OCR2').mkdir()
+        _winapi.CreateJunction(str(elsewhere), str(local_app_data / 'OCR2' / 'logs'))
+    launcher._remove_legacy_launch_logs()
+    assert (target_logs / 'launcher.log').read_bytes() == b'ELSEWHERE_SYNTHETIC'
+    assert (target_logs / 'launcher.log.1').read_bytes() == b'ELSEWHERE_SYNTHETIC'
+
+
+def test_legacy_log_removal_does_not_follow_file_symlinks(local_app_data, tmp_path):
+    folder = _legacy_folder(local_app_data)
+    target = tmp_path / 'target.log'
+    target.write_bytes(b'TARGET_SYNTHETIC')
+    try:
+        os.symlink(target, folder / 'launcher.log')
+    except (OSError, NotImplementedError):
+        pytest.skip('file symlinks are not available to this account')
+    launcher._remove_legacy_launch_logs()
+    assert target.read_bytes() == b'TARGET_SYNTHETIC'
+    assert (folder / 'launcher.log').is_symlink()
+
+
+@pytest.mark.parametrize('window', [False, True])
+def test_every_start_removes_legacy_logs_before_serving(local_app_data, monkeypatch, window):
+    order = []
+    monkeypatch.setattr(launcher, '_remove_legacy_launch_logs', lambda: order.append('remove'))
+
+    def serve(*args, **kwargs):
+        order.append('serve')
+
+    monkeypatch.setattr(launcher, '_serve', serve)
+    monkeypatch.setattr(launcher, 'running_instance', lambda data_dir: None)
+    arguments = ['--port', '0'] + (['--app-window'] if window else [])
+    if window and not launcher._APP_WINDOW_AVAILABLE:
+        pytest.skip('window mode is Windows only')
+    launcher.main(arguments)
+    assert order == ['remove', 'serve']
+
+
+def test_legacy_log_removal_writes_nothing(local_app_data, capsys):
+    folder = _legacy_folder(local_app_data)
+    (folder / 'launcher.log').write_bytes(b'LEGACY_SYNTHETIC')
+    launcher._remove_legacy_launch_logs()
+    output = capsys.readouterr()
+    assert output.out == output.err == ''
+    assert sorted(path.name for path in folder.iterdir()) == []

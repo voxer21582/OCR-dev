@@ -1,0 +1,12 @@
+tests/test_launch_log.py::test_new_log_preserves_both_legacy_files PASSED [  9%]
+tests/test_launch_log.py::test_start_deletes_only_the_two_legacy_launch_logs PASSED [ 18%]
+tests/test_launch_log.py::test_legacy_log_removal_tolerates_missing_folders_and_environment PASSED [ 27%]
+tests/test_launch_log.py::test_legacy_log_removal_never_raises PASSED    [ 36%]
+tests/test_launch_log.py::test_legacy_log_removal_leaves_directories_with_the_same_name PASSED [ 45%]
+tests/test_launch_log.py::test_legacy_log_removal_does_not_follow_junctions[OCR2] PASSED [ 54%]
+tests/test_launch_log.py::test_legacy_log_removal_does_not_follow_junctions[logs] PASSED [ 63%]
+tests/test_launch_log.py::test_legacy_log_removal_does_not_follow_file_symlinks SKIPPED [ 72%]
+tests/test_launch_log.py::test_every_start_removes_legacy_logs_before_serving[False] PASSED [ 81%]
+tests/test_launch_log.py::test_every_start_removes_legacy_logs_before_serving[True] PASSED [ 90%]
+tests/test_launch_log.py::test_legacy_log_removal_writes_nothing PASSED  [100%]
+================ 10 passed, 1 skipped, 37 deselected in 0.30s =================
