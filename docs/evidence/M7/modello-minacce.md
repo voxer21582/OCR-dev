@@ -1,6 +1,6 @@
 # M7 — Modello delle minacce iniziale
 
-Stato: **in corso**, revisione e firma del proprietario non ancora completate. Ambito: applicazione M6 e relativi processi locali; documenti usati nelle prove esclusivamente sintetici.
+Stato originale: **in corso**, revisione e firma del proprietario non ancora completate. **Aggiornamento 2026-11-19:** il proprietario ha firmato il 2026-11-18 la revisione di sicurezza che esamina questo modello ([revisione](revisione-sicurezza.md)); la riga «Log e diagnostica» è ora coperta dalla [checklist REQ-124](log-review.md#checklist-delle-uscite-2026-11-19). Il resto del documento conserva il testo iniziale. Ambito: applicazione M6 e relativi processi locali; documenti usati nelle prove esclusivamente sintetici.
 
 | Bene o confine | Minaccia | Controlli e limiti da verificare |
 |---|---|---|
