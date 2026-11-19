@@ -614,3 +614,48 @@ def test_legacy_log_removal_writes_nothing(local_app_data, capsys):
     output = capsys.readouterr()
     assert output.out == output.err == ''
     assert sorted(path.name for path in folder.iterdir()) == []
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows junctions')
+def test_legacy_log_removal_rejects_directory_swapped_after_check(local_app_data, tmp_path, monkeypatch):
+    import _winapi
+    folder = _legacy_folder(local_app_data)
+    (folder / 'launcher.log').write_bytes(b'ORIGINAL_SYNTHETIC')
+    elsewhere = tmp_path / 'elsewhere-race'
+    elsewhere.mkdir()
+    victim = elsewhere / 'launcher.log'
+    victim.write_bytes(b'OUTSIDE_SYNTHETIC')
+    original_lstat = os.lstat
+    swapped = False
+    denied = False
+    def swap_after_check(path, *args, **kwargs):
+        nonlocal swapped, denied
+        result = original_lstat(path, *args, **kwargs)
+        if not swapped and os.path.normcase(str(path)) == os.path.normcase(str(folder)):
+            swapped = True
+            try:
+                os.rename(folder, folder.with_name('logs-original'))
+            except PermissionError:
+                denied = True
+                raise
+            _winapi.CreateJunction(str(elsewhere), str(folder))
+        return result
+    monkeypatch.setattr(launcher.os, 'lstat', swap_after_check)
+    launcher._remove_legacy_launch_logs()
+    assert swapped and denied
+    assert victim.read_bytes() == b'OUTSIDE_SYNTHETIC'
+    os.rename(folder, folder.with_name('logs-after-return'))
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows junctions')
+def test_legacy_log_removal_rejects_linked_localappdata_ancestor(tmp_path, monkeypatch):
+    import _winapi
+    actual = tmp_path / 'actual'
+    base = actual / 'profile'
+    folder = _legacy_folder(base)
+    victim = folder / 'launcher.log'
+    victim.write_bytes(b'OUTSIDE_SYNTHETIC')
+    link = tmp_path / 'linked-parent'
+    _winapi.CreateJunction(str(actual), str(link))
+    monkeypatch.setenv('LOCALAPPDATA', str(link / 'profile'))
+    launcher._remove_legacy_launch_logs()
+    assert victim.read_bytes() == b'OUTSIDE_SYNTHETIC'

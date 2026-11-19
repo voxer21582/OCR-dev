@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack, contextmanager
 import importlib
 import os
 import platform
@@ -86,6 +87,43 @@ def _is_plain(status, kind) -> bool:
     return kind(status.st_mode) and not getattr(status, "st_file_attributes", 0) & _REPARSE_POINT
 
 
+@contextmanager
+def _lock_plain_windows_directory(path):
+    """Pin a non-reparse directory against rename while deleting legacy logs."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                       ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.restype = wintypes.HANDLE
+    info = kernel.GetFileInformationByHandleEx
+    info.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    info.restype = wintypes.BOOL
+    close = kernel.CloseHandle
+    close.argtypes = [wintypes.HANDLE]
+    close.restype = wintypes.BOOL
+
+    class AttributeTag(ctypes.Structure):
+        _fields_ = [('attributes', wintypes.DWORD), ('tag', wintypes.DWORD)]
+
+    # No FILE_SHARE_DELETE: all previously opened delete handles must also
+    # permit this open, and the directory cannot be renamed until close.
+    handle = create(path, 0x81, 0x1 | 0x2, None, 3, 0x02000000 | 0x00200000, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise OSError(ctypes.get_last_error(), 'directory unavailable')
+    try:
+        attributes = AttributeTag()
+        if not info(handle, 9, ctypes.byref(attributes), ctypes.sizeof(attributes)):
+            raise OSError(ctypes.get_last_error(), 'directory metadata unavailable')
+        if attributes.attributes & _REPARSE_POINT or not attributes.attributes & 0x10:
+            raise OSError('directory is a reparse point or not a directory')
+        yield
+    finally:
+        close(handle)
+
+
 def _remove_legacy_launch_logs() -> None:
     r"""Delete the M6 launch logs, which may hold paths and messages (DEC-035).
 
@@ -100,16 +138,23 @@ def _remove_legacy_launch_logs() -> None:
             return
         data_dir = os.path.join(local_app_data, "OCR2")
         folder = os.path.join(data_dir, "logs")
-        for directory in (data_dir, folder):
-            if not _is_plain(os.lstat(directory), stat.S_ISDIR):
-                return
-        for name in _LEGACY_LAUNCH_LOGS:
-            path = os.path.join(folder, name)
-            try:
-                if _is_plain(os.lstat(path), stat.S_ISREG):
-                    os.remove(path)
-            except OSError:
-                continue
+        with ExitStack() as held_directories:
+            if os.name == 'nt':
+                # Pin every ancestor before resolving the next component.
+                base = Path(os.path.abspath(local_app_data))
+                directories = [str(p) for p in reversed((base, *base.parents))]
+                for directory in (*directories, data_dir, folder):
+                    held_directories.enter_context(_lock_plain_windows_directory(directory))
+            for directory in (data_dir, folder):
+                if not _is_plain(os.lstat(directory), stat.S_ISDIR):
+                    return
+            for name in _LEGACY_LAUNCH_LOGS:
+                path = os.path.join(folder, name)
+                try:
+                    if _is_plain(os.lstat(path), stat.S_ISREG):
+                        os.remove(path)
+                except OSError:
+                    continue
     except Exception:
         pass  # Missing folders or any other failure: start-up goes on.
 
