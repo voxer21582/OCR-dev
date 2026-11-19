@@ -541,3 +541,37 @@ def test_sheet_read_rejects_oversized_data():
     import io
     from tools.field_trial_local_files import _read_sheet
     with pytest.raises(ValueError): _read_sheet(io.BytesIO(b'x' * (10 * 1024 * 1024 + 1)))
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows DPAPI and handle protections')
+def test_snapshot_private_persistence_authenticates_approved_ciphertext(tmp_path):
+    import io, os
+    from tools.field_trial_freeze import capture, read_verified
+    from tools.field_trial_snapshot_store import save_snapshot, load_snapshot
+    sheet, pairs, documents = _freeze_fixture()
+    snapshot = capture(sheet, pairs, documents)
+    private = tmp_path / 'private'; private.mkdir()
+    path, approval_token = save_snapshot(private, snapshot)
+    protected = path.read_bytes()
+    assert b'secret-path' not in protected and b'synthetic-document' not in protected
+    restored = load_snapshot(private, path, approval_token)
+    assert read_verified(restored, f'{1:032x}', io.BytesIO(b'synthetic-document-1'), sheet, pairs) == b'synthetic-document-1'
+    other, _ = save_snapshot(private, snapshot)
+    os.replace(other, path)  # a different valid DPAPI blob, not the approved blob
+    with pytest.raises(ValueError): load_snapshot(private, path, approval_token)
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows DPAPI and handle protections')
+def test_snapshot_persistence_rejects_repository_and_invalid_token(tmp_path):
+    from tools.field_trial_freeze import capture
+    from tools.field_trial_snapshot_store import save_snapshot, load_snapshot
+    sheet, pairs, documents = _freeze_fixture()
+    snapshot = capture(sheet, pairs, documents)
+    project = tmp_path / 'project'; project.mkdir(); (project / '.git').mkdir()
+    private = project / 'private'; private.mkdir()
+    with pytest.raises(ValueError): save_snapshot(private, snapshot)
+    assert list(private.iterdir()) == []
+    safe = tmp_path / 'safe'; safe.mkdir()
+    path, token = save_snapshot(safe, snapshot)
+    for invalid in (b'', b'x' * 31, 'secret-token'):
+        with pytest.raises(ValueError): load_snapshot(safe, path, invalid)
