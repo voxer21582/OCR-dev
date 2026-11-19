@@ -138,12 +138,20 @@ def _unraisable_hook(unraisable) -> None:
     _emit_stable_code("OCR2_UNRAISABLE_ERROR")
 
 
+def _warning_hook(message, category, filename, lineno, file=None, line=None) -> None:
+    # The default prints the source file path (the installation, with the user
+    # name), the line and the warning text, which can carry a value (REQ-124).
+    _emit_stable_code("OCR2_PYTHON_WARNING")
+
+
 def _install_safe_exception_hooks() -> None:
-    """Report errors outside the main flow (threads, finalizers) as stable codes only."""
+    """Report errors and warnings outside the main flow as stable codes only."""
     import threading
+    import warnings
 
     threading.excepthook = _thread_exception_hook
     sys.unraisablehook = _unraisable_hook
+    warnings.showwarning = _warning_hook
 
 
 def _show_bootstrap_error() -> None:
