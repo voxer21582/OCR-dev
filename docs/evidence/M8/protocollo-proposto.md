@@ -1,6 +1,6 @@
 # M8 — Protocollo di prova sul campo
 
-**Stato: BOZZA, non autorizza l'esecuzione.** REQ-140 richiede l'approvazione del proprietario di protocollo, soglie e foglio delle risposte prima della prova. I risultati M3 sono sintetici e non stimano l'accuratezza su documenti reali.
+**Stato: protocollo e soglie approvati dal proprietario il 2026-11-19** sulla versione `acc27b4` ([evidenza](approvazione-protocollo.md)). Il foglio delle risposte compilato richiede ancora approvazione prima della prova (REQ-140). I risultati M3 sono sintetici e non stimano l'accuratezza su documenti reali.
 
 ## Campione e riservatezza
 
