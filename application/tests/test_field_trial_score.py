@@ -166,3 +166,81 @@ def test_reference_csv_cli_validates_without_writing_or_echoing_contents(tmp_pat
     assert len(json.loads(result.stdout)) == 42
     assert all(type(value) is int for value in json.loads(result.stdout))
     assert 'secret' not in result.stdout + result.stderr
+
+
+def _freeze_fixture():
+    import csv, io
+    from tools.field_trial_sheet import SHEET, MATCHES
+    stream = io.StringIO(newline='')
+    writer = csv.DictWriter(stream, fieldnames=SHEET, delimiter=';'); writer.writeheader()
+    documents = {}
+    for index in range(30):
+        code = f'{index:032x}'
+        row = {'codice': code, 'percorso_locale': f'secret-path-{index}', 'ruolo': 'nota' if index == 0 else 'giustificativo', 'lingua': 'en' if index < 5 else 'it'}
+        row.update({field: 'synthetic' for field in ('total_amount', 'issue_date', 'currency', 'document_number', 'vat_registration_number', 'merchant_name')})
+        writer.writerow(row)
+        documents[code] = io.BytesIO(f'synthetic-document-{index}'.encode())
+    matches = io.StringIO(newline='')
+    writer = csv.DictWriter(matches, fieldnames=MATCHES, delimiter=';'); writer.writeheader()
+    writer.writerows({'codice_riga': f'row-{index}', 'codice_documento_corretto': f'{index+1:032x}'} for index in range(10))
+    return stream.getvalue().encode(), matches.getvalue().encode(), documents
+
+
+def test_frozen_sample_binds_sheets_and_returns_exact_verified_bytes():
+    import io
+    from tools.field_trial_freeze import capture, verify_sheets, read_verified
+    sheet, pairs, documents = _freeze_fixture()
+    snapshot = capture(sheet, pairs, documents)
+    verify_sheets(snapshot, sheet, pairs)
+    assert read_verified(snapshot, f'{1:032x}', io.BytesIO(b'synthetic-document-1'), sheet, pairs) == b'synthetic-document-1'
+    with pytest.raises(ValueError): verify_sheets(snapshot, sheet + b'changed', pairs)
+    with pytest.raises(ValueError): read_verified(snapshot, f'{1:032x}', io.BytesIO(b'synthetic-document-1'), sheet + b'changed', pairs)
+    with pytest.raises(ValueError): read_verified(snapshot, f'{1:032x}', io.BytesIO(b'changed'), sheet, pairs)
+    assert 'synthetic-document' not in repr(snapshot)
+    assert 'secret-path' not in repr(snapshot)
+
+
+def test_frozen_sample_rejects_missing_and_duplicate_content():
+    import io
+    from tools.field_trial_freeze import capture
+    sheet, pairs, documents = _freeze_fixture()
+    missing = dict(documents); missing.pop(next(iter(missing)))
+    with pytest.raises(ValueError): capture(sheet, pairs, missing)
+    sheet, pairs, documents = _freeze_fixture()
+    documents[f'{1:032x}'] = io.BytesIO(b'synthetic-document-0')
+    with pytest.raises(ValueError): capture(sheet, pairs, documents)
+
+
+def test_frozen_sample_rejects_empty_oversized_and_unknown_inputs():
+    import io
+    from tools.field_trial_freeze import capture, read_verified
+    sheet, pairs, documents = _freeze_fixture()
+    snapshot = capture(sheet, pairs, documents)
+    with pytest.raises(ValueError): read_verified(snapshot, 'unknown', io.BytesIO(b'data'), sheet, pairs)
+    with pytest.raises(ValueError): read_verified(snapshot, f'{1:032x}', io.BytesIO(b''), sheet, pairs)
+    class Oversized:
+        called = False
+        def tell(self): return 0
+        def read(self, size):
+            self.called = True
+            return b'x' * (25 * 1024 * 1024 + 1)
+    oversized = Oversized()
+    with pytest.raises(ValueError, match='document too large'):
+        read_verified(snapshot, f'{1:032x}', oversized, sheet, pairs)
+    assert oversized.called
+    class NoPosition:
+        def read(self, size): return b'data'
+    with pytest.raises(ValueError, match='position unavailable'):
+        read_verified(snapshot, f'{1:032x}', NoPosition(), sheet, pairs)
+
+
+def test_frozen_sample_rejects_streams_not_at_start():
+    import io
+    from tools.field_trial_freeze import capture, read_verified
+    sheet, pairs, documents = _freeze_fixture()
+    moved = documents[f'{1:032x}']; moved.read(1)
+    with pytest.raises(ValueError): capture(sheet, pairs, documents)
+    sheet, pairs, documents = _freeze_fixture()
+    snapshot = capture(sheet, pairs, documents)
+    moved = io.BytesIO(b'synthetic-document-1'); moved.read(1)
+    with pytest.raises(ValueError): read_verified(snapshot, f'{1:032x}', moved, sheet, pairs)

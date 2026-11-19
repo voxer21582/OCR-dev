@@ -19,7 +19,11 @@ _LIMIT = 10 * 1024 * 1024
 def _rows(path, header):
     with Path(path).open('rb') as stream:
         raw = stream.read(_LIMIT + 1)
-    if len(raw) > _LIMIT:
+    return _rows_from_bytes(raw, header)
+
+
+def _rows_from_bytes(raw, header):
+    if not isinstance(raw, bytes) or len(raw) > _LIMIT:
         raise ValueError('input too large')
     reader = csv.DictReader(io.StringIO(raw.decode('utf-8-sig'), newline=''), delimiter=';', strict=True)
     if reader.fieldnames != list(header):
