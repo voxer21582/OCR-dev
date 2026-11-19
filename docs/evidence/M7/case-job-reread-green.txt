@@ -1,0 +1,3 @@
+tests/test_expense_case_processing.py::ExpenseCaseProcessingManagerTests::test_failure_ends_job_when_case_reread_finds_no_case PASSED [ 50%]
+tests/test_expense_case_processing.py::ExpenseCaseProcessingManagerTests::test_failure_ends_job_when_case_reread_raises PASSED [100%]
+====================== 2 passed, 11 deselected in 0.30s =======================

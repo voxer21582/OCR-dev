@@ -430,9 +430,10 @@ class ExpenseCaseProcessingManager:
             )
         except BaseException as exc:
             code = str(exc) if isinstance(exc, ValueError) and str(exc) in _SAFE_ERROR_CODES else "worker_failed"
-            case = self._store.get_case(job.case_id)
-            if case is not None:
-                self._set_failed(job, case, code, expected_revision=expected_revision)
+            # _set_failed re-reads the case under its own guard and always ends
+            # the job: an unguarded re-read here could raise again (or find no
+            # case) and leave the job active until restart.
+            self._set_failed(job, None, code, expected_revision=expected_revision)
 
     def _iter_case_documents(self, document_ids: list[str]):
         for document_id in document_ids:
