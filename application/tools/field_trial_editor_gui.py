@@ -5,11 +5,14 @@ import argparse
 import io
 from pathlib import Path
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
 
-from tools.field_trial_editor import EDITABLE, edit_reference, save_reference_draft, serialize_reference
+from tools.field_trial_editor import (
+    EDITABLE, add_reference_documents, edit_reference, remove_reference_document,
+    save_reference_draft, serialize_reference,
+)
 from tools.field_trial_local_files import _read_sheet, open_local_file
 from tools.field_trial_sheet import SHEET, _rows_from_bytes
 
@@ -138,9 +141,39 @@ def run(private_root, sheet_path, authorised_root):
         except ValueError:
             messagebox.showerror('Salvataggio non riuscito', 'Non è stato possibile salvare la bozza nella cartella privata.', parent=window)
 
+    def add_documents():
+        if not collect(): return
+        selected = filedialog.askopenfilenames(parent=window, initialdir=str(authorised_root),
+                                               title='Scegli documenti nella cartella autorizzata')
+        if not selected: return
+        try:
+            for path in selected:
+                if Path(path).suffix.lower() not in {'.pdf', '.png', '.jpg', '.jpeg', '.tif', '.tiff', '.webp', '.gif', '.bmp'}:
+                    raise ValueError('unsupported format')
+                with open_local_file(authorised_root, path):
+                    pass
+            first_new = len(state['rows'])
+            state['rows'] = add_reference_documents(state['rows'], list(selected))
+            state['index'] = first_new; load()
+        except (OSError, ValueError):
+            messagebox.showerror('Selezione non valida', 'Scegli file distinti nella cartella autorizzata, fino a 50 documenti in totale.', parent=window)
+
+    def remove_document():
+        if not collect(): return
+        if len(state['rows']) <= 1:
+            messagebox.showerror('Selezione non valida', 'La bozza deve conservare almeno un documento.', parent=window)
+            return
+        if not messagebox.askyesno('Rimuovi dal campione', 'Rimuovere questo documento dalla bozza? Il file originale non sarà cancellato. Aggiorna eventuali corrispondenze già compilate.', parent=window):
+            return
+        state['rows'] = remove_reference_document(state['rows'], state['index'])
+        state['index'] = min(state['index'], len(state['rows']) - 1); load()
+
     controls = ttk.Frame(left); controls.pack(fill='x', pady=10)
     ttk.Button(controls, text='Documento precedente', command=lambda: move(-1)).pack(side='left')
     ttk.Button(controls, text='Documento successivo', command=lambda: move(1)).pack(side='left', padx=5)
+    selection = ttk.Frame(left); selection.pack(fill='x', pady=(0, 8))
+    ttk.Button(selection, text='Aggiungi documenti', command=add_documents).pack(side='left')
+    ttk.Button(selection, text='Rimuovi dal campione', command=remove_document).pack(side='left', padx=5)
     ttk.Button(left, text='Salva una nuova bozza', command=save).pack(fill='x')
     ttk.Button(page_controls, text='Pagina precedente', command=lambda: move_page(-1)).pack(side='left', padx=6)
     ttk.Button(page_controls, text='Pagina successiva', command=lambda: move_page(1)).pack(side='left')

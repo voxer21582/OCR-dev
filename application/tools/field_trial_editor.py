@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import secrets
 
 from tools.field_trial_score import FIELDS
@@ -32,6 +33,34 @@ def serialize_reference(rows):
     writer.writeheader()
     writer.writerows(rows)
     return stream.getvalue().encode('utf-8-sig')
+
+
+def add_reference_documents(rows, paths):
+    if (not isinstance(rows, list) or not isinstance(paths, list) or not paths
+            or len(rows) + len(paths) > 50
+            or any(not isinstance(path, str) or not path.strip() or '\x00' in path for path in paths)):
+        raise ValueError('invalid selection')
+    normalized = [os.path.normcase(os.path.abspath(path.strip())).casefold() for path in paths]
+    existing = {os.path.normcase(os.path.abspath(row['percorso_locale'].strip())).casefold() for row in rows}
+    if len(set(normalized)) != len(normalized) or existing.intersection(normalized):
+        raise ValueError('duplicate document')
+    result = [dict(row) for row in rows]
+    codes = {row['codice'] for row in result}
+    for path in paths:
+        code = secrets.token_hex(16)
+        if code in codes:
+            raise ValueError('duplicate code')
+        codes.add(code)
+        row = {name: '' for name in SHEET}
+        row.update({'codice': code, 'percorso_locale': path.strip()})
+        result.append(row)
+    return result
+
+
+def remove_reference_document(rows, index):
+    if not isinstance(rows, list) or len(rows) <= 1 or type(index) is not int or not 0 <= index < len(rows):
+        raise ValueError('invalid selection')
+    return [dict(row) for position, row in enumerate(rows) if position != index]
 
 
 def save_reference_draft(private_root, rows):

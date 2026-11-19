@@ -4,6 +4,8 @@ La preparazione è manuale: apri i documenti sul PC e trascrivi soltanto ciò ch
 
 È disponibile una guida locale (`tools.field_trial_editor_gui`) che mostra un documento alla volta e consente di compilare i campi senza usare OCR o servizi di rete. **Salva una nuova bozza** crea un nuovo CSV nella cartella privata senza sovrascrivere il foglio aperto; annota quale bozza usare per continuare. Se la finestra viene chiusa con modifiche non salvate, viene richiesta conferma. La guida prepara solo il foglio dei documenti: corrispondenze e posizioni delle righe richiedono ancora la compilazione separata descritta sotto. Le bozze sono dati sensibili da conservare localmente fino al via libera del proprietario.
 
+Nella versione aggiornata, **Aggiungi documenti** permette di scegliere altri file nella cartella autorizzata, fino a 50 in totale; **Rimuovi dal campione** elimina solo la riga dalla bozza, non il file originale. Se sono state già compilate corrispondenze o posizioni, vanno aggiornate dopo ogni modifica alla selezione. Una finestra avviata prima dell'aggiornamento mantiene la versione precedente finché non viene chiusa e riaperta; salvare prima la bozza in corso.
+
 ## Comincia con un documento
 
 1. Apri `campione-e-risposte.csv` dalla cartella privata. Se il programma chiede come importarlo, scegli **UTF-8**, separatore **punto e virgola** e formato **testo** per tutte le colonne. Non modificare `codice` e `percorso_locale`.

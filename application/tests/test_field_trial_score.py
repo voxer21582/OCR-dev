@@ -169,6 +169,23 @@ def test_manual_reference_editor_saves_new_drafts_without_overwriting(tmp_path):
     assert _rows_from_bytes(second.read_bytes(), SHEET) == rows
 
 
+def test_manual_reference_editor_adds_and_removes_without_reusing_codes():
+    from tools.field_trial_editor import add_reference_documents, remove_reference_document
+    from tools.field_trial_sheet import SHEET, _rows_from_bytes
+    sheet, _, _ = _freeze_fixture()
+    rows = _rows_from_bytes(sheet, SHEET)
+    original = [dict(row) for row in rows]
+    updated = add_reference_documents(rows, ['new-synthetic.png'])
+    assert len(updated) == 31 and rows == original
+    assert updated[-1]['percorso_locale'] == 'new-synthetic.png'
+    assert updated[-1]['codice'] not in {row['codice'] for row in rows}
+    assert remove_reference_document(updated, 30) == original
+    with pytest.raises(ValueError): add_reference_documents(rows, [rows[0]['percorso_locale']])
+    with pytest.raises(ValueError): add_reference_documents(rows, ['duplicate', 'DUPLICATE'])
+    with pytest.raises(ValueError): add_reference_documents(rows, [f'new-{i}' for i in range(21)])
+    with pytest.raises(ValueError): remove_reference_document([rows[0]], 0)
+
+
 @pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
 def test_manual_reference_preview_reads_only_inside_authorised_root(tmp_path):
     from PIL import Image
