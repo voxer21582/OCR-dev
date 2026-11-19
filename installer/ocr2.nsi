@@ -66,7 +66,11 @@ Name "OCR2 ${OCR2_VERSION}"
   BrandingText "OCR2 ${OCR2_VERSION} — non firmato"
 !endif
 OutFile "${OCR2_OUTPUT}"
-ShowInstDetails show
+; REQ-124 (owner decision 2026-11-19): the details panel and the status line
+; would show installation paths with the user name. Only fixed text is
+; printed; the progress bar still advances.
+ShowInstDetails nevershow
+ShowUninstDetails nevershow
 
 Function .onInit
 !ifndef OCR2_TEST
@@ -187,6 +191,8 @@ FunctionEnd
 !insertmacro DefineCoordinationFunctions "un."
 
 Section "OCR2"
+  DetailPrint "Installazione di OCR2 in corso..."
+  SetDetailsPrint none
   SetShellVarContext current
   Call ValidateInstallPaths
   CreateDirectory "$INSTDIR"
@@ -362,6 +368,8 @@ Function un.onInit
 FunctionEnd
 
 Section "Uninstall"
+  DetailPrint "Disinstallazione di OCR2 in corso..."
+  SetDetailsPrint none
   SetShellVarContext current
   Call un.AcquireLock
   ClearErrors
