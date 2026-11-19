@@ -142,3 +142,36 @@ print("DONE", flush=True)
     assert result.returncode == 0
     _assert_clean(result.stdout + result.stderr)
     assert result.stderr.strip() == "OCR2_THREAD_ERROR"
+
+
+def _raised_messages(module_file: str, error_name: str):
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(module_file).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+            function = node.exc.func
+            if isinstance(function, ast.Name) and function.id == error_name:
+                yield node.lineno, node.exc.args
+
+
+def test_intake_request_errors_shown_to_the_user_are_fixed_literals():
+    # The HTTP 400 pages print str(exc) of IntakeRequestError: every message
+    # must be a fixed literal, never built from request or document values.
+    from alfa_document_intelligence import local_intake_app
+
+    found = list(_raised_messages(local_intake_app.__file__, "IntakeRequestError"))
+    assert len(found) >= 80
+    for line, args in found:
+        assert len(args) == 1, line
+        assert type(args[0]).__name__ == "Constant" and isinstance(args[0].value, str), line
+
+
+def test_static_guard_detects_a_formatted_intake_message(tmp_path):
+    module = tmp_path / "synthetic_module.py"
+    module.write_text(
+        "def f(value):\n    raise IntakeRequestError(f'valore {value}')\n", encoding="utf-8",
+    )
+    ((line, args),) = list(_raised_messages(str(module), "IntakeRequestError"))
+    assert type(args[0]).__name__ == "JoinedStr"

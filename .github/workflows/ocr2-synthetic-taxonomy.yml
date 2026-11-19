@@ -152,6 +152,7 @@ jobs:
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
           tests/test_region_review_keyboard.py
+          tests/test_req124_output_guards.py
           tests/test_review_identity.py
           tests/test_review_ledger.py
           tests/test_review_ui.py
@@ -296,6 +297,7 @@ jobs:
           tests/test_rapidocr_adapter.py
           tests/test_rapidocr_runtime_factory.py
           tests/test_region_review_keyboard.py
+          tests/test_req124_output_guards.py
           tests/test_review_identity.py
           tests/test_review_ledger.py
           tests/test_review_ui.py

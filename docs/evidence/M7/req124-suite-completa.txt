@@ -1,0 +1,4 @@
+Suite applicativa completa, Windows, 2026-11-19, dopo le correzioni REQ-124 (commit 22b51c7 e guardia statica).
+Comando: da application/, python -m pytest tests -q -p no:cacheprovider --basetemp=../.m7-work/<nuova>
+
+1303 passed, 3 skipped, 407 subtests passed in 67.31s (0:01:07)
