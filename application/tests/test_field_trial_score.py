@@ -186,6 +186,41 @@ def test_manual_reference_editor_adds_and_removes_without_reusing_codes():
     with pytest.raises(ValueError): remove_reference_document([rows[0]], 0)
 
 
+def test_manual_matching_editor_binds_distinct_rows_to_note_and_receipt():
+    from tools.field_trial_editor import add_manual_match
+    from tools.field_trial_sheet import SHEET, _rows_from_bytes
+    sheet, _, _ = _freeze_fixture(); rows = _rows_from_bytes(sheet, SHEET)
+    note, receipt = rows[0]['codice'], rows[1]['codice']
+    matches = add_manual_match(rows, [], note, receipt, '1', '2')
+    assert len(matches) == 1 and matches[0]['codice_nota'] == note
+    assert matches[0]['codice_documento_corretto'] == receipt
+    assert matches[0]['pagina'] == '1' and matches[0]['posizione'] == '2'
+    with pytest.raises(ValueError): add_manual_match(rows, matches, note, receipt, '1', '2')
+    with pytest.raises(ValueError): add_manual_match(rows, [], receipt, note, '1', '2')
+    with pytest.raises(ValueError): add_manual_match(rows, [], note, receipt, '0', '1')
+    with pytest.raises(ValueError): add_manual_match(rows, [], note, receipt, '1', '01')
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows private directory checks')
+def test_manual_matching_editor_writes_paired_drafts_without_overwriting(tmp_path):
+    from tools.field_trial_editor import add_manual_match, save_matching_drafts, load_matching_drafts
+    from tools.field_trial_sheet import SHEET, MATCHES, _rows_from_bytes
+    sheet, _, _ = _freeze_fixture(); rows = _rows_from_bytes(sheet, SHEET)
+    items = add_manual_match(rows, [], rows[0]['codice'], rows[1]['codice'], '1', '2')
+    private = tmp_path / 'private'; private.mkdir()
+    directory = save_matching_drafts(private, rows, items)
+    pairs = _rows_from_bytes((directory / 'corrispondenze.csv').read_bytes(), MATCHES)
+    locations = _rows_from_bytes((directory / 'posizioni-righe.csv').read_bytes(), ('codice_riga', 'codice_nota', 'pagina', 'posizione'))
+    assert pairs[0]['codice_riga'] == locations[0]['codice_riga'] == items[0]['codice_riga']
+    assert pairs[0]['codice_documento_corretto'] == rows[1]['codice']
+    assert load_matching_drafts(private, rows, directory) == items
+    assert save_matching_drafts(private, rows, items) != directory
+    changed = [dict(row) for row in rows]; changed[1]['ruolo'] = 'nota'
+    with pytest.raises(ValueError): load_matching_drafts(private, changed, directory)
+    (directory / 'posizioni-righe.csv').write_bytes(b'altered')
+    with pytest.raises(ValueError): load_matching_drafts(private, rows, directory)
+
+
 @pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
 def test_manual_reference_preview_reads_only_inside_authorised_root(tmp_path):
     from PIL import Image

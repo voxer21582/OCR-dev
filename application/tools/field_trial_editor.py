@@ -4,7 +4,10 @@ from __future__ import annotations
 import csv
 import io
 import os
+import re
 import secrets
+from contextlib import ExitStack
+from pathlib import Path
 
 from tools.field_trial_score import FIELDS
 from tools.field_trial_sheet import SHEET
@@ -61,6 +64,83 @@ def remove_reference_document(rows, index):
     if not isinstance(rows, list) or len(rows) <= 1 or type(index) is not int or not 0 <= index < len(rows):
         raise ValueError('invalid selection')
     return [dict(row) for position, row in enumerate(rows) if position != index]
+
+
+def _validate_manual_matches(rows, matches):
+    roles = {row['codice']: row['ruolo'] for row in rows}
+    used_codes, used_positions = set(), set()
+    if not isinstance(matches, list) or len(matches) > 1000:
+        raise ValueError('invalid matches')
+    for item in matches:
+        if not isinstance(item, dict) or set(item) != {'codice_riga', 'codice_nota', 'codice_documento_corretto', 'pagina', 'posizione'}:
+            raise ValueError('invalid match')
+        code, note, receipt = item['codice_riga'], item['codice_nota'], item['codice_documento_corretto']
+        page, position = item['pagina'], item['posizione']
+        if (not isinstance(code, str) or not re.fullmatch(r'[0-9a-f]{32}', code) or code in used_codes
+                or not isinstance(note, str) or not isinstance(receipt, str)
+                or roles.get(note) != 'nota' or roles.get(receipt) != 'giustificativo'
+                or not isinstance(page, str) or not re.fullmatch(r'[1-9][0-9]{0,2}', page)
+                or not isinstance(position, str) or not re.fullmatch(r'[1-9][0-9]{0,3}', position)):
+            raise ValueError('invalid match')
+        position_key = (note, page, position)
+        if position_key in used_positions:
+            raise ValueError('duplicate position')
+        used_codes.add(code); used_positions.add(position_key)
+
+
+def add_manual_match(rows, matches, note_id, receipt_id, page, position):
+    _validate_manual_matches(rows, matches)
+    new_item = {'codice_riga': secrets.token_hex(16), 'codice_nota': note_id,
+                'codice_documento_corretto': receipt_id, 'pagina': page, 'posizione': position}
+    result = [dict(item) for item in matches] + [new_item]
+    _validate_manual_matches(rows, result)
+    return result
+
+
+def save_matching_drafts(private_root, rows, matches):
+    """Save a new pair of private matching files in a fresh directory."""
+    from tools.field_trial_snapshot_store import _private_directory
+    from tools.field_trial_sheet import MATCHES
+    _validate_manual_matches(rows, matches)
+    if not matches:
+        raise ValueError('no matches')
+    location_header = ('codice_riga', 'codice_nota', 'pagina', 'posizione')
+    try:
+        with _private_directory(private_root) as root:
+            directory = root / ('abbinamenti-' + secrets.token_hex(8))
+            directory.mkdir()
+            for filename, header in (('corrispondenze.csv', MATCHES), ('posizioni-righe.csv', location_header)):
+                with (directory / filename).open('x', encoding='utf-8-sig', newline='') as stream:
+                    writer = csv.DictWriter(stream, fieldnames=header, delimiter=';', extrasaction='ignore', lineterminator='\r\n')
+                    writer.writeheader(); writer.writerows(matches)
+            return directory
+    except Exception:
+        raise ValueError('matching drafts could not be saved') from None
+
+
+def load_matching_drafts(private_root, rows, directory):
+    """Read a complete matching pair under the private root, without writing."""
+    from tools.field_trial_local_files import _read_sheet, open_local_file
+    from tools.field_trial_sheet import MATCHES, _rows_from_bytes
+    location_header = ('codice_riga', 'codice_nota', 'pagina', 'posizione')
+    try:
+        directory = Path(directory)
+        with ExitStack() as stack:
+            pairs = _rows_from_bytes(_read_sheet(stack.enter_context(open_local_file(private_root, directory / 'corrispondenze.csv'))), MATCHES)
+            locations = _rows_from_bytes(_read_sheet(stack.enter_context(open_local_file(private_root, directory / 'posizioni-righe.csv'))), location_header)
+        indexed = {row['codice_riga']: row for row in locations}
+        if len(indexed) != len(locations) or len(pairs) != len(locations):
+            raise ValueError('invalid pair')
+        result = []
+        for row in pairs:
+            loc = indexed.pop(row['codice_riga'])
+            result.append({**loc, 'codice_documento_corretto': row['codice_documento_corretto']})
+        if indexed:
+            raise ValueError('invalid pair')
+        _validate_manual_matches(rows, result)
+        return result
+    except Exception:
+        raise ValueError('matching drafts unavailable') from None
 
 
 def save_reference_draft(private_root, rows):

@@ -10,7 +10,8 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 
 from tools.field_trial_editor import (
-    EDITABLE, add_reference_documents, edit_reference, remove_reference_document,
+    EDITABLE, add_manual_match, add_reference_documents, edit_reference,
+    load_matching_drafts, remove_reference_document, save_matching_drafts,
     save_reference_draft, serialize_reference,
 )
 from tools.field_trial_local_files import _read_sheet, open_local_file
@@ -97,7 +98,7 @@ def run(private_root, sheet_path, authorised_root):
     page_controls = ttk.Frame(right); page_controls.pack(fill='x')
     ttk.Label(page_controls, textvariable=page_label).pack(side='left')
     state = {'index': 0, 'page': 0, 'total': 1, 'rows': rows, 'image': None,
-             'last_saved': serialize_reference(rows)}
+             'last_saved': serialize_reference(rows), 'matches': [], 'matches_saved': []}
 
     def preview():
         try:
@@ -168,18 +169,114 @@ def run(private_root, sheet_path, authorised_root):
         state['rows'] = remove_reference_document(state['rows'], state['index'])
         state['index'] = min(state['index'], len(state['rows']) - 1); load()
 
+    def edit_matches():
+        if not collect(): return
+        notes = [(row['codice'], f"{index + 1} — {Path(row['percorso_locale']).name}")
+                 for index, row in enumerate(state['rows']) if row['ruolo'] == 'nota']
+        receipts = [(row['codice'], f"{index + 1} — {Path(row['percorso_locale']).name}")
+                    for index, row in enumerate(state['rows']) if row['ruolo'] == 'giustificativo']
+        if not notes or not receipts:
+            messagebox.showinfo('Prima scegli i ruoli', 'Indica almeno una nota e un giustificativo nel foglio.', parent=window)
+            return
+        dialog = tk.Toplevel(window); dialog.title('Abbinamenti manuali'); dialog.geometry('720x540')
+        frame = ttk.Frame(dialog, padding=12); frame.pack(expand=True, fill='both')
+        ttk.Label(frame, text='Indica la riga della nota e il suo giustificativo univoco.', wraplength=680).pack(anchor='w')
+        ttk.Label(frame, text='Nota').pack(anchor='w')
+        note_box = ttk.Combobox(frame, values=[label for _, label in notes], state='readonly', width=75); note_box.pack(anchor='w')
+        ttk.Label(frame, text='Giustificativo').pack(anchor='w')
+        receipt_box = ttk.Combobox(frame, values=[label for _, label in receipts], state='readonly', width=75); receipt_box.pack(anchor='w')
+        coords = ttk.Frame(frame); coords.pack(anchor='w', pady=6)
+        ttk.Label(coords, text='Pagina della nota (da 1)').pack(side='left')
+        page_entry = ttk.Entry(coords, width=6); page_entry.pack(side='left', padx=4)
+        ttk.Label(coords, text='Posizione della riga nella pagina (da 1)').pack(side='left')
+        row_entry = ttk.Entry(coords, width=6); row_entry.pack(side='left', padx=4)
+        listing = tk.Listbox(frame, height=10); listing.pack(expand=True, fill='both', pady=6)
+
+        def show_selected(choices, box):
+            if box.current() < 0:
+                messagebox.showerror('Selezione incompleta', 'Scegli prima un documento.', parent=dialog); return
+            code = choices[box.current()][0]
+            path = next(row['percorso_locale'] for row in state['rows'] if row['codice'] == code)
+            view = tk.Toplevel(dialog); view.title('Anteprima locale'); view.geometry('720x760')
+            label = ttk.Label(view, anchor='center'); label.pack(expand=True, fill='both')
+            controls = ttk.Frame(view); controls.pack(fill='x')
+            current = {'page': 0, 'total': 1, 'image': None}
+            counter = tk.StringVar(); ttk.Label(controls, textvariable=counter).pack(side='left')
+            def render(delta=0):
+                number = current['page'] + delta
+                if not 0 <= number < current['total']: return
+                try:
+                    image, total = _preview(authorised_root, path, number)
+                    current.update(page=number, total=total, image=ImageTk.PhotoImage(image))
+                    label.configure(image=current['image']); counter.set(f'Pagina {number + 1} di {total}')
+                except Exception:
+                    label.configure(text='Anteprima non disponibile.'); counter.set('')
+            ttk.Button(controls, text='Pagina precedente', command=lambda: render(-1)).pack(side='left', padx=4)
+            ttk.Button(controls, text='Pagina successiva', command=lambda: render(1)).pack(side='left')
+            render()
+
+        def refresh():
+            listing.delete(0, tk.END)
+            labels = {code: label for code, label in notes + receipts}
+            for item in state['matches']:
+                listing.insert(tk.END, f"Nota {labels.get(item['codice_nota'], '?')} — pagina {item['pagina']}, riga {item['posizione']} → {labels.get(item['codice_documento_corretto'], '?')}")
+
+        def add_match():
+            if note_box.current() < 0 or receipt_box.current() < 0:
+                messagebox.showerror('Selezione incompleta', 'Scegli una nota e un giustificativo.', parent=dialog); return
+            try:
+                state['matches'] = add_manual_match(state['rows'], state['matches'], notes[note_box.current()][0],
+                                                    receipts[receipt_box.current()][0], page_entry.get().strip(), row_entry.get().strip())
+                refresh()
+            except ValueError:
+                messagebox.showerror('Abbinamento non valido', 'Controlla ruoli, pagina e posizione: ogni riga può comparire una sola volta.', parent=dialog)
+
+        def remove_match():
+            selected = listing.curselection()
+            if selected:
+                state['matches'] = [item for index, item in enumerate(state['matches']) if index != selected[0]]; refresh()
+
+        def save_matches():
+            try:
+                directory = save_matching_drafts(private_root, state['rows'], state['matches'])
+                state['matches_saved'] = [dict(item) for item in state['matches']]
+                messagebox.showinfo('Bozza salvata', f'Abbinamenti e posizioni salvati nella nuova cartella privata:\n{directory.name}\n\nVerifica e approva il riferimento prima dell’OCR.', parent=dialog)
+            except ValueError:
+                messagebox.showerror('Salvataggio non riuscito', 'Controlla che gli abbinamenti usino documenti ancora presenti e che la cartella privata sia accessibile.', parent=dialog)
+
+        def load_matches():
+            directory = filedialog.askdirectory(parent=dialog, initialdir=str(private_root), title='Scegli una cartella di abbinamenti salvata')
+            if not directory: return
+            if state['matches'] != state['matches_saved'] and not messagebox.askyesno('Modifiche non salvate', 'Sostituire gli abbinamenti non salvati?', parent=dialog): return
+            try:
+                state['matches'] = load_matching_drafts(private_root, state['rows'], directory)
+                state['matches_saved'] = [dict(item) for item in state['matches']]; refresh()
+            except ValueError:
+                messagebox.showerror('Apertura non riuscita', 'La coppia di file non è valida o non corrisponde al campione aperto.', parent=dialog)
+
+        actions = ttk.Frame(frame); actions.pack(fill='x')
+        ttk.Button(actions, text='Aggiungi', command=add_match).pack(side='left')
+        ttk.Button(actions, text='Rimuovi selezionato', command=remove_match).pack(side='left', padx=4)
+        ttk.Button(actions, text='Salva bozza', command=save_matches).pack(side='left', padx=4)
+        ttk.Button(actions, text='Apri bozza', command=load_matches).pack(side='left')
+        previews = ttk.Frame(frame); previews.pack(fill='x', pady=4)
+        ttk.Button(previews, text='Mostra nota', command=lambda: show_selected(notes, note_box)).pack(side='left')
+        ttk.Button(previews, text='Mostra giustificativo', command=lambda: show_selected(receipts, receipt_box)).pack(side='left', padx=4)
+        refresh(); dialog.transient(window); dialog.grab_set()
+
     controls = ttk.Frame(left); controls.pack(fill='x', pady=10)
     ttk.Button(controls, text='Documento precedente', command=lambda: move(-1)).pack(side='left')
     ttk.Button(controls, text='Documento successivo', command=lambda: move(1)).pack(side='left', padx=5)
     selection = ttk.Frame(left); selection.pack(fill='x', pady=(0, 8))
     ttk.Button(selection, text='Aggiungi documenti', command=add_documents).pack(side='left')
     ttk.Button(selection, text='Rimuovi dal campione', command=remove_document).pack(side='left', padx=5)
+    ttk.Button(left, text='Gestisci abbinamenti', command=edit_matches).pack(fill='x', pady=(0, 6))
     ttk.Button(left, text='Salva una nuova bozza', command=save).pack(fill='x')
     ttk.Button(page_controls, text='Pagina precedente', command=lambda: move_page(-1)).pack(side='left', padx=6)
     ttk.Button(page_controls, text='Pagina successiva', command=lambda: move_page(1)).pack(side='left')
     def close():
         if not collect(): return
-        if (serialize_reference(state['rows']) != state['last_saved']
+        if ((serialize_reference(state['rows']) != state['last_saved'] or state['matches'] != state['matches_saved'])
                 and not messagebox.askyesno('Modifiche non salvate', 'Chiudere senza salvare le modifiche?', parent=window)):
             return
         window.destroy()
