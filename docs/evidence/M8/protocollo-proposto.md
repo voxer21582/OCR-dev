@@ -1,4 +1,4 @@
-# M8 — Protocollo di prova sul campo (proposta, da approvare)
+# M8 — Protocollo di prova sul campo
 
 **Stato: BOZZA, non autorizza l'esecuzione.** REQ-140 richiede l'approvazione del proprietario di protocollo, soglie e foglio delle risposte prima della prova. I risultati M3 sono sintetici e non stimano l'accuratezza su documenti reali.
 
@@ -21,7 +21,7 @@ Elaborare il campione nell'app locale senza modificare manualmente i suggeriment
 
 Lo script `application/tools/field_trial_score.py` confronta soltanto i due fogli locali preparati. Non legge l'archivio né l'export direttamente: la trascrizione manuale dei risultati richiede controllo indipendente locale; questa limitazione deve essere accettata o eliminata prima dell'uso. Lo script non verifica autenticità della trascrizione, eleggibilità dei campi, composizione o minimi del campione. Su input invalido esce con errore numerico, senza stampare contenuti. I numeri vanno confrontati manualmente con le soglie approvate; un denominatore zero è **non valutabile**.
 
-### Soglie proposte Q-002 — da approvare prima della prova
+### Soglie Q-002 — approvate prima della prova
 
 | Metrica | Soglia proposta |
 |---|---:|
@@ -31,7 +31,7 @@ Lo script `application/tools/field_trial_score.py` confronta soltanto i due fogl
 | Giustificativo corretto al primo posto, tra righe univoche | ≥ 90% |
 | Copertura italiana e inglese | risultato separato per lingua; almeno 5 documenti valutabili per lingua |
 
-Le percentuali usano come denominatore tutti i casi valutabili predefiniti, compresi quelli con risultato mancante. Le soglie dei campi riprendono quelle M3; la soglia di riconciliazione e i minimi di copertura sono proposte, non risultati verificati su documenti reali. Per ogni campo richiesto un denominatore nullo rende il relativo criterio non valutabile; non promuovere la prova complessiva se una metrica obbligatoria non è valutabile o è sotto soglia.
+Le percentuali usano come denominatore tutti i casi valutabili predefiniti, compresi quelli con risultato mancante. Le soglie dei campi riprendono quelle M3; la soglia di riconciliazione e i minimi di copertura sono approvati dal proprietario, non risultati verificati su documenti reali. Per ogni campo richiesto un denominatore nullo rende il relativo criterio non valutabile; non promuovere la prova complessiva se una metrica obbligatoria non è valutabile o è sotto soglia.
 
 Se una soglia non è raggiunta, registrare il risultato, correggere e fare **al massimo una ripetizione su un campione nuovo**; ridurre una soglia richiede firma del proprietario (DEC-006). Dopo la ripetizione decide il proprietario. Registrare solo i numeri riepilogativi e il giudizio, con i limiti del campione.
 

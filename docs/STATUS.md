@@ -1,4 +1,4 @@
-STATO: M8 IN CORSO — preparazione della prova sul campo e del collaudo. Protocollo e soglie sono proposte da approvare prima della prova; nessun documento reale è stato elaborato. [Preparazione](evidence/M8/preparazione.md), [protocollo](evidence/M8/protocollo-proposto.md), [collaudo](evidence/M8/collaudo-windows-bozza.md).
+STATO: M8 IN CORSO — preparazione della prova sul campo e del collaudo. Protocollo e soglie approvati dal proprietario; foglio delle risposte compilato ancora da approvare prima dell’OCR. Nessun documento reale è stato elaborato. [Preparazione](evidence/M8/preparazione.md), [protocollo](evidence/M8/protocollo-proposto.md), [collaudo](evidence/M8/collaudo-windows-bozza.md).
 
 Le annotazioni datate successive conservano lo stato e le decisioni noti al momento in cui furono scritte; per lo stato corrente valgono l'intestazione e la tabella delle milestone.
 
@@ -266,7 +266,7 @@ Design approvato dal proprietario il 2026-11-15: [`superpowers/specs/2026-11-15-
 | M5 Libreria | **completata** (2026-11-15, #150) |
 | M6 Applicazione installabile | **completata con limiti dichiarati** (2026-11-17, #152; firma rinviata) |
 | M7 Sicurezza e prestazioni | **completata con limiti dichiarati** ([evidenze](evidence/M7/acceptance.md); PR #153) |
-| M8 Prova sul campo e collaudo | **in preparazione**; protocollo e soglie da approvare prima della prova |
+| M8 Prova sul campo e collaudo | **in preparazione**; protocollo e soglie approvati; foglio risposte da approvare prima della prova |
 
 Il prodotto **non** è completo. Il codice esistente è un prototipo (vedi `requirements.md`, colonna «Stato oggi»).
 
