@@ -6,6 +6,7 @@ row inside one SQLite read snapshot; only bytes already authenticated and
 validated by this process skip a repeated DPAPI decrypt and validation.
 """
 import copy
+from pathlib import Path
 import json
 import os
 import sqlite3
@@ -461,6 +462,10 @@ class _DenyingProtector(SyntheticProtector):
 
 def test_selective_dpapi_denial_is_masked_only_until_entry_expiry(tmp_path, monkeypatch, fake_clock):
     """Pins the accepted trade-off: a partial master-key loss is hidden for at most the TTL."""
+    # Deliberate: this test pins behaviour the owner accepted on 2026-11-19 (the
+    # reversal of the earlier rejection criterion). The list masks a selective
+    # DPAPI denial inside the entry lifetime and detects it after expiry. Do not
+    # "fix" the first assertion without a new owner decision.
     _DenyingProtector.denied = set()
     store, path, case = _cached_case_store(tmp_path, monkeypatch, attachments=2, protector_class=_DenyingProtector)
     store.list_cases()
@@ -510,14 +515,21 @@ def _check_source_digests():
         'validate_document_record': contracts.validate_document_record,
         'validate_family_snapshot': document_family_catalog.validate_family_snapshot,
     }
-    return {
+    digests = {
         name: _hashlib.sha256(inspect.getsource(fn).replace('\r\n', '\n').encode('utf-8')).hexdigest()
         for name, fn in functions.items()
     }
+    # Whole modules too, so a change in an indirectly called helper also forces
+    # a review; false positives (any edit to these files) are accepted.
+    for module in (contracts, document_family_catalog):
+        source = Path(module.__file__).read_bytes().replace(b'\r\n', b'\n')
+        digests['module:' + Path(module.__file__).name] = _hashlib.sha256(source).hexdigest()
+    return digests
 
 
 def test_cached_checks_are_pinned_to_check_version():
     assert store_module._CASE_LIST_REFERENCE_CHECK_VERSION == _PINNED_CHECK_VERSION
+    assert {'module:contracts.py', 'module:document_family_catalog.py'} <= set(_check_source_digests())
     changed = sorted(name for name, digest in _check_source_digests().items() if _PINNED_CHECK_SOURCES.get(name) != digest)
     assert not changed, (
         f'validation used by cached case-list checks changed ({changed}): '
@@ -619,6 +631,8 @@ _PINNED_CHECK_SOURCES = {
     '_decode_record': 'b9bd14b2792a4a20a4094c65ba27768cceb859dc5a0ab8231ea3d67a8f30f1db',
     '_validate_case_references_parallel': 'b491f7157b737e35ba03acb2f5edeee636af02be5de03d1bd6673b67ef962047',
     '_validate_record': '55fc00fed5c741126c5ad64f75f6cd8a069dab9381d5b2f814366c8ba37d715a',
+    'module:contracts.py': '02a783deb2a6d2b77278f385b7eb96c335ab8261aa6875e59cd83655e30667b0',
+    'module:document_family_catalog.py': 'b118b9924359f9383ad39afe543add29b8740a911b503255f7b012340a056443',
     'validate_document_record': '3a87f2ab1d3c68e9876f520a00e6e656f396b611bcbe3109ff67cdcefdb4a983',
     'validate_family_snapshot': '415a96859adcc9eda3a9fe69efe573e833f8fae597c67dcb86c914c41359d859',
 }

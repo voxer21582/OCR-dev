@@ -1,0 +1,4 @@
+E       AssertionError: validation used by cached case-list checks changed (['module:contracts.py', 'module:document_family_catalog.py']): bump _CASE_LIST_REFERENCE_CHECK_VERSION and update the pinned digests
+E       assert not ['module:contracts.py', 'module:document_family_catalog.py']
+FAILED tests/test_case_list_reference_cache.py::test_cached_checks_are_pinned_to_check_version
+1 failed, 35 passed in 1.85s

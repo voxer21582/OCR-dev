@@ -175,7 +175,10 @@ class _VerifiedReferenceCache:
     to _CASE_LIST_REFERENCE_TTL_JITTER_SECONDS, which forces a fresh DPAPI
     decrypt. Eviction is scan resistant: when full, an entry used in the
     current list is never evicted to admit another one, so archives above
-    capacity keep the first entries resident instead of thrashing.
+    capacity keep the first entries resident instead of thrashing. This holds
+    per list call (one generation): when two lists interleave (the parallel gate
+    is taken per case), each may evict entries the other just used. That only
+    costs extra full checks; it never changes which results are accepted.
     """
 
     def __init__(self, max_entries: int) -> None:
