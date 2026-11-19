@@ -6,6 +6,8 @@ La preparazione è manuale: apri i documenti sul PC e trascrivi soltanto ciò ch
 
 Nella versione aggiornata, **Aggiungi documenti** permette di scegliere altri file nella cartella autorizzata, fino a 50 in totale; **Rimuovi dal campione** elimina solo la riga dalla bozza, non il file originale. Se sono state già compilate corrispondenze o posizioni, vanno aggiornate dopo ogni modifica alla selezione. Una finestra avviata prima dell'aggiornamento mantiene la versione precedente finché non viene chiusa e riaperta; salvare prima la bozza in corso.
 
+La guida può essere riaperta con il collegamento locale `AVVIA-GUIDA.cmd` nella cartella privata: all'avvio scegliere il CSV iniziale oppure una bozza salvata. Aprire solo una guida alla volta e, prima di chiudere una finestra precedente, salvarne le modifiche. Il collegamento è temporaneo, dipende da questa copia di lavoro e dal runtime locale già disponibile e non modifica le impostazioni di Windows.
+
 ## Comincia con un documento
 
 1. Apri `campione-e-risposte.csv` dalla cartella privata. Se il programma chiede come importarlo, scegli **UTF-8**, separatore **punto e virgola** e formato **testo** per tutte le colonne. Non modificare `codice` e `percorso_locale`.

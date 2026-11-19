@@ -237,6 +237,19 @@ def test_manual_reference_preview_reads_only_inside_authorised_root(tmp_path):
     assert image.width > 0 and image.height > 0 and count == 1
 
 
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows GUI')
+def test_manual_editor_picker_closes_even_when_cancelled(monkeypatch, tmp_path):
+    import tools.field_trial_editor_gui as gui
+    calls = []
+    class FakeWindow:
+        def withdraw(self): calls.append('withdraw')
+        def destroy(self): calls.append('destroy')
+    monkeypatch.setattr(gui.tk, 'Tk', lambda: FakeWindow())
+    monkeypatch.setattr(gui.filedialog, 'askopenfilename', lambda **kwargs: '')
+    assert gui.choose_reference(tmp_path) is None
+    assert calls == ['withdraw', 'destroy']
+
+
 def test_reference_csv_cli_validates_without_writing_or_echoing_contents(tmp_path):
     import csv
     from tools.field_trial_sheet import SHEET, MATCHES

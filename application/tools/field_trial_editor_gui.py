@@ -285,14 +285,29 @@ def run(private_root, sheet_path, authorised_root):
     window.mainloop()
 
 
+def choose_reference(private_root):
+    picker = tk.Tk()
+    try:
+        picker.withdraw()
+        selection = filedialog.askopenfilename(parent=picker, initialdir=str(private_root),
+                                               title='Scegli il foglio o una bozza salvata',
+                                               filetypes=[('Fogli CSV', '*.csv')])
+        return selection or None
+    finally:
+        picker.destroy()
+
+
 def main():
     parser = argparse.ArgumentParser(description='Preparazione manuale locale del foglio')
     parser.add_argument('--private-root', required=True)
-    parser.add_argument('--sheet', required=True)
+    parser.add_argument('--sheet')
     parser.add_argument('--document-root', required=True)
     args = parser.parse_args()
     try:
-        run(args.private_root, args.sheet, args.document_root)
+        sheet = args.sheet or choose_reference(args.private_root)
+        if sheet is None:
+            return 0
+        run(args.private_root, sheet, args.document_root)
     except Exception:
         messagebox.showerror('OCR2', 'Impossibile aprire la guida locale o il foglio selezionato.')
         return 1
