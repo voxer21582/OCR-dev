@@ -1,0 +1,10 @@
+{
+  "scope": "synthetic archive copy, no concurrent OCR, Windows DPAPI, alternating order",
+  "documents": 101,
+  "repetitions": 30,
+  "cold_median_ms": 90.17,
+  "cold_p95_ms": 100.96,
+  "warm_median_ms": 12.1,
+  "warm_p95_ms": 13.79,
+  "identical_response_digests": true
+}
