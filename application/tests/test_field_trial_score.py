@@ -315,3 +315,124 @@ def test_snapshot_protector_failure_is_generic():
         with pytest.raises(ValueError) as exc: callback()
         assert 'SECRET_SYNTHETIC' not in str(exc.value)
         assert exc.value.__cause__ is None
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_private_file_open_pins_content_and_enforces_root(tmp_path):
+    import os
+    from tools.field_trial_local_files import open_local_file
+    root = tmp_path / 'authorised'; root.mkdir()
+    path = root / 'synthetic.pdf'; path.write_bytes(b'SYNTHETIC')
+    outside = tmp_path / 'outside.pdf'; outside.write_bytes(b'OUTSIDE_SYNTHETIC')
+    with open_local_file(root, path) as stream:
+        assert stream.read() == b'SYNTHETIC'
+        with pytest.raises(OSError): path.rename(root / 'moved.pdf')
+        with pytest.raises(OSError): path.write_bytes(b'CHANGED')
+    path.rename(root / 'moved.pdf')
+    with pytest.raises(ValueError):
+        with open_local_file(root, outside): pass
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_private_file_open_rejects_junction_hardlink_and_directories(tmp_path):
+    import os, _winapi
+    from tools.field_trial_local_files import open_local_file
+    root = tmp_path / 'authorised'; root.mkdir()
+    outside = tmp_path / 'outside'; outside.mkdir()
+    target = outside / 'doc.pdf'; target.write_bytes(b'SYNTHETIC')
+    junction = root / 'junction'; _winapi.CreateJunction(str(outside), str(junction))
+    with pytest.raises(ValueError):
+        with open_local_file(root, junction / 'doc.pdf'): pass
+    link = root / 'hardlink.pdf'; os.link(target, link)
+    with pytest.raises(ValueError):
+        with open_local_file(root, link): pass
+    with pytest.raises(ValueError):
+        with open_local_file(root, root): pass
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_private_file_bytes_remain_identical_after_release(tmp_path):
+    import io
+    from tools.field_trial_freeze import capture, read_verified
+    from tools.field_trial_local_files import open_local_file
+    sheet, pairs, documents = _freeze_fixture()
+    snapshot = capture(sheet, pairs, documents)
+    root = tmp_path / 'authorised'; root.mkdir()
+    path = root / 'synthetic.pdf'; path.write_bytes(b'synthetic-document-1')
+    with open_local_file(root, path) as stream:
+        verified = read_verified(snapshot, f'{1:032x}', stream, sheet, pairs)
+    path.write_bytes(b'changed-after-close')
+    assert verified == b'synthetic-document-1'
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_private_file_errors_do_not_expose_paths(tmp_path):
+    from tools.field_trial_local_files import open_local_file
+    root = tmp_path / 'SYNTHETIC_SECRET_ROOT'; root.mkdir()
+    with pytest.raises(ValueError) as exc:
+        with open_local_file(root, root / 'SYNTHETIC_SECRET_MISSING'): pass
+    assert 'SYNTHETIC_SECRET' not in str(exc.value)
+    assert exc.value.__cause__ is None
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_private_file_preserves_caller_error_and_releases_handle(tmp_path):
+    from tools.field_trial_local_files import open_local_file
+    root = tmp_path / 'authorised'; root.mkdir()
+    path = root / 'synthetic.pdf'; path.write_bytes(b'SYNTHETIC')
+    failure = RuntimeError('SYNTHETIC_CALLER_ERROR')
+    with pytest.raises(RuntimeError) as caught:
+        with open_local_file(root, path):
+            raise failure
+    assert caught.value is failure
+    path.rename(root / 'after.pdf')
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows NTFS streams')
+def test_private_file_rejects_alternate_data_stream(tmp_path):
+    from tools.field_trial_local_files import open_local_file
+    root = tmp_path / 'authorised'; root.mkdir()
+    path = root / 'synthetic.pdf'; path.write_bytes(b'SYNTHETIC')
+    ads = str(path) + ':synthetic'
+    try:
+        with open(ads, 'wb') as stream: stream.write(b'SYNTHETIC_ALTERNATE')
+    except OSError:
+        pytest.skip('alternate streams unavailable on this filesystem')
+    with pytest.raises(ValueError):
+        with open_local_file(root, ads): pass
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_private_file_pins_parent_against_concurrent_swap(tmp_path, monkeypatch):
+    import os
+    from contextlib import contextmanager
+    import alfa_document_intelligence.__main__ as launcher
+    from tools.field_trial_local_files import open_local_file
+    root = tmp_path / 'authorised'; root.mkdir()
+    path = root / 'synthetic.pdf'; path.write_bytes(b'SYNTHETIC')
+    original = launcher._lock_plain_windows_directory
+    attempted = []
+    @contextmanager
+    def checked(directory):
+        with original(directory):
+            if os.path.normcase(str(directory)) == os.path.normcase(str(root)):
+                with pytest.raises(OSError): root.rename(root.with_name('swapped'))
+                attempted.append(True)
+            yield
+    monkeypatch.setattr(launcher, '_lock_plain_windows_directory', checked)
+    with open_local_file(root, path) as stream:
+        assert stream.read() == b'SYNTHETIC'
+    assert attempted == [True]
+    root.rename(root.with_name('after'))
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows sharing rules')
+def test_private_file_rejects_existing_writer_and_recovers(tmp_path):
+    from tools.field_trial_local_files import open_local_file
+    root = tmp_path / 'authorised'; root.mkdir()
+    path = root / 'synthetic.pdf'; path.write_bytes(b'SYNTHETIC')
+    with path.open('ab'):
+        with pytest.raises(ValueError):
+            with open_local_file(root, path): pass
+    with open_local_file(root, path) as stream:
+        assert stream.read() == b'SYNTHETIC'
