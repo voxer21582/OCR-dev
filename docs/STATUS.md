@@ -1,4 +1,4 @@
-STATO: M7 IN CORSO — [PR #153 in bozza](https://github.com/voxer21582/OCR-dev/pull/153); prove sintetiche e revisione automatica indipendente documentate. Il proprietario ha approvato il perimetro R7 attuale e firmato la revisione aggiornata il 2026-11-18; ha inoltre accettato il limite della prova visiva di avvio. Il 2026-11-19 sono stati scritti il riepilogo di accettazione e la checklist REQ-124; **la M7 non è completata**: la revisione indipendente finale dell'intero ramo è stata eseguita e le sue correzioni applicate; il 2026-11-19 il proprietario ha esteso la firma, confermato il perimetro R7 e dato l'OK al merge a condizione che le modifiche al pannello dell'installer e ai vecchi registri siano riesaminate e con CI verde: manca quel riesame. [Accettazione](evidence/M7/acceptance.md). [Piano](superpowers/plans/2026-11-17-m7-sicurezza-prestazioni.md), [log](evidence/M7/log-review.md), [benchmark](evidence/M7/benchmark-installato.md), [revisione](evidence/M7/revisione-sicurezza.md), [stato requisiti](evidence/M7/stato-requisiti.md).
+STATO: MILESTONE COMPLETATA — M7, con limiti dichiarati. Il proprietario ha approvato R7, firmato la revisione di sicurezza, accettato la bonifica best effort e verificato la barra dell’installer; prove, revisione e limiti sono in [accettazione M7](evidence/M7/acceptance.md) e [riesame finale](evidence/M7/riesame-codex-v118.md). M8 resta da svolgere.
 
 Le annotazioni datate successive conservano lo stato e le decisioni noti al momento in cui furono scritte; per lo stato corrente valgono l'intestazione e la tabella delle milestone.
 
@@ -265,7 +265,7 @@ Design approvato dal proprietario il 2026-11-15: [`superpowers/specs/2026-11-15-
 | M4 Revisione | **completata** (2026-11-15, #149) |
 | M5 Libreria | **completata** (2026-11-15, #150) |
 | M6 Applicazione installabile | **completata con limiti dichiarati** (2026-11-17, #152; firma rinviata) |
-| M7 Sicurezza e prestazioni | **in corso** (#153 in bozza; verifiche e approvazioni finali aperte) |
+| M7 Sicurezza e prestazioni | **completata con limiti dichiarati** ([evidenze](evidence/M7/acceptance.md); PR #153) |
 | M8 Prova sul campo e collaudo | non iniziata |
 
 Il prodotto **non** è completo. Il codice esistente è un prototipo (vedi `requirements.md`, colonna «Stato oggi»).

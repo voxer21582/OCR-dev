@@ -1,6 +1,6 @@
 # M7 — Stato delle verifiche
 
-Stato: **in corso**, non è un'accettazione della milestone. Le prove sono locali, su un PC Windows e documenti sintetici. Il riepilogo per requisito con criterio, stato, evidenze e limiti, e l'elenco di ciò che blocca la chiusura, sono in [acceptance.md](acceptance.md) (2026-11-19). Mancano la revisione indipendente dell'intero ramo e l'OK finale del proprietario.
+Stato finale: criteri M7 soddisfatti con i limiti indicati in [acceptance.md](acceptance.md). Le prove sono locali, su un PC Windows e documenti sintetici. Il riesame della correzione e la prova visiva sono in [riesame-codex-v118.md](riesame-codex-v118.md); i paragrafi storici seguenti conservano lo stato conosciuto quando furono scritti.
 
 | Requisito | Evidenza disponibile | Lavoro residuo |
 |---|---|---|
