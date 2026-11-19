@@ -2,6 +2,8 @@
 
 La preparazione è manuale: apri i documenti sul PC e trascrivi soltanto ciò che leggi. Non usare l'OCR o i suoi suggerimenti per preparare le risposte. I documenti e i fogli rimangono nella cartella privata locale; non inviarli in chat o nel repository. Il campione proposto è provvisorio: se non contiene documenti adatti, va modificato prima dell'approvazione.
 
+È disponibile una guida locale (`tools.field_trial_editor_gui`) che mostra un documento alla volta e consente di compilare i campi senza usare OCR o servizi di rete. **Salva una nuova bozza** crea un nuovo CSV nella cartella privata senza sovrascrivere il foglio aperto; annota quale bozza usare per continuare. Se la finestra viene chiusa con modifiche non salvate, viene richiesta conferma. La guida prepara solo il foglio dei documenti: corrispondenze e posizioni delle righe richiedono ancora la compilazione separata descritta sotto. Le bozze sono dati sensibili da conservare localmente fino al via libera del proprietario.
+
 ## Comincia con un documento
 
 1. Apri `campione-e-risposte.csv` dalla cartella privata. Se il programma chiede come importarlo, scegli **UTF-8**, separatore **punto e virgola** e formato **testo** per tutte le colonne. Non modificare `codice` e `percorso_locale`.

@@ -141,6 +141,50 @@ def test_reference_csv_conversion_rejects_insufficient_language_and_empty_metric
     with pytest.raises(ValueError): convert_reference(rows, matches)
 
 
+def test_manual_reference_editor_preserves_ids_and_paths_and_edits_only_allowed_fields():
+    from tools.field_trial_editor import edit_reference, serialize_reference
+    from tools.field_trial_sheet import SHEET, _rows_from_bytes
+    sheet, _, _ = _freeze_fixture()
+    rows = _rows_from_bytes(sheet, SHEET)
+    old = dict(rows[0])
+    edited = edit_reference(rows, 0, {'ruolo': 'nota', 'lingua': 'it', 'total_amount': '12.34'})
+    assert edited[0]['codice'] == old['codice'] and edited[0]['percorso_locale'] == old['percorso_locale']
+    assert edited[0]['total_amount'] == '12.34' and rows[0] == old
+    assert _rows_from_bytes(serialize_reference(edited), SHEET) == edited
+    with pytest.raises(ValueError): edit_reference(rows, 0, {'percorso_locale': 'different'})
+    with pytest.raises(ValueError): edit_reference(rows, 0, {'ruolo': 'inventato'})
+    with pytest.raises(ValueError): edit_reference(rows, 0, {'lingua': 'other'})
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows private directory checks')
+def test_manual_reference_editor_saves_new_drafts_without_overwriting(tmp_path):
+    from tools.field_trial_editor import save_reference_draft
+    from tools.field_trial_sheet import SHEET, _rows_from_bytes
+    sheet, _, _ = _freeze_fixture()
+    private = tmp_path / 'private'; private.mkdir()
+    rows = _rows_from_bytes(sheet, SHEET)
+    first = save_reference_draft(private, rows)
+    second = save_reference_draft(private, rows)
+    assert first != second and _rows_from_bytes(first.read_bytes(), SHEET) == rows
+    assert _rows_from_bytes(second.read_bytes(), SHEET) == rows
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_manual_reference_preview_reads_only_inside_authorised_root(tmp_path):
+    from PIL import Image
+    from tools.field_trial_editor_gui import _preview
+    root = tmp_path / 'root'; root.mkdir()
+    inside = root / 'synthetic.png'; Image.new('RGB', (100, 50), 'white').save(inside)
+    outside = tmp_path / 'outside.png'; Image.new('RGB', (100, 50), 'white').save(outside)
+    image, count = _preview(root, inside, 0)
+    assert image.size == (100, 50) and count == 1
+    with pytest.raises(ValueError): _preview(root, outside, 0)
+    with pytest.raises(ValueError): _preview(root, inside, 1)
+    pdf = root / 'synthetic.pdf'; Image.new('RGB', (100, 50), 'white').save(pdf, 'PDF')
+    image, count = _preview(root, pdf, 0)
+    assert image.width > 0 and image.height > 0 and count == 1
+
+
 def test_reference_csv_cli_validates_without_writing_or_echoing_contents(tmp_path):
     import csv
     from tools.field_trial_sheet import SHEET, MATCHES
