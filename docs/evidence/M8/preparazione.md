@@ -12,4 +12,4 @@ I fogli CSV locali possono essere controllati senza creare copie usando [istruzi
 
 La revisione automatica indipendente dell’adattatore CSV ha verificato che non scrive copie del foglio e ha segnalato che non controlla esistenza, località o identità fisica dei documenti; questi controlli rimangono manuali. Verifica sintetica aggiornata dei test M8, benchmark e workflow: **38 passati**.
 
-È stata aggiunta una [preparazione sintetica del legame tra fogli e byte](integrita-campione-preparazione.md); non sostituisce il congelamento operativo, la protezione privata né l’approvazione del campione. Test mirati aggiornati: **58 passati**.
+È stata aggiunta una [preparazione sintetica del legame tra fogli e byte](integrita-campione-preparazione.md); non sostituisce il congelamento operativo, la protezione privata né l’approvazione del campione. Test mirati aggiornati: **59 passati**.

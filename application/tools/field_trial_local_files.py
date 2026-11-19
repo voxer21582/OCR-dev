@@ -108,3 +108,25 @@ def read_bound_local(snapshot, sheet_bytes, matches_bytes, authorised_root, docu
         raise ValueError('invalid document selection')
     with open_local_file(authorised_root, selected[0]['percorso_locale'].strip()) as stream:
         return read_verified(snapshot, document_id, stream, sheet_bytes, matches_bytes)
+
+
+def _read_sheet(stream):
+    from tools.field_trial_sheet import _LIMIT
+    raw = stream.read(_LIMIT + 1)
+    if not isinstance(raw, bytes) or len(raw) > _LIMIT:
+        raise ValueError('invalid sheet')
+    return raw
+
+
+def capture_current(private_root, reference_path, matches_path, authorised_root):
+    """Capture from simultaneously protected, freshly read private sheets."""
+    with open_local_file(private_root, reference_path) as reference_stream:
+        with open_local_file(private_root, matches_path) as matches_stream:
+            return capture_local(_read_sheet(reference_stream), _read_sheet(matches_stream), authorised_root)
+
+
+def read_current(snapshot, private_root, reference_path, matches_path, authorised_root, document_id):
+    """Reread protected current sheets before obtaining verified input bytes."""
+    with open_local_file(private_root, reference_path) as reference_stream:
+        with open_local_file(private_root, matches_path) as matches_stream:
+            return read_bound_local(snapshot, _read_sheet(reference_stream), _read_sheet(matches_stream), authorised_root, document_id)

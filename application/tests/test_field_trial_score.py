@@ -488,3 +488,56 @@ def test_local_capture_releases_handles_on_late_error_or_duplicate(tmp_path):
     (root / 'synthetic-29.pdf').write_bytes(b'synthetic-document-0')
     with pytest.raises(ValueError): capture_local(sheet, pairs, root)
     root.rename(root.with_name('after-duplicate'))
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_current_sheets_are_read_from_guarded_private_files(tmp_path):
+    from tools.field_trial_local_files import capture_current, read_current
+    root, sheet, pairs = _local_freeze_fixture(tmp_path)
+    private = tmp_path / 'private'; private.mkdir()
+    reference = private / 'reference.csv'; reference.write_bytes(sheet)
+    matches = private / 'matches.csv'; matches.write_bytes(pairs)
+    snapshot = capture_current(private, reference, matches, root)
+    assert read_current(snapshot, private, reference, matches, root, f'{1:032x}') == b'synthetic-document-1'
+    reference.write_bytes(sheet + b'changed')
+    with pytest.raises(ValueError): read_current(snapshot, private, reference, matches, root, f'{1:032x}')
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_current_sheets_reject_modified_matches_and_release_first_on_error(tmp_path):
+    from tools.field_trial_local_files import capture_current, read_current
+    root, sheet, pairs = _local_freeze_fixture(tmp_path)
+    private = tmp_path / 'private'; private.mkdir()
+    reference = private / 'reference.csv'; reference.write_bytes(sheet)
+    matches = private / 'matches.csv'; matches.write_bytes(pairs)
+    snapshot = capture_current(private, reference, matches, root)
+    matches.write_bytes(pairs + b'changed')
+    with pytest.raises(ValueError): read_current(snapshot, private, reference, matches, root, f'{1:032x}')
+    matches.unlink()
+    with pytest.raises(ValueError): capture_current(private, reference, matches, root)
+    reference.rename(private / 'released.csv')
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_current_sheets_remain_locked_while_capture_runs(tmp_path, monkeypatch):
+    import tools.field_trial_local_files as local_files
+    root, sheet, pairs = _local_freeze_fixture(tmp_path)
+    private = tmp_path / 'private'; private.mkdir()
+    reference = private / 'reference.csv'; reference.write_bytes(sheet)
+    matches = private / 'matches.csv'; matches.write_bytes(pairs)
+    reached = []
+    def probe(reference_bytes, matches_bytes, authorised_root):
+        with pytest.raises(OSError): reference.write_bytes(b'changed')
+        with pytest.raises(OSError): matches.write_bytes(b'changed')
+        reached.append(True)
+        return 'synthetic'
+    monkeypatch.setattr(local_files, 'capture_local', probe)
+    assert local_files.capture_current(private, reference, matches, root) == 'synthetic'
+    assert reached == [True]
+    reference.write_bytes(sheet)
+
+
+def test_sheet_read_rejects_oversized_data():
+    import io
+    from tools.field_trial_local_files import _read_sheet
+    with pytest.raises(ValueError): _read_sheet(io.BytesIO(b'x' * (10 * 1024 * 1024 + 1)))
