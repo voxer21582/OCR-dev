@@ -54,6 +54,14 @@ _STATUS_PHASES = frozenset({
     "succeeded", "failed", "cancelled",
 })
 _TERMINAL_PHASES = frozenset({"succeeded", "failed", "cancelled"})
+# Fixed codes the manager and worker can assign to a failed job. Pages show
+# only these: the worker handles untrusted documents, so any other text from
+# its terminal frame is replaced, never echoed.
+PUBLIC_JOB_ERROR_CODES = frozenset({
+    "worker_failed", "worker_protocol_failed", "worker_start_failed",
+    "page_output_limit", "engine_identity_mismatch",
+    "case_page_limit", "case_pixel_limit", "job_timeout",
+})
 
 
 class OCRJobProtocolError(ValueError):
