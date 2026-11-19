@@ -28,7 +28,9 @@ from .contracts import validate_document_record
 
 DEFAULT_MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
 _SCHEMA_VERSION = 4
-# Parallel work is limited to one case-list read per process.
+# The gate is taken per case, not per list: at most one case at a time has its
+# references checked in parallel in this process; a concurrent list checks that
+# case's references sequentially while the gate is held.
 _CASE_LIST_PARALLEL_GATE = threading.BoundedSemaphore(1)
 _CASE_LIST_WORKERS = 12
 _CASE_LIST_BATCH_CIPHERTEXT_BYTES = 8 * 1024 * 1024
@@ -1200,10 +1202,6 @@ class LocalDocumentStore:
                 for item in case.get("attachments", [])
             ],
         ]
-
-
-
-
 
     def _validate_case_references(self, connection: sqlite3.Connection, case: dict, case_index: str) -> list[dict]:
         expected = {
