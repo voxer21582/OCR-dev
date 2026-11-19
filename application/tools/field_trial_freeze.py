@@ -27,6 +27,7 @@ class Snapshot:
     _sheet_digest: bytes
     _matches_digest: bytes
     _documents: Mapping[str, bytes]
+    _row_locations_digest: bytes | None = None
 
 
 def _consume(stream: BinaryIO, *, keep: bool):
@@ -55,8 +56,10 @@ def _consume(stream: BinaryIO, *, keep: bool):
     return digest.digest(), b''.join(chunks) if keep else None
 
 
-def capture(sheet_bytes: bytes, matches_bytes: bytes, documents: Mapping[str, BinaryIO]) -> Snapshot:
+def capture(sheet_bytes: bytes, matches_bytes: bytes, documents: Mapping[str, BinaryIO], *, row_locations=None) -> Snapshot:
     reference = convert_reference(_rows_from_bytes(sheet_bytes, SHEET), _rows_from_bytes(matches_bytes, MATCHES))
+    if row_locations is not None:
+        _validate_row_locations(sheet_bytes, matches_bytes, row_locations)
     ids = {item['id'] for item in reference['documents']}
     if not isinstance(documents, Mapping) or set(documents) != ids:
         raise ValueError('document set mismatch')
@@ -66,18 +69,47 @@ def capture(sheet_bytes: bytes, matches_bytes: bytes, documents: Mapping[str, Bi
         if digest in digests.values():
             raise ValueError('duplicate content')
         digests[key] = digest
-    return Snapshot(hashlib.sha256(sheet_bytes).digest(), hashlib.sha256(matches_bytes).digest(), MappingProxyType(digests))
+    return Snapshot(hashlib.sha256(sheet_bytes).digest(), hashlib.sha256(matches_bytes).digest(), MappingProxyType(digests),
+                    hashlib.sha256(row_locations).digest() if row_locations is not None else None)
 
 
-def verify_sheets(snapshot: Snapshot, sheet_bytes: bytes, matches_bytes: bytes) -> None:
+def _validate_row_locations(sheet_bytes, matches_bytes, row_locations):
+    rows = _rows_from_bytes(sheet_bytes, SHEET)
+    matches = _rows_from_bytes(matches_bytes, MATCHES)
+    locations = _rows_from_bytes(row_locations, ('codice_riga', 'codice_nota', 'pagina', 'posizione'))
+    notes = {row['codice'].strip() for row in rows if row['ruolo'].strip().lower() == 'nota'}
+    expected = {row['codice_riga'].strip() for row in matches}
+    seen, positions = set(), set()
+    for row in locations:
+        code, note = row['codice_riga'].strip(), row['codice_nota'].strip()
+        page, position = row['pagina'].strip(), row['posizione'].strip()
+        if (code not in expected or code in seen or note not in notes
+                or not re.fullmatch(r'[1-9][0-9]{0,2}', page)
+                or not re.fullmatch(r'[1-9][0-9]{0,3}', position)):
+            raise ValueError('invalid row locations')
+        key = (note, int(page), int(position))
+        if key in positions:
+            raise ValueError('duplicate row location')
+        seen.add(code)
+        positions.add(key)
+    if seen != expected:
+        raise ValueError('missing row locations')
+
+
+def verify_sheets(snapshot: Snapshot, sheet_bytes: bytes, matches_bytes: bytes, *, row_locations=None) -> None:
     if not (hmac.compare_digest(snapshot._sheet_digest, hashlib.sha256(sheet_bytes).digest())
             and hmac.compare_digest(snapshot._matches_digest, hashlib.sha256(matches_bytes).digest())):
         raise ValueError('sheet changed')
+    if snapshot._row_locations_digest is not None:
+        if not isinstance(row_locations, bytes) or not hmac.compare_digest(snapshot._row_locations_digest, hashlib.sha256(row_locations).digest()):
+            raise ValueError('row locations changed')
+    elif row_locations is not None:
+        raise ValueError('row locations not bound')
 
 
 def read_verified(snapshot: Snapshot, document_id: str, stream: BinaryIO,
-                  sheet_bytes: bytes, matches_bytes: bytes) -> bytes:
-    verify_sheets(snapshot, sheet_bytes, matches_bytes)
+                  sheet_bytes: bytes, matches_bytes: bytes, *, row_locations=None) -> bytes:
+    verify_sheets(snapshot, sheet_bytes, matches_bytes, row_locations=row_locations)
     expected = snapshot._documents.get(document_id)
     if expected is None:
         raise ValueError('unknown document')
@@ -102,6 +134,9 @@ def seal(snapshot: Snapshot, *, protector=None) -> bytes:
             'matches': snapshot._matches_digest.hex(),
             'documents': {key: value.hex() for key, value in snapshot._documents.items()},
         }
+        if snapshot._row_locations_digest is not None:
+            payload['version'] = 2
+            payload['row_locations'] = snapshot._row_locations_digest.hex()
         plain = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode('ascii')
         protected = protector.protect(plain)
         if not isinstance(protected, bytes) or not protected or len(protected) > _MAX_SEALED_BYTES:
@@ -123,7 +158,9 @@ def unseal(protected: bytes, *, protector=None) -> Snapshot:
         if not isinstance(plain, bytes) or len(plain) > _MAX_SEALED_BYTES:
             raise ValueError('invalid snapshot')
         payload = json.loads(plain.decode('ascii'), object_pairs_hook=_object)
-        if not isinstance(payload, dict) or set(payload) != {'version', 'sheet', 'matches', 'documents'} or type(payload['version']) is not int or payload['version'] != 1:
+        if (not isinstance(payload, dict) or type(payload.get('version')) is not int
+                or not ((payload['version'] == 1 and set(payload) == {'version', 'sheet', 'matches', 'documents'})
+                        or (payload['version'] == 2 and set(payload) == {'version', 'sheet', 'matches', 'documents', 'row_locations'}))):
             raise ValueError('invalid snapshot')
         docs = payload['documents']
         if not isinstance(docs, dict) or not 30 <= len(docs) <= 50:
@@ -139,6 +176,7 @@ def unseal(protected: bytes, *, protector=None) -> Snapshot:
             decoded[key] = digest(value)
         if len(set(decoded.values())) != len(decoded):
             raise ValueError('invalid snapshot')
-        return Snapshot(digest(payload['sheet']), digest(payload['matches']), MappingProxyType(decoded))
+        return Snapshot(digest(payload['sheet']), digest(payload['matches']), MappingProxyType(decoded),
+                        digest(payload['row_locations']) if payload['version'] == 2 else None)
     except Exception:
         raise ValueError('snapshot authentication failed') from None

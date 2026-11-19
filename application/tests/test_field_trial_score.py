@@ -200,6 +200,58 @@ def test_frozen_sample_binds_sheets_and_returns_exact_verified_bytes():
     assert 'secret-path' not in repr(snapshot)
 
 
+def test_frozen_sample_binds_row_locations_and_rejects_changes():
+    from tools.field_trial_freeze import capture, verify_sheets, seal, unseal
+    class Protector:
+        def protect(self, data): return data
+        def unprotect(self, data): return data
+    sheet, pairs, documents = _freeze_fixture()
+    lines = ['codice_riga;codice_nota;pagina;posizione']
+    lines += [f'row-{index};{0:032x};1;{index+1}' for index in range(10)]
+    locations = ('\n'.join(lines) + '\n').encode()
+    snapshot = capture(sheet, pairs, documents, row_locations=locations)
+    restored = unseal(seal(snapshot, protector=Protector()), protector=Protector())
+    verify_sheets(restored, sheet, pairs, row_locations=locations)
+    with pytest.raises(ValueError): verify_sheets(restored, sheet, pairs)
+    with pytest.raises(ValueError): verify_sheets(restored, sheet, pairs, row_locations=locations + b'changed')
+
+
+def test_legacy_snapshot_cannot_claim_to_bind_row_locations():
+    from tools.field_trial_freeze import capture, verify_sheets
+    sheet, pairs, documents = _freeze_fixture()
+    snapshot = capture(sheet, pairs, documents)
+    with pytest.raises(ValueError): verify_sheets(snapshot, sheet, pairs, row_locations=b'unbound')
+
+
+def test_frozen_sample_rejects_incomplete_or_duplicate_row_locations():
+    from tools.field_trial_freeze import capture
+    def locations(lines):
+        return ('codice_riga;codice_nota;pagina;posizione\n' + '\n'.join(lines) + '\n').encode()
+    valid = [f'row-{index};{0:032x};1;{index+1}' for index in range(10)]
+    for rows in (valid[:-1], valid + [valid[0]], valid[:-1] + [f'row-9;{1:032x};1;10'], valid[:-1] + [f'row-9;{0:032x};1;1']):
+        sheet, pairs, documents = _freeze_fixture()
+        with pytest.raises(ValueError): capture(sheet, pairs, documents, row_locations=locations(rows))
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_current_files_bind_row_locations_and_reject_later_changes(tmp_path):
+    from tools.field_trial_local_files import capture_current, read_current
+    from tools.field_trial_freeze import seal, unseal
+    root, sheet, pairs = _local_freeze_fixture(tmp_path)
+    private = tmp_path / 'private'; private.mkdir()
+    reference = private / 'reference.csv'; reference.write_bytes(sheet)
+    matches = private / 'matches.csv'; matches.write_bytes(pairs)
+    mapping = private / 'locations.csv'
+    lines = ['codice_riga;codice_nota;pagina;posizione']
+    lines += [f'row-{index};{0:032x};1;{index+1}' for index in range(10)]
+    mapping.write_bytes(('\n'.join(lines) + '\n').encode())
+    snapshot = capture_current(private, reference, matches, root, row_locations_path=mapping)
+    snapshot = unseal(seal(snapshot))
+    assert read_current(snapshot, private, reference, matches, root, f'{1:032x}', row_locations_path=mapping) == b'synthetic-document-1'
+    mapping.write_bytes(mapping.read_bytes() + b'changed')
+    with pytest.raises(ValueError): read_current(snapshot, private, reference, matches, root, f'{1:032x}', row_locations_path=mapping)
+
+
 def test_frozen_sample_rejects_missing_and_duplicate_content():
     import io
     from tools.field_trial_freeze import capture

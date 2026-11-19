@@ -83,7 +83,7 @@ def open_local_file(root, path):
         yield stream
 
 
-def capture_local(sheet_bytes, matches_bytes, authorised_root):
+def capture_local(sheet_bytes, matches_bytes, authorised_root, *, row_locations=None):
     """Read a validated CSV's files only through pinned handles under root."""
     from tools.field_trial_sheet import SHEET, MATCHES, _rows_from_bytes, convert_reference
     from tools.field_trial_freeze import capture
@@ -94,20 +94,20 @@ def capture_local(sheet_bytes, matches_bytes, authorised_root):
             row['codice'].strip(): stack.enter_context(open_local_file(authorised_root, row['percorso_locale'].strip()))
             for row in rows
         }
-        return capture(sheet_bytes, matches_bytes, streams)
+        return capture(sheet_bytes, matches_bytes, streams, row_locations=row_locations)
 
 
-def read_bound_local(snapshot, sheet_bytes, matches_bytes, authorised_root, document_id):
+def read_bound_local(snapshot, sheet_bytes, matches_bytes, authorised_root, document_id, *, row_locations=None):
     """Return verified bytes from the path bound to an unchanged sheet."""
     from tools.field_trial_sheet import SHEET, _rows_from_bytes
     from tools.field_trial_freeze import verify_sheets, read_verified
-    verify_sheets(snapshot, sheet_bytes, matches_bytes)
+    verify_sheets(snapshot, sheet_bytes, matches_bytes, row_locations=row_locations)
     rows = _rows_from_bytes(sheet_bytes, SHEET)
     selected = [row for row in rows if row['codice'].strip() == document_id]
     if len(selected) != 1:
         raise ValueError('invalid document selection')
     with open_local_file(authorised_root, selected[0]['percorso_locale'].strip()) as stream:
-        return read_verified(snapshot, document_id, stream, sheet_bytes, matches_bytes)
+        return read_verified(snapshot, document_id, stream, sheet_bytes, matches_bytes, row_locations=row_locations)
 
 
 def _read_sheet(stream):
@@ -118,15 +118,25 @@ def _read_sheet(stream):
     return raw
 
 
-def capture_current(private_root, reference_path, matches_path, authorised_root):
+def capture_current(private_root, reference_path, matches_path, authorised_root, *, row_locations_path=None):
     """Capture from simultaneously protected, freshly read private sheets."""
-    with open_local_file(private_root, reference_path) as reference_stream:
-        with open_local_file(private_root, matches_path) as matches_stream:
+    with ExitStack() as stack:
+        reference_stream = stack.enter_context(open_local_file(private_root, reference_path))
+        matches_stream = stack.enter_context(open_local_file(private_root, matches_path))
+        if row_locations_path is None:
             return capture_local(_read_sheet(reference_stream), _read_sheet(matches_stream), authorised_root)
+        locations_stream = stack.enter_context(open_local_file(private_root, row_locations_path))
+        return capture_local(_read_sheet(reference_stream), _read_sheet(matches_stream), authorised_root,
+                             row_locations=_read_sheet(locations_stream))
 
 
-def read_current(snapshot, private_root, reference_path, matches_path, authorised_root, document_id):
+def read_current(snapshot, private_root, reference_path, matches_path, authorised_root, document_id, *, row_locations_path=None):
     """Reread protected current sheets before obtaining verified input bytes."""
-    with open_local_file(private_root, reference_path) as reference_stream:
-        with open_local_file(private_root, matches_path) as matches_stream:
+    with ExitStack() as stack:
+        reference_stream = stack.enter_context(open_local_file(private_root, reference_path))
+        matches_stream = stack.enter_context(open_local_file(private_root, matches_path))
+        if row_locations_path is None:
             return read_bound_local(snapshot, _read_sheet(reference_stream), _read_sheet(matches_stream), authorised_root, document_id)
+        locations_stream = stack.enter_context(open_local_file(private_root, row_locations_path))
+        return read_bound_local(snapshot, _read_sheet(reference_stream), _read_sheet(matches_stream), authorised_root, document_id,
+                                row_locations=_read_sheet(locations_stream))
