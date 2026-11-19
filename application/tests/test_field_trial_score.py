@@ -223,6 +223,29 @@ def test_legacy_snapshot_cannot_claim_to_bind_row_locations():
     with pytest.raises(ValueError): verify_sheets(snapshot, sheet, pairs, row_locations=b'unbound')
 
 
+def test_document_exports_score_only_bound_sources_and_numeric_results():
+    import hashlib
+    from tools.field_trial_freeze import capture
+    from tools.field_trial_export_score import score_document_exports
+    sheet, pairs, documents = _freeze_fixture()
+    locations = ('codice_riga;codice_nota;pagina;posizione\n' + '\n'.join(
+        f'row-{index};{0:032x};1;{index+1}' for index in range(10)) + '\n').encode()
+    snapshot = capture(sheet, pairs, documents, row_locations=locations)
+    source = hashlib.sha256(b'synthetic-document-1').hexdigest()
+    record = {'source': {'sha256': source}, 'processing': {'ocr': {'status': 'completed'}},
+              'fields': {'total_amount': {'status': 'observed', 'value': 'synthetic'}}}
+    output = score_document_exports(snapshot, sheet, pairs, locations, [record])
+    assert len(output) == 40 and all(type(item) is int for item in output)
+    assert output[:4] == [30, 29, 1, 30]
+    uncertain = {**record, 'fields': {'total_amount': {'status': 'uncertain', 'alternatives': [{'value': 'wrong'}, {'value': 'synthetic'}]}}}
+    assert score_document_exports(snapshot, sheet, pairs, locations, [uncertain])[:4] == [30, 29, 0, 30]
+    with pytest.raises(ValueError): score_document_exports(snapshot, sheet, pairs, locations, [record, record])
+    with pytest.raises(ValueError): score_document_exports(snapshot, sheet, pairs, locations, [{**record, 'source': {'sha256': '0' * 64}}])
+    with pytest.raises(ValueError): score_document_exports(snapshot, sheet, pairs, locations + b'changed', [record])
+    failed = {**record, 'processing': {'ocr': {'status': 'failed'}}}
+    assert score_document_exports(snapshot, sheet, pairs, locations, [failed])[:4] == [30, 30, 0, 30]
+
+
 def test_frozen_sample_rejects_incomplete_or_duplicate_row_locations():
     from tools.field_trial_freeze import capture
     def locations(lines):
