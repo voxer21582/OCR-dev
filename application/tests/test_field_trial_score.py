@@ -252,6 +252,35 @@ def test_current_files_bind_row_locations_and_reject_later_changes(tmp_path):
     with pytest.raises(ValueError): read_current(snapshot, private, reference, matches, root, f'{1:032x}', row_locations_path=mapping)
 
 
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows handle protections')
+def test_verified_batch_uses_only_frozen_bytes_and_pseudonymous_names(tmp_path):
+    from tools.field_trial_local_files import capture_current, read_verified_batch
+    root, sheet, pairs = _local_freeze_fixture(tmp_path)
+    private = tmp_path / 'private'; private.mkdir()
+    reference = private / 'reference.csv'; reference.write_bytes(sheet)
+    matches = private / 'matches.csv'; matches.write_bytes(pairs)
+    mapping = private / 'locations.csv'
+    lines = ['codice_riga;codice_nota;pagina;posizione']
+    lines += [f'row-{index};{0:032x};1;{index+1}' for index in range(10)]
+    mapping.write_bytes(('\n'.join(lines) + '\n').encode())
+    snapshot = capture_current(private, reference, matches, root, row_locations_path=mapping)
+    ids = [f'{0:032x}', f'{1:032x}']
+    result = read_verified_batch(snapshot, private, reference, matches, mapping, root, ids[:1], role='nota')
+    assert result == [(f'{0:032x}.pdf', b'synthetic-document-0')]
+    result = read_verified_batch(snapshot, private, reference, matches, mapping, root, ids[1:], role='giustificativo')
+    assert result == [(f'{1:032x}.pdf', b'synthetic-document-1')]
+    with pytest.raises(ValueError): read_verified_batch(snapshot, private, reference, matches, mapping, root, ids, role='giustificativo')
+    with pytest.raises(ValueError): read_verified_batch(snapshot, private, reference, matches, mapping, root, ids * 11, role='giustificativo')
+    with pytest.raises(ValueError): read_verified_batch(snapshot, private, reference, matches, mapping, root, ids[1:] * 2, role='giustificativo')
+    legacy = capture_current(private, reference, matches, root)
+    with pytest.raises(ValueError): read_verified_batch(legacy, private, reference, matches, mapping, root, ids[1:], role='giustificativo')
+    original_mapping = mapping.read_bytes(); mapping.write_bytes(original_mapping + b'changed')
+    with pytest.raises(ValueError): read_verified_batch(snapshot, private, reference, matches, mapping, root, ids[1:], role='giustificativo')
+    mapping.write_bytes(original_mapping)
+    (root / 'synthetic-1.pdf').write_bytes(b'changed')
+    with pytest.raises(ValueError): read_verified_batch(snapshot, private, reference, matches, mapping, root, ids[1:], role='giustificativo')
+
+
 def test_frozen_sample_rejects_missing_and_duplicate_content():
     import io
     from tools.field_trial_freeze import capture

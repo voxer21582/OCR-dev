@@ -140,3 +140,40 @@ def read_current(snapshot, private_root, reference_path, matches_path, authorise
         locations_stream = stack.enter_context(open_local_file(private_root, row_locations_path))
         return read_bound_local(snapshot, _read_sheet(reference_stream), _read_sheet(matches_stream), authorised_root, document_id,
                                 row_locations=_read_sheet(locations_stream))
+
+
+def read_verified_batch(snapshot, private_root, reference_path, matches_path, row_locations_path,
+                        authorised_root, document_ids, *, role):
+    """Return one bounded batch of verified bytes and pseudonymous filenames.
+
+    The caller must authenticate the snapshot against the owner's approval and
+    send these exact bytes; this function does not perform approval or OCR.
+    """
+    from tools.field_trial_freeze import verify_sheets
+    from tools.field_trial_sheet import SHEET, _rows_from_bytes
+    if (snapshot._row_locations_digest is None or role not in ('nota', 'giustificativo')
+            or not isinstance(document_ids, (list, tuple)) or not 1 <= len(document_ids) <= 20
+            or any(not isinstance(item, str) for item in document_ids)
+            or len(set(document_ids)) != len(document_ids) or (role == 'nota' and len(document_ids) != 1)):
+        raise ValueError('invalid batch')
+    allowed = {'.pdf', '.png', '.jpg', '.jpeg', '.tif', '.tiff', '.webp', '.gif', '.bmp'}
+    with ExitStack() as stack:
+        sheet = _read_sheet(stack.enter_context(open_local_file(private_root, reference_path)))
+        matches = _read_sheet(stack.enter_context(open_local_file(private_root, matches_path)))
+        locations = _read_sheet(stack.enter_context(open_local_file(private_root, row_locations_path)))
+        verify_sheets(snapshot, sheet, matches, row_locations=locations)
+        rows = {row['codice'].strip(): row for row in _rows_from_bytes(sheet, SHEET)}
+        result, total = [], 0
+        for document_id in document_ids:
+            row = rows.get(document_id)
+            if row is None or row['ruolo'].strip().lower() != role:
+                raise ValueError('invalid batch selection')
+            extension = Path(row['percorso_locale'].strip()).suffix.lower()
+            if extension not in allowed:
+                raise ValueError('unsupported document format')
+            data = read_bound_local(snapshot, sheet, matches, authorised_root, document_id, row_locations=locations)
+            total += len(data)
+            if total > 80 * 1024 * 1024:
+                raise ValueError('batch too large')
+            result.append((document_id + extension, data))
+        return result
